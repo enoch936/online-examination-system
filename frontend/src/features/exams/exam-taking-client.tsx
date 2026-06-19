@@ -1,0 +1,361 @@
+'use client';
+
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import {
+  Bookmark, CheckCircle2, ChevronLeft, ChevronRight, Maximize, Send, FileText,
+  Type, AlignLeft, Grid3X3, ListChecks,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAutosave } from '@/hooks/use-autosave';
+import { useCountdown } from '@/hooks/use-countdown';
+import { useExamMonitoring } from '@/hooks/use-exam-monitoring';
+import { formatDuration } from '@/lib/utils';
+import { examsService } from '@/services/exams.service';
+import { useExamStore } from '@/store/exam.store';
+import type { ExamQuestion } from '@/types/api';
+
+const typeIcons: Record<string, typeof FileText> = {
+  MULTIPLE_CHOICE: ListChecks,
+  MULTIPLE_SELECT: Grid3X3,
+  TRUE_FALSE: CheckCircle2,
+  FILL_BLANK: Type,
+  SHORT_ANSWER: AlignLeft,
+  ESSAY: FileText,
+  MATCHING: Grid3X3,
+};
+
+const typeLabels: Record<string, string> = {
+  MULTIPLE_CHOICE: 'Multiple Choice',
+  MULTIPLE_SELECT: 'Multiple Select',
+  TRUE_FALSE: 'True/False',
+  FILL_BLANK: 'Fill in the Blank',
+  SHORT_ANSWER: 'Short Answer',
+  ESSAY: 'Essay',
+  MATCHING: 'Matching',
+};
+
+function QuestionRenderer({
+  question,
+  draft,
+  onUpdate,
+}: {
+  question: ExamQuestion;
+  draft?: { selectedOptionIds?: string[]; answerText?: string; isBookmarked?: boolean; isMarkedForReview?: boolean };
+  onUpdate: (update: { selectedOptionIds?: string[]; answerText?: string }) => void;
+}) {
+  const q = question.question;
+  const selectedIds = draft?.selectedOptionIds ?? [];
+  const answerText = draft?.answerText ?? '';
+
+  const isMCQ = q.type === 'MULTIPLE_CHOICE' || q.type === 'TRUE_FALSE';
+  const isMS = q.type === 'MULTIPLE_SELECT';
+  const isText = q.type === 'SHORT_ANSWER' || q.type === 'FILL_BLANK';
+  const isEssay = q.type === 'ESSAY';
+
+  if (isMCQ || isMS) {
+    return (
+      <div className="space-y-2">
+        {q.options.map((option) => {
+          const active = selectedIds.includes(option.id);
+          return (
+            <button
+              type="button"
+              key={option.id}
+              onClick={() => {
+                if (isMCQ) {
+                  onUpdate({ selectedOptionIds: active ? [] : [option.id] });
+                } else {
+                  onUpdate({
+                    selectedOptionIds: active
+                      ? selectedIds.filter((id) => id !== option.id)
+                      : [...selectedIds, option.id],
+                  });
+                }
+              }}
+              className={`focus-ring flex w-full items-center justify-between rounded-lg border p-4 text-left text-sm transition-colors ${
+                active ? 'border-primary bg-primary/10' : 'bg-background hover:bg-muted'
+              }`}
+            >
+              <span>
+                <span className="mr-3 font-semibold">{option.label}</span>
+                {option.text}
+              </span>
+              {active && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+            </button>
+          );
+        })}
+        {isMS && <p className="text-xs text-muted-foreground mt-1">Select all that apply</p>}
+      </div>
+    );
+  }
+
+  if (isText) {
+    return (
+      <div>
+        <input
+          className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+          value={answerText}
+          onChange={(e) => onUpdate({ answerText: e.target.value })}
+          placeholder="Type your answer..."
+          autoComplete="off"
+        />
+        {q.type === 'FILL_BLANK' && q.options.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-2">Hint: {q.options.filter((o) => o.isCorrect).map((o) => o.text).join(', ') || '—'}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (isEssay) {
+    return (
+      <div>
+        <textarea
+          className="min-h-[200px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+          value={answerText}
+          onChange={(e) => onUpdate({ answerText: e.target.value })}
+          placeholder="Write your essay answer..."
+        />
+      </div>
+    );
+  }
+
+  return <p className="text-sm text-muted-foreground">Question type &quot;{q.type}&quot; is not yet supported in this view.</p>;
+}
+
+export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessionId?: string }) {
+  const router = useRouter();
+  const currentIndex = useExamStore((state) => state.currentIndex);
+  const answers = useExamStore((state) => state.answers);
+  const setCurrentIndex = useExamStore((state) => state.setCurrentIndex);
+  const updateAnswer = useExamStore((state) => state.updateAnswer);
+  const toggleBookmark = useExamStore((state) => state.toggleBookmark);
+  const resetStore = useExamStore((state) => state.reset);
+  const submittedRef = useRef(false);
+
+  const query = useQuery({
+    queryKey: ['exam-session', examId, sessionId],
+    queryFn: () => (sessionId ? examsService.resume(sessionId) : examsService.start(examId ?? '')),
+    enabled: Boolean(sessionId || examId),
+  });
+
+  const submitMutation = useMutation({
+    mutationFn: (autoSubmitted: boolean) => examsService.submit(query.data?.id ?? '', autoSubmitted),
+    onSuccess: (data) => {
+      toast.success('Exam submitted successfully');
+      submittedRef.current = true;
+      const resultId = (data as { result?: { id: string } })?.result?.id;
+      if (resultId) {
+        router.push(`/student/results?id=${resultId}`);
+      } else {
+        router.push('/student/results');
+      }
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || 'Failed to submit exam');
+    },
+  });
+
+  const remainingSeconds = useCountdown(
+    query.data?.remainingSeconds ?? (query.data?.exam.durationMinutes ?? 0) * 60,
+    useCallback(() => {
+      if (query.data?.id && !submittedRef.current) {
+        toast.info('Time is up! Auto-submitting...');
+        submitMutation.mutate(true);
+      }
+    }, [query.data?.id, submitMutation]),
+  );
+
+  useEffect(() => {
+    resetStore();
+    return () => { resetStore(); };
+  }, [resetStore]);
+
+  const questions = query.data?.exam.questions ?? [];
+  const currentQuestion = questions[currentIndex];
+  const currentDraft = currentQuestion ? answers[currentQuestion.question.id] : undefined;
+
+  const saveDraft = useCallback(
+    async (draft: typeof currentDraft) => {
+      if (!query.data?.id || !draft) return;
+      await examsService.saveAnswer(query.data.id, { ...draft, remainingSeconds });
+    },
+    [query.data?.id, remainingSeconds],
+  );
+
+  useAutosave(currentDraft, saveDraft);
+
+  useExamMonitoring({
+    examId: query.data?.examId ?? examId ?? '',
+    sessionId: query.data?.id ?? '',
+    remainingSeconds,
+    onViolation: (type, severity) => {
+      if (query.data?.id) {
+        void examsService.logViolation(query.data.id, { type, severity });
+      }
+    },
+  });
+
+  const answeredCount = useMemo(
+    () => Object.values(answers).filter((a) => (a.selectedOptionIds?.length ?? 0) > 0 || (a.answerText?.length ?? 0) > 0).length,
+    [answers],
+  );
+
+  if (query.isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-16" />
+        <Skeleton className="h-96" />
+      </div>
+    );
+  }
+
+  if (!query.data || !currentQuestion) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Exam session unavailable</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const TypeIcon = typeIcons[currentQuestion.question.type] ?? FileText;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 rounded-lg border bg-background p-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <Badge variant="outline">Exam in progress</Badge>
+          <h1 className="mt-2 text-2xl font-semibold tracking-normal">{query.data.exam.title}</h1>
+          <p className="text-sm text-muted-foreground">
+            Answered {answeredCount} of {questions.length}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={remainingSeconds < 60 ? 'warning' : remainingSeconds < 300 ? 'warning' : 'secondary'} className="text-sm tabular-nums">
+            {formatDuration(remainingSeconds)}
+          </Badge>
+          <Button type="button" variant="outline" size="icon" title="Enter fullscreen" onClick={() => void document.documentElement.requestFullscreen()}>
+            <Maximize className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => { if (window.confirm('Are you sure you want to submit?')) submitMutation.mutate(false); }}
+            disabled={submitMutation.isPending}
+          >
+            <Send className="h-4 w-4" />
+            Submit
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2 flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="flex items-center gap-1">
+                    <TypeIcon className="h-3 w-3" />
+                    {typeLabels[currentQuestion.question.type] ?? currentQuestion.question.type}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px]">{currentQuestion.question.difficulty}</Badge>
+                </div>
+                <CardTitle className="leading-7 text-base">
+                  {currentIndex + 1}. {currentQuestion.question.prompt}
+                </CardTitle>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  type="button"
+                  variant={currentDraft?.isBookmarked ? 'secondary' : 'outline'}
+                  size="icon"
+                  title="Bookmark question"
+                  onClick={() => toggleBookmark(currentQuestion.question.id)}
+                >
+                  <Bookmark className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <QuestionRenderer
+              question={currentQuestion}
+              draft={currentDraft}
+              onUpdate={(update) => {
+                updateAnswer({
+                  questionId: currentQuestion.question.id,
+                  selectedOptionIds: update.selectedOptionIds ?? currentDraft?.selectedOptionIds ?? [],
+                  answerText: update.answerText ?? currentDraft?.answerText,
+                  isBookmarked: currentDraft?.isBookmarked,
+                });
+              }}
+            />
+            <div className="flex items-center justify-between pt-4">
+              <Button
+                variant="outline"
+                disabled={currentIndex === 0}
+                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <Button
+                disabled={currentIndex === questions.length - 1}
+                onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Navigator</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-5 gap-2">
+              {questions.map((question, index) => {
+                const draft = answers[question.question.id];
+                const isAnswered = (draft?.selectedOptionIds?.length ?? 0) > 0 || (draft?.answerText?.length ?? 0) > 0;
+                const isBookmarked = draft?.isBookmarked;
+                let variant: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' = 'outline';
+                if (index === currentIndex) variant = 'default';
+                else if (isBookmarked) variant = 'secondary';
+                else if (isAnswered) variant = 'ghost';
+                return (
+                  <Button
+                    key={question.question.id}
+                    type="button"
+                    size="icon"
+                    variant={variant}
+                    onClick={() => setCurrentIndex(index)}
+                    title={`Question ${index + 1}${isAnswered ? ' (answered)' : ''}${isBookmarked ? ' (bookmarked)' : ''}`}
+                    className="relative"
+                  >
+                    {index + 1}
+                    {isBookmarked && <Bookmark className="absolute -top-1 -right-1 h-2.5 w-2.5 fill-current" />}
+                  </Button>
+                );
+              })}
+            </div>
+            <div className="mt-4 space-y-1 text-xs text-muted-foreground">
+              <p><span className="inline-block w-3 h-3 rounded bg-primary mr-1 align-middle" /> Current</p>
+              <p><span className="inline-block w-3 h-3 rounded bg-secondary mr-1 align-middle" /> Bookmarked</p>
+              <p><span className="inline-block w-3 h-3 rounded bg-muted mr-1 align-middle" /> Answered</p>
+              <p><span className="inline-block w-3 h-3 rounded border mr-1 align-middle" /> Unanswered</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

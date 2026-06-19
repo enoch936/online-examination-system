@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.env
+.env.*
+!.env.example
+*.log
+pnpm-debug.log*
+Dockerfile.local
+tmp
+uploads
+backend/prisma/migrations/*/migration_lock.toml
