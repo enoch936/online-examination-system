@@ -6,6 +6,13 @@ export type QuestionFilters = {
   difficulty?: string;
   subjectId?: string;
   search?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type PaginatedQuestions = {
+  questions: Question[];
+  total: number;
 };
 
 export type CreateQuestionData = {
@@ -29,8 +36,10 @@ export const questionsService = {
     if (filters?.difficulty) params.set('difficulty', filters.difficulty);
     if (filters?.subjectId) params.set('subjectId', filters.subjectId);
     if (filters?.search) params.set('search', filters.search);
+    if (filters?.skip !== undefined) params.set('skip', String(filters.skip));
+    if (filters?.take !== undefined) params.set('take', String(filters.take));
     const qs = params.toString();
-    return unwrap<Question[]>(await api.get(`/questions${qs ? `?${qs}` : ''}`));
+    return unwrap<PaginatedQuestions>(await api.get(`/questions${qs ? `?${qs}` : ''}`));
   },
 
   async get(id: string) {

@@ -47,22 +47,22 @@
 }
 
 .dark {
-  --background: 222 47% 8%;
+  --background: 222 47% 10%;
   --foreground: 210 40% 98%;
-  --card: 222 47% 10%;
+  --card: 222 47% 12%;
   --card-foreground: 210 40% 98%;
   --primary: 217 91% 60%;
   --primary-foreground: 222 47% 8%;
-  --secondary: 217 33% 17%;
+  --secondary: 217 33% 18%;
   --secondary-foreground: 210 40% 98%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
+  --muted: 217 33% 18%;
+  --muted-foreground: 215 20% 70%;
   --accent: 173 80% 42%;
   --accent-foreground: 222 47% 8%;
   --destructive: 0 63% 31%;
   --destructive-foreground: 210 40% 98%;
-  --border: 217 33% 17%;
-  --input: 217 33% 17%;
+  --border: 217 33% 25%;
+  --input: 217 33% 18%;
   --ring: 217 91% 60%;
 }
 
@@ -80,10 +80,24 @@
   border-color: hsl(var(--border));
 }
 
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
 body {
-  background: hsl(var(--background));
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, rgba(96, 165, 250, 0.08), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(168, 85, 247, 0.06), transparent 28%),
+    hsl(var(--background));
   color: hsl(var(--foreground));
   font-feature-settings: "rlig" 1, "calt" 1;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(59, 130, 246, 0.35);
+  color: hsl(var(--primary-foreground));
 }
 
 .focus-ring {

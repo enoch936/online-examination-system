@@ -61,12 +61,13 @@ export default function CreateExamPage() {
     queryFn: () => coursesService.list(),
   });
 
-  const { data: questions, isLoading: questionsLoading } = useQuery({
+  const { data: questionsData, isLoading: questionsLoading } = useQuery({
     queryKey: ['questions'],
-    queryFn: () => questionsService.list(),
+    queryFn: () => questionsService.list({ take: 200 }),
   });
 
-  const filteredQuestions = (questions ?? []).filter((q) =>
+  const questions = questionsData?.questions ?? [];
+  const filteredQuestions = questions.filter((q) =>
     q.prompt.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 

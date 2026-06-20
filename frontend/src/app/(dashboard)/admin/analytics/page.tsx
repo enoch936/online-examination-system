@@ -144,7 +144,7 @@ export default function AdminAnalyticsPage() {
             <CardDescription>Submissions over time.</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={320}>
               <AreaChart data={stats.chartData}>
                 <defs>
                   <linearGradient id="submissions" x1="0" x2="0" y1="0" y2="1">

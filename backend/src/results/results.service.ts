@@ -35,6 +35,7 @@ export class ResultsService {
             include: {
               session: {
                 include: {
+                  student: { select: { id: true, firstName: true, lastName: true, email: true } },
                   answers: {
                     include: {
                       question: { include: { options: { orderBy: { sortOrder: 'asc' } } } },
@@ -61,6 +62,51 @@ export class ResultsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async publish(id: string) {
+    const result = await this.prisma.result.findUnique({ where: { id } });
+    if (!result) throw new NotFoundException('Result not found');
+    if (result.publishedAt) return result;
+
+    return this.prisma.result.update({
+      where: { id },
+      data: { publishedAt: new Date() },
+    });
+  }
+
+  async gradeManually(id: string, graderId: string, answers: Array<{ answerId: string; score: number; feedback?: string }>) {
+    const result = await this.prisma.result.findUnique({
+      where: { id },
+      include: { exam: true, submission: { include: { session: { include: { answers: true } } } } },
+    });
+    if (!result) throw new NotFoundException('Result not found');
+
+    const toUpdate = answers
+      .filter((g) => result.submission?.session.answers.some((a) => a.id === g.answerId))
+      .map((g) => this.prisma.studentAnswer.update({
+        where: { id: g.answerId },
+        data: { score: g.score, feedback: g.feedback, graderId },
+      }));
+    if (toUpdate.length > 0) {
+      await this.prisma.$transaction(toUpdate);
+    }
+
+    const allAnswers = result.submission?.session.answers ?? [];
+    const maxScore = Number(result.exam.totalMarks);
+    const totalScore = allAnswers.reduce((sum, a) => sum + Number(a.score ?? 0), 0);
+    const percentage = maxScore > 0 ? Number(((totalScore / maxScore) * 100).toFixed(2)) : 0;
+    const passed = totalScore >= Number(result.exam.passingMarks);
+
+    return this.prisma.result.update({
+      where: { id },
+      data: {
+        score: totalScore,
+        percentage,
+        passed,
+        publishedAt: result.publishedAt ?? new Date(),
+      },
+    });
   }
 
   async findOne(user: AuthenticatedUser, id: string) {
@@ -90,6 +136,7 @@ export class ResultsService {
           include: {
             session: {
               include: {
+                student: { select: { id: true, firstName: true, lastName: true, email: true } },
                 answers: {
                   include: {
                     question: { include: { options: { orderBy: { sortOrder: 'asc' } } } },

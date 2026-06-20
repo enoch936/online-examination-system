@@ -6,7 +6,6 @@ import { useState } from 'react';
 import { examsService } from '@/services/exams.service';
 import { usersService } from '@/services/users.service';
 import { coursesService } from '@/services/courses.service';
-import { questionsService } from '@/services/questions.service';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -109,11 +108,6 @@ export default function ManageExamPage() {
   const { data: courses } = useQuery({
     queryKey: ['courses'],
     queryFn: () => coursesService.list(),
-  });
-
-  const { data: questions } = useQuery({
-    queryKey: ['questions'],
-    queryFn: () => questionsService.list(),
   });
 
   const { data: students } = useQuery({

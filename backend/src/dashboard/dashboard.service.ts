@@ -106,4 +106,45 @@ export class DashboardService {
       submissions: dayCount.get(day) ?? 0,
     }));
   }
+
+  async getPublicStats() {
+    const [students, instructors, exams] = await Promise.all([
+      this.prisma.user.count({
+        where: {
+          roles: {
+            some: {
+              role: {
+                name: RoleName.STUDENT,
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.user.count({
+        where: {
+          roles: {
+            some: {
+              role: {
+                name: RoleName.INSTRUCTOR,
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.exam.count({
+        where: {
+          status: {
+            in: ['PUBLISHED', 'LIVE', 'CLOSED'],
+          },
+        },
+      }),
+    ]);
+
+    return {
+      students: students || 0,
+      exams: exams || 0,
+      instructors: instructors || 0,
+      availability: 99.9,
+    };
+  }
 }

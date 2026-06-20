@@ -189,21 +189,23 @@ export default function QuestionBankPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState<QuestionFormData>({ ...emptyForm, options: [{ label: 'A', text: '', isCorrect: false }] });
 
-  const { data: questions, isLoading, error, refetch } = useQuery({
+  const { data: questionsData, isLoading, error, refetch } = useQuery({
     queryKey: ['questions'],
     queryFn: () => questionsService.list(),
   });
+
+  const questions = questionsData?.questions ?? [];
 
   const { data: subjects } = useQuery({
     queryKey: ['subjects'],
     queryFn: () => subjectsService.list(),
   });
 
-  const types = [...new Set(questions?.map((q) => q.type) ?? [])];
-  const difficulties = [...new Set(questions?.map((q) => q.difficulty) ?? [])];
-  const questionSubjects = [...new Map((questions ?? []).filter(q => q.subject).map(q => [q.subject!.id, q.subject!])).values()];
+  const types = [...new Set(questions.map((q) => q.type))];
+  const difficulties = [...new Set(questions.map((q) => q.difficulty))];
+  const questionSubjects = [...new Map(questions.filter(q => q.subject).map(q => [q.subject!.id, q.subject!])).values()];
 
-  const filtered = (questions ?? []).filter((q) => {
+  const filtered = questions.filter((q) => {
     if (typeFilter && q.type !== typeFilter) return false;
     if (difficultyFilter && q.difficulty !== difficultyFilter) return false;
     if (subjectFilter && q.subjectId !== subjectFilter) return false;

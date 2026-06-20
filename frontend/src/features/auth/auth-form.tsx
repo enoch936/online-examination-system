@@ -1,7 +1,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -41,6 +41,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const router = useRouter();
   const setSession = useAuthStore((state) => state.setSession);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const schema = mode === 'login' ? loginSchema : registerSchema;
   const form = useForm<AuthValues>({
     resolver: zodResolver(schema),
@@ -107,7 +108,12 @@ export function AuthForm({ mode }: AuthFormProps) {
                 </Link>
               )}
             </div>
-            <Input id="password" type="password" autoComplete="current-password" {...form.register('password')} />
+            <div className="relative">
+              <Input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" {...form.register('password')} />
+              <button type="button" onClick={() => setShowPassword((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}

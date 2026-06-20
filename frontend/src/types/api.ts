@@ -185,6 +185,11 @@ export type Result = {
   createdAt: string;
   exam: { title: string; course: { name: string; subject: { name: string } } };
   certificate?: Certificate | null;
+  submission?: {
+    session?: {
+      student?: { id: string; firstName: string; lastName: string; email: string };
+    };
+  };
 };
 
 export type ResultDetail = Result & {

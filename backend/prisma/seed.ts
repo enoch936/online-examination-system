@@ -346,7 +346,7 @@ async function main() {
     {
       courseCode: 'BIO101', title: 'Cell Biology - Chapter Test', slug: 'bio101-ch1',
       durationMinutes: 45, totalMarks: 60, passingMarks: 30,
-      startsAt: new Date(now.getTime() + 3 * dayMs), endsAt: new Date(now.getTime() + 10 * dayMs),
+      startsAt: new Date(now.getTime() - 2 * dayMs), endsAt: new Date(now.getTime() + 10 * dayMs),
       status: ExamStatus.PUBLISHED, questionKeys: ['BIO101_q0', 'BIO101_q1', 'BIO101_q2'],
     },
     {
@@ -361,7 +361,11 @@ async function main() {
   for (const def of examDefs) {
     const exam = await prisma.exam.upsert({
       where: { slug: def.slug },
-      update: {},
+      update: {
+        startsAt: def.startsAt,
+        endsAt: def.endsAt,
+        status: def.status,
+      },
       create: {
         courseId: courseRecords[def.courseCode],
         createdById: instructorId,
@@ -392,7 +396,6 @@ async function main() {
     examRecords.push({ id: exam.id, title: exam.title });
   }
 
-  // Create exam sessions and results for closed exams
   const studentIds = [
     createdUsers['john.doe@oes.local'],
     createdUsers['jane.smith@oes.local'],
@@ -400,6 +403,20 @@ async function main() {
     createdUsers['alice.johnson@oes.local'],
     createdUsers['carol.brown@oes.local'],
   ];
+
+  // Assign all students to PUBLISHED/LIVE exams
+  const publishableExams = examRecords.filter((_, i) =>
+    examDefs[i].status === ExamStatus.PUBLISHED
+  );
+  for (const exam of publishableExams) {
+    for (const sid of studentIds) {
+      await prisma.examAssignment.upsert({
+        where: { examId_studentId: { examId: exam.id, studentId: sid } },
+        update: {},
+        create: { examId: exam.id, studentId: sid },
+      });
+    }
+  }
 
   const closedExams = examDefs.filter(e => e.status === ExamStatus.CLOSED);
   for (let ei = 0; ei < closedExams.length; ei++) {

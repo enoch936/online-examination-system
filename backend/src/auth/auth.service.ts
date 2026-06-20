@@ -34,6 +34,15 @@ type TokenPair = {
   user: SafeUser;
 };
 
+type SessionInfo = {
+  id: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  expiresAt: Date;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -42,7 +51,7 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
-  async register(dto: RegisterDto): Promise<TokenPair> {
+  async register(dto: RegisterDto, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
     if (existing) {
       throw new ConflictException('Email is already registered');
@@ -68,10 +77,10 @@ export class AuthService {
       include: this.userInclude(),
     });
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, deviceInfo);
   }
 
-  async login(dto: LoginDto): Promise<TokenPair> {
+  async login(dto: LoginDto, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
       include: this.userInclude(),
@@ -87,10 +96,10 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, deviceInfo);
   }
 
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  async refresh(refreshToken: string, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
     try {
       const payload = await this.jwt.verifyAsync<{ sub: string; jti: string; type: string }>(refreshToken, {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
@@ -101,8 +110,22 @@ export class AuthService {
       }
 
       const stored = await this.prisma.refreshToken.findUnique({ where: { jti: payload.jti } });
-      if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
-        throw new UnauthorizedException('Refresh token is no longer valid');
+
+      if (!stored) {
+        throw new UnauthorizedException('Refresh token not found');
+      }
+
+      if (stored.revokedAt) {
+        // Reuse detection: this token was already rotated — revoke ALL sessions for this user
+        await this.prisma.refreshToken.updateMany({
+          where: { userId: payload.sub, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        throw new UnauthorizedException('Refresh token has been revoked; all sessions invalidated');
+      }
+
+      if (stored.expiresAt < new Date()) {
+        throw new UnauthorizedException('Refresh token has expired');
       }
 
       const matches = await bcrypt.compare(refreshToken, stored.tokenHash);
@@ -120,8 +143,11 @@ export class AuthService {
         include: this.userInclude(),
       });
 
-      return this.issueTokens(user);
-    } catch {
+      return this.issueTokens(user, deviceInfo);
+    } catch (err) {
+      if (err instanceof UnauthorizedException) {
+        throw err;
+      }
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -193,6 +219,62 @@ export class AuthService {
     return this.toSafeUser(updated);
   }
 
+  // --- Session Management ---
+
+  async getSessions(userId: string): Promise<SessionInfo[]> {
+    const tokens = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, userAgent: true, ipAddress: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+    return tokens.map(t => ({
+      id: t.id,
+      userAgent: t.userAgent,
+      ipAddress: t.ipAddress,
+      createdAt: t.createdAt,
+      lastUsedAt: t.lastUsedAt,
+      expiresAt: t.expiresAt,
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const token = await this.prisma.refreshToken.findFirst({
+      where: { id: sessionId, userId },
+    });
+    if (!token) {
+      throw new UnauthorizedException('Session not found');
+    }
+    await this.prisma.refreshToken.update({
+      where: { id: sessionId },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  async revokeAllSessions(userId: string, excludeSessionId?: string): Promise<void> {
+    const where: any = { userId, revokedAt: null };
+    if (excludeSessionId) {
+      where.id = { not: excludeSessionId };
+    }
+    await this.prisma.refreshToken.updateMany({
+      where,
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  // --- Cleanup ---
+
+  async cleanupExpiredTokens(): Promise<number> {
+    const result = await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revokedAt: { not: null } },
+        ],
+      },
+    });
+    return result.count;
+  }
+
   async verifyEmail(dto: { token: string }) {
     try {
       const payload = await this.jwt.verifyAsync<{ sub: string; type: string }>(dto.token, {
@@ -215,17 +297,30 @@ export class AuthService {
     if (!refreshToken) {
       return { revoked: false };
     }
-    const payload = await this.jwt.decode(refreshToken);
-    if (typeof payload === 'object' && payload?.jti) {
-      await this.prisma.refreshToken.updateMany({
-        where: { jti: String(payload.jti), revokedAt: null },
-        data: { revokedAt: new Date() },
+    try {
+      const payload = await this.jwt.verifyAsync<{ jti: string }>(refreshToken, {
+        secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
       });
+      if (payload?.jti) {
+        await this.prisma.refreshToken.updateMany({
+          where: { jti: payload.jti, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+    } catch {
+      // Token may already be expired — try decoding to get jti for cleanup
+      const decoded = this.jwt.decode(refreshToken) as { jti?: string } | null;
+      if (decoded?.jti) {
+        await this.prisma.refreshToken.updateMany({
+          where: { jti: decoded.jti, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
     }
     return { revoked: true };
   }
 
-  private async issueTokens(user: UserWithRoles): Promise<TokenPair> {
+  private async issueTokens(user: UserWithRoles, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
     const safeUser = this.toSafeUser(user);
     const jti = randomUUID();
     const accessToken = await this.jwt.signAsync({
@@ -250,8 +345,22 @@ export class AuthService {
         tokenHash,
         jti,
         expiresAt,
+        userAgent: deviceInfo?.userAgent ?? null,
+        ipAddress: deviceInfo?.ipAddress ?? null,
+        lastUsedAt: new Date(),
       },
     });
+
+    // Clean up old revoked/expired tokens opportunistically (non-blocking)
+    this.prisma.refreshToken.deleteMany({
+      where: {
+        userId: user.id,
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revokedAt: { not: null } },
+        ],
+      },
+    }).catch(() => {});
 
     return { accessToken, refreshToken, user: safeUser };
   }

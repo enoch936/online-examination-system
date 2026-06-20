@@ -8,7 +8,10 @@ import { UpdateQuestionDto } from './dto/update-question.dto';
 export class QuestionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findMany(filters?: { type?: QuestionType; difficulty?: Difficulty; subjectId?: string; search?: string }) {
+  findMany(filters?: {
+    type?: QuestionType; difficulty?: Difficulty; subjectId?: string; search?: string;
+    skip?: number; take?: number;
+  }) {
     return this.prisma.question.findMany({
       where: {
         ...(filters?.type && { type: filters.type }),
@@ -18,6 +21,20 @@ export class QuestionsService {
       },
       include: { subject: true, options: { orderBy: { sortOrder: 'asc' } }, createdBy: true },
       orderBy: { createdAt: 'desc' },
+      ...(filters?.take !== undefined ? { skip: filters.skip ?? 0, take: filters.take } : {}),
+    });
+  }
+
+  count(filters?: {
+    type?: QuestionType; difficulty?: Difficulty; subjectId?: string; search?: string;
+  }) {
+    return this.prisma.question.count({
+      where: {
+        ...(filters?.type && { type: filters.type }),
+        ...(filters?.difficulty && { difficulty: filters.difficulty }),
+        ...(filters?.subjectId && { subjectId: filters.subjectId }),
+        ...(filters?.search && { prompt: { contains: filters.search, mode: 'insensitive' } }),
+      },
     });
   }
 
@@ -99,10 +116,9 @@ export class QuestionsService {
   }
 
   async bulkImport(questions: CreateQuestionDto[], createdById: string) {
-    const created = [];
-    for (const question of questions) {
-      created.push(await this.create(question, createdById));
-    }
+    const created = await this.prisma.$transaction(
+      questions.map((q) => this.create(q, createdById)),
+    );
     return { count: created.length, questions: created };
   }
 }

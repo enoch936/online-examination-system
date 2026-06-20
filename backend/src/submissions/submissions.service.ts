@@ -38,6 +38,8 @@ export class SubmissionsService {
     let needsManualGrading = false;
     const answerByQuestion = new Map(session.answers.map((answer) => [answer.questionId, answer]));
 
+    const updates: Array<{ id: string; score: number }> = [];
+
     for (const examQuestion of session.exam.questions) {
       const question = examQuestion.question;
       const answer = answerByQuestion.get(question.id);
@@ -72,11 +74,14 @@ export class SubmissionsService {
       totalScore += score;
 
       if (answer) {
-        await this.prisma.studentAnswer.update({
-          where: { id: answer.id },
-          data: { score },
-        });
+        updates.push({ id: answer.id, score });
       }
+    }
+
+    if (updates.length > 0) {
+      await this.prisma.$transaction(
+        updates.map((u) => this.prisma.studentAnswer.update({ where: { id: u.id }, data: { score: u.score } })),
+      );
     }
 
     const maxScore = Number(session.exam.totalMarks);

@@ -42,7 +42,7 @@ export default function AdminReportsPage() {
     }
     setDownloadingPdf(true);
     try {
-      const blob = await reportsService.downloadPdf(selectedExamId);
+      const blob = await reportsService.downloadExamPdf(selectedExamId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -64,7 +64,7 @@ export default function AdminReportsPage() {
     }
     setDownloadingExcel(true);
     try {
-      const blob = await reportsService.downloadExcel(selectedExamId);
+      const blob = await reportsService.downloadExamExcel(selectedExamId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -206,7 +206,7 @@ export default function AdminReportsPage() {
             <CardDescription>All submissions across the platform.</CardDescription>
           </CardHeader>
           <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={288}>
               <AreaChart data={stats.chartData}>
                 <defs>
                   <linearGradient id="reportSubmissions" x1="0" x2="0" y1="0" y2="1">

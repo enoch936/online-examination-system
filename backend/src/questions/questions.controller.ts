@@ -22,13 +22,22 @@ export class QuestionsController {
   @ApiQuery({ name: 'difficulty', enum: Difficulty, required: false })
   @ApiQuery({ name: 'subjectId', type: String, required: false })
   @ApiQuery({ name: 'search', type: String, required: false })
-  findMany(
+  @ApiQuery({ name: 'skip', type: Number, required: false })
+  @ApiQuery({ name: 'take', type: Number, required: false })
+  async findMany(
     @Query('type') type?: QuestionType,
     @Query('difficulty') difficulty?: Difficulty,
     @Query('subjectId') subjectId?: string,
     @Query('search') search?: string,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
   ) {
-    return this.questions.findMany({ type, difficulty, subjectId, search });
+    const filters = { type, difficulty, subjectId, search };
+    const [questions, total] = await Promise.all([
+      this.questions.findMany({ ...filters, skip: skip ? Number(skip) : undefined, take: take ? Number(take) : undefined }),
+      this.questions.count(filters),
+    ]);
+    return { questions, total };
   }
 
   @Get(':id')

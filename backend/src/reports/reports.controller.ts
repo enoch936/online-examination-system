@@ -34,4 +34,67 @@ export class ReportsController {
     response.setHeader('Content-Disposition', `attachment; filename="exam-${examId}.xlsx"`);
     response.send(workbook);
   }
+
+  @Get('students/:studentId')
+  studentReport(@Param('studentId') studentId: string) {
+    return this.reports.studentReport(studentId);
+  }
+
+  @Get('students/:studentId/pdf')
+  async studentPdf(@Param('studentId') studentId: string, @Res() response: Response) {
+    const pdf = await this.reports.buildStudentPdf(studentId);
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `attachment; filename="student-${studentId}.pdf"`);
+    response.send(pdf);
+  }
+
+  @Get('students/:studentId/excel')
+  async studentExcel(@Param('studentId') studentId: string, @Res() response: Response) {
+    const workbook = await this.reports.buildStudentWorkbook(studentId);
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="student-${studentId}.xlsx"`);
+    response.send(workbook);
+  }
+
+  @Get('subjects/:subjectId')
+  subjectReport(@Param('subjectId') subjectId: string) {
+    return this.reports.subjectReport(subjectId);
+  }
+
+  @Get('subjects/:subjectId/pdf')
+  async subjectPdf(@Param('subjectId') subjectId: string, @Res() response: Response) {
+    const pdf = await this.reports.buildSubjectPdf(subjectId);
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `attachment; filename="subject-${subjectId}.pdf"`);
+    response.send(pdf);
+  }
+
+  @Get('subjects/:subjectId/excel')
+  async subjectExcel(@Param('subjectId') subjectId: string, @Res() response: Response) {
+    const workbook = await this.reports.buildSubjectWorkbook(subjectId);
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="subject-${subjectId}.xlsx"`);
+    response.send(workbook);
+  }
+
+  @Get('overview')
+  overview() {
+    return this.reports.overview();
+  }
+
+  @Get('overview/pdf')
+  async overviewPdf(@Res() response: Response) {
+    const pdf = await this.reports.buildOverviewPdf();
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', 'attachment; filename="overview.pdf"');
+    response.send(pdf);
+  }
+
+  @Get('overview/excel')
+  async overviewExcel(@Res() response: Response) {
+    const workbook = await this.reports.buildOverviewWorkbook();
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', 'attachment; filename="overview.xlsx"');
+    response.send(workbook);
+  }
 }

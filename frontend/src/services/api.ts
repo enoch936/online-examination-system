@@ -20,21 +20,39 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let refreshPromise: Promise<string | null> | null = null;
+
+async function doRefresh(): Promise<string | null> {
+  try {
+    const refresh = await api.post<ApiEnvelope<{ accessToken: string; user: AuthUser }>>('/auth/refresh', {});
+    const { accessToken, user } = refresh.data.data;
+    useAuthStore.getState().setSession(accessToken, user);
+    return accessToken;
+  } catch {
+    useAuthStore.getState().clearSession();
+    return null;
+  }
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
     if (error.response?.status === 401 && !original?._retry) {
       original._retry = true;
-      try {
-        const refresh = await api.post<ApiEnvelope<{ accessToken: string; user: AuthUser }>>('/auth/refresh', {});
-        useAuthStore.getState().setSession(refresh.data.data.accessToken, refresh.data.data.user);
-        original.headers.Authorization = `Bearer ${refresh.data.data.accessToken}`;
-        return api(original);
-      } catch {
-        useAuthStore.getState().clearSession();
-        window.location.href = '/login';
+
+      if (!refreshPromise) {
+        refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
       }
+
+      const newToken = await refreshPromise;
+      if (newToken) {
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api(original);
+      }
+
+      window.location.href = '/login';
+      return Promise.reject(error);
     }
     return Promise.reject(error);
   },

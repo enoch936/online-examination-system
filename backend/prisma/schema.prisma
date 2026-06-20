@@ -114,6 +114,7 @@ model User {
 
   @@index([tenantId])
   @@index([status])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -231,6 +232,7 @@ model Exam {
 
   @@index([tenantId])
   @@index([courseId])
+  @@index([createdById])
   @@index([status, startsAt, endsAt])
   @@map("exams")
 }
@@ -259,6 +261,9 @@ model Question {
 
   @@index([tenantId])
   @@index([subjectId, type, difficulty])
+  @@index([type])
+  @@index([difficulty])
+  @@index([createdAt])
   @@map("questions")
 }
 
@@ -399,6 +404,8 @@ model Result {
 
   @@index([examId])
   @@index([studentId])
+  @@index([percentage])
+  @@index([createdAt])
   @@map("results")
 }
 
@@ -478,9 +485,16 @@ model RefreshToken {
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
+  userAgent String?
+  ipAddress String?
+  lastUsedAt DateTime?
+
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
+  @@index([userId, jti])
+  @@index([expiresAt])
+  @@index([createdAt])
   @@map("refresh_tokens")
 }
 
@@ -495,6 +509,7 @@ model ExamViolation {
   session   ExamSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, occurredAt])
+  @@index([occurredAt])
   @@map("exam_violations")
 }
 

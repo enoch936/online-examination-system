@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   Bookmark, CheckCircle2, ChevronLeft, ChevronRight, Maximize, Send, FileText,
-  Type, AlignLeft, Grid3X3, ListChecks,
+  Type, AlignLeft, Grid3X3, ListChecks, LayoutList,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -137,6 +137,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const toggleBookmark = useExamStore((state) => state.toggleBookmark);
   const resetStore = useExamStore((state) => state.reset);
   const submittedRef = useRef(false);
+  const [showAll, setShowAll] = useState(false);
 
   const query = useQuery({
     queryKey: ['exam-session', examId, sessionId],
@@ -171,6 +172,9 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     }, [query.data?.id, submitMutation]),
   );
 
+  const remainingRef = useRef(remainingSeconds);
+  remainingRef.current = remainingSeconds;
+
   useEffect(() => {
     resetStore();
     return () => { resetStore(); };
@@ -183,10 +187,20 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const saveDraft = useCallback(
     async (draft: typeof currentDraft) => {
       if (!query.data?.id || !draft) return;
-      await examsService.saveAnswer(query.data.id, { ...draft, remainingSeconds });
+      await examsService.saveAnswer(query.data.id, { ...draft, remainingSeconds: remainingRef.current });
     },
-    [query.data?.id, remainingSeconds],
+    [query.data?.id],
   );
+
+  const saveCurrentAnswer = useCallback(async () => {
+    if (!query.data?.id || !currentDraft) return;
+    await examsService.saveAnswer(query.data.id, { ...currentDraft, remainingSeconds: remainingRef.current });
+  }, [query.data?.id, currentDraft]);
+
+  const goToQuestion = useCallback((index: number) => {
+    void saveCurrentAnswer();
+    setCurrentIndex(index);
+  }, [saveCurrentAnswer, setCurrentIndex]);
 
   useAutosave(currentDraft, saveDraft);
 
@@ -245,6 +259,15 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
             <Maximize className="h-4 w-4" />
           </Button>
           <Button
+            type="button"
+            variant={showAll ? 'secondary' : 'outline'}
+            size="icon"
+            title={showAll ? 'Show one at a time' : 'Show all questions'}
+            onClick={() => setShowAll((v) => !v)}
+          >
+            <LayoutList className="h-4 w-4" />
+          </Button>
+          <Button
             variant="destructive"
             onClick={() => { if (window.confirm('Are you sure you want to submit?')) submitMutation.mutate(false); }}
             disabled={submitMutation.isPending}
@@ -255,107 +278,171 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-        <Card>
-          <CardHeader>
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-2 flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="flex items-center gap-1">
-                    <TypeIcon className="h-3 w-3" />
-                    {typeLabels[currentQuestion.question.type] ?? currentQuestion.question.type}
-                  </Badge>
-                  <Badge variant="secondary" className="text-[10px]">{currentQuestion.question.difficulty}</Badge>
+      {showAll ? (
+        <div className="space-y-6">
+          {questions.map((question, index) => {
+            const draft = answers[question.question.id];
+            const TypeIcon = typeIcons[question.question.type] ?? FileText;
+            return (
+              <Card key={question.question.id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-2 flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="flex items-center gap-1">
+                          <TypeIcon className="h-3 w-3" />
+                          {typeLabels[question.question.type] ?? question.question.type}
+                        </Badge>
+                        <Badge variant="secondary" className="text-[10px]">{question.question.difficulty}</Badge>
+                        <span className="text-xs text-muted-foreground">{Number(question.points)} pts</span>
+                      </div>
+                      <CardTitle className="leading-7 text-base">
+                        {index + 1}. {question.question.prompt}
+                      </CardTitle>
+                    </div>
+                    <Button
+                      type="button"
+                      variant={draft?.isBookmarked ? 'secondary' : 'outline'}
+                      size="icon"
+                      title="Bookmark question"
+                      onClick={() => toggleBookmark(question.question.id)}
+                    >
+                      <Bookmark className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <QuestionRenderer
+                    question={question}
+                    draft={draft}
+                    onUpdate={(update) => {
+                      updateAnswer({
+                        questionId: question.question.id,
+                        selectedOptionIds: update.selectedOptionIds ?? draft?.selectedOptionIds ?? [],
+                        answerText: update.answerText ?? draft?.answerText,
+                        isBookmarked: draft?.isBookmarked,
+                      });
+                    }}
+                  />
+                </CardContent>
+              </Card>
+            );
+          })}
+          <div className="flex justify-center pb-6">
+            <Button
+              size="lg"
+              variant="destructive"
+              onClick={() => { if (window.confirm('Are you sure you want to submit?')) submitMutation.mutate(false); }}
+              disabled={submitMutation.isPending}
+            >
+              <Send className="mr-2 h-4 w-4" />
+              Submit all answers
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="flex items-center gap-1">
+                      <TypeIcon className="h-3 w-3" />
+                      {typeLabels[currentQuestion.question.type] ?? currentQuestion.question.type}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px]">{currentQuestion.question.difficulty}</Badge>
+                  </div>
+                  <CardTitle className="leading-7 text-base">
+                    {currentIndex + 1}. {currentQuestion.question.prompt}
+                  </CardTitle>
                 </div>
-                <CardTitle className="leading-7 text-base">
-                  {currentIndex + 1}. {currentQuestion.question.prompt}
-                </CardTitle>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    type="button"
+                    variant={currentDraft?.isBookmarked ? 'secondary' : 'outline'}
+                    size="icon"
+                    title="Bookmark question"
+                    onClick={() => toggleBookmark(currentQuestion.question.id)}
+                  >
+                    <Bookmark className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <QuestionRenderer
+                question={currentQuestion}
+                draft={currentDraft}
+                onUpdate={(update) => {
+                  updateAnswer({
+                    questionId: currentQuestion.question.id,
+                    selectedOptionIds: update.selectedOptionIds ?? currentDraft?.selectedOptionIds ?? [],
+                    answerText: update.answerText ?? currentDraft?.answerText,
+                    isBookmarked: currentDraft?.isBookmarked,
+                  });
+                }}
+              />
+              <div className="flex items-center justify-between pt-4">
                 <Button
-                  type="button"
-                  variant={currentDraft?.isBookmarked ? 'secondary' : 'outline'}
-                  size="icon"
-                  title="Bookmark question"
-                  onClick={() => toggleBookmark(currentQuestion.question.id)}
+                  variant="outline"
+                  disabled={currentIndex === 0}
+                  onClick={() => goToQuestion(currentIndex - 1)}
                 >
-                  <Bookmark className="h-4 w-4" />
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <Button
+                  disabled={currentIndex === questions.length - 1}
+                  onClick={() => goToQuestion(currentIndex + 1)}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <QuestionRenderer
-              question={currentQuestion}
-              draft={currentDraft}
-              onUpdate={(update) => {
-                updateAnswer({
-                  questionId: currentQuestion.question.id,
-                  selectedOptionIds: update.selectedOptionIds ?? currentDraft?.selectedOptionIds ?? [],
-                  answerText: update.answerText ?? currentDraft?.answerText,
-                  isBookmarked: currentDraft?.isBookmarked,
-                });
-              }}
-            />
-            <div className="flex items-center justify-between pt-4">
-              <Button
-                variant="outline"
-                disabled={currentIndex === 0}
-                onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous
-              </Button>
-              <Button
-                disabled={currentIndex === questions.length - 1}
-                onClick={() => setCurrentIndex(Math.min(questions.length - 1, currentIndex + 1))}
-              >
-                Next
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Navigator</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-5 gap-2">
-              {questions.map((question, index) => {
-                const draft = answers[question.question.id];
-                const isAnswered = (draft?.selectedOptionIds?.length ?? 0) > 0 || (draft?.answerText?.length ?? 0) > 0;
-                const isBookmarked = draft?.isBookmarked;
-                let variant: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' = 'outline';
-                if (index === currentIndex) variant = 'default';
-                else if (isBookmarked) variant = 'secondary';
-                else if (isAnswered) variant = 'ghost';
-                return (
-                  <Button
-                    key={question.question.id}
-                    type="button"
-                    size="icon"
-                    variant={variant}
-                    onClick={() => setCurrentIndex(index)}
-                    title={`Question ${index + 1}${isAnswered ? ' (answered)' : ''}${isBookmarked ? ' (bookmarked)' : ''}`}
-                    className="relative"
-                  >
-                    {index + 1}
-                    {isBookmarked && <Bookmark className="absolute -top-1 -right-1 h-2.5 w-2.5 fill-current" />}
-                  </Button>
-                );
-              })}
-            </div>
-            <div className="mt-4 space-y-1 text-xs text-muted-foreground">
-              <p><span className="inline-block w-3 h-3 rounded bg-primary mr-1 align-middle" /> Current</p>
-              <p><span className="inline-block w-3 h-3 rounded bg-secondary mr-1 align-middle" /> Bookmarked</p>
-              <p><span className="inline-block w-3 h-3 rounded bg-muted mr-1 align-middle" /> Answered</p>
-              <p><span className="inline-block w-3 h-3 rounded border mr-1 align-middle" /> Unanswered</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Navigator</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-5 gap-2">
+                {questions.map((question, index) => {
+                  const draft = answers[question.question.id];
+                  const isAnswered = (draft?.selectedOptionIds?.length ?? 0) > 0 || (draft?.answerText?.length ?? 0) > 0;
+                  const isBookmarked = draft?.isBookmarked;
+                  let variant: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' = 'outline';
+                  if (index === currentIndex) variant = 'default';
+                  else if (isBookmarked) variant = 'secondary';
+                  else if (isAnswered) variant = 'ghost';
+                  return (
+                    <Button
+                      key={question.question.id}
+                      type="button"
+                      size="icon"
+                      variant={variant}
+                      onClick={() => goToQuestion(index)}
+                      title={`Question ${index + 1}${isAnswered ? ' (answered)' : ''}${isBookmarked ? ' (bookmarked)' : ''}`}
+                      className="relative"
+                    >
+                      {index + 1}
+                      {isBookmarked && <Bookmark className="absolute -top-1 -right-1 h-2.5 w-2.5 fill-current" />}
+                    </Button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 space-y-1 text-xs text-muted-foreground">
+                <p><span className="inline-block w-3 h-3 rounded bg-primary mr-1 align-middle" /> Current</p>
+                <p><span className="inline-block w-3 h-3 rounded bg-secondary mr-1 align-middle" /> Bookmarked</p>
+                <p><span className="inline-block w-3 h-3 rounded bg-muted mr-1 align-middle" /> Answered</p>
+                <p><span className="inline-block w-3 h-3 rounded border mr-1 align-middle" /> Unanswered</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
