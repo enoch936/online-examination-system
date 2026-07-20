@@ -44,12 +44,12 @@ export function PublicNav() {
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-8 text-sm font-medium text-neutral-300 md:flex">
+        <nav className="hidden items-center gap-8 text-sm font-medium text-muted-foreground md:flex">
           {links.map((link) => (
             <a
               key={link.href}
               href={link.href}
-              className="relative transition-colors hover:text-white after:absolute after:-bottom-[21px] after:left-0 after:h-[2px] after:w-0 after:bg-primary after:transition-all hover:after:w-full"
+              className="relative transition-colors hover:text-foreground after:absolute after:-bottom-[21px] after:left-0 after:h-[2px] after:w-0 after:bg-primary after:transition-all hover:after:w-full"
             >
               {link.label}
             </a>

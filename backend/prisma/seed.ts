@@ -2,7 +2,7 @@ import { PrismaClient, RoleName, UserStatus, QuestionType, Difficulty, ExamStatu
 import * as bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
-
+// this is a permoission seed for the role 
 const permissions = [
   ['users.read', 'Read users', 'users'],
   ['users.write', 'Write users', 'users'],
@@ -31,6 +31,8 @@ const subjects = [
   { code: 'BIO', name: 'Biology', description: 'Study of living organisms, genetics, evolution, and ecosystems.' },
 ];
 
+
+// this is a course seed for course 
 const courses = [
   { subjectCode: 'CS', code: 'CS101', name: 'Introduction to Programming' },
   { subjectCode: 'CS', code: 'CS201', name: 'Data Structures & Algorithms' },

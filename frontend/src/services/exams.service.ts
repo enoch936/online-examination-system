@@ -1,6 +1,7 @@
 import { api, unwrap } from './api';
 import type { ExamSession, ExamSummary, ExamDetail } from '@/types/api';
 
+// exam data type for creating an examination
 export type CreateExamData = {
   courseId: string;
   title: string;

@@ -16,4 +16,4 @@ export class StorageController {
     response.set({ 'Content-Type': 'application/octet-stream' });
     return stream;
   }
-}
+} 

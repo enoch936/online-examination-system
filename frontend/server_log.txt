@@ -1,0 +1,19 @@
+
+> frontend@1.0.0 dev /home/enoch/onlineExaminationSystem-main/frontend
+> next dev --port 3000 --port 3001
+
+▲ Next.js 16.2.9 (Turbopack)
+- Local:         http://localhost:3001
+- Network:       http://10.248.153.179:3001
+- Environments: .env
+✓ Ready in 290ms
+⨯ Another next dev server is already running.
+
+- Local:        http://localhost:3000
+- PID:          13766
+- Dir:          /home/enoch/onlineExaminationSystem-main/frontend
+- Log:          .next/dev/logs/next-development.log
+
+Run kill 13766 to stop it.
+[?25h
+ ELIFECYCLE  Command failed with exit code 1.

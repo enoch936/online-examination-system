@@ -4,7 +4,7 @@
   "private": true,
   "description": "Next.js frontend for the Enterprise Online Examination System.",
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev --webpack --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
     "lint": "next lint",

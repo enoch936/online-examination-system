@@ -20,7 +20,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={true} disableTransitionOnChange>
       <QueryClientProvider client={queryClient}>
         <SmoothScrollProvider>
           {children}

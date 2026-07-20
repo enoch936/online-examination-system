@@ -26,19 +26,19 @@
 }
 
 :root {
-  --background: 0 0% 100%;
+  --background: 210 40% 98%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;
   --card-foreground: 222 47% 11%;
   --primary: 221 83% 53%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
+  --secondary: 214 32% 91%;
   --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
+  --muted: 214 32% 91%;
   --muted-foreground: 215 16% 47%;
-  --accent: 173 80% 40%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 72% 51%;
+  --accent: 214 32% 91%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
   --border: 214 32% 91%;
   --input: 214 32% 91%;
@@ -80,8 +80,7 @@
   border-color: hsl(var(--border));
 }
 
-html {
-  color-scheme: dark;
+html[data-scroll-behavior="smooth"] {
   scroll-behavior: smooth;
 }
 
