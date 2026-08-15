@@ -1,0 +1,253 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { ExamEventType, ExamStatus, Prisma, QuestionType, SessionStatus, SubmissionStatus } from '@prisma/client';
+import { MonitoringService } from '../monitoring/monitoring.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { SubmitExamDto } from './dto/submit-exam.dto';
+
+const LIFECYCLE_INTERVAL_MS = 60_000;
+
+type SubmissionSession = Prisma.ExamSessionGetPayload<{ include: ReturnType<SubmissionsService['submissionInclude']> }>;
+
+@Injectable()
+export class SubmissionsService implements OnModuleInit {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monitoring: MonitoringService,
+  ) {}
+
+  onModuleInit() {
+    void this.runLifecycle();
+    const timer = setInterval(() => void this.runLifecycle(), LIFECYCLE_INTERVAL_MS);
+    timer.unref?.();
+  }
+
+  /**
+   * Flags exams whose window has passed as CLOSED and auto-submits any
+   * sessions that are still open after their time expired.
+   */
+  async runLifecycle() {
+    const now = new Date();
+    const [autoSubmitted, closed] = await Promise.all([
+      this.autoSubmitExpired(now),
+      this.prisma.exam.updateMany({
+        where: { status: { in: [ExamStatus.LIVE, ExamStatus.PUBLISHED] }, endsAt: { lt: now } },
+        data: { status: ExamStatus.CLOSED },
+      }),
+    ]);
+    return { autoSubmitted, closed: closed.count };
+  }
+
+  async submit(dto: SubmitExamDto, studentId: string) {
+    const session = await this.prisma.examSession.findFirst({
+      where: { id: dto.sessionId, studentId },
+      include: this.submissionInclude(),
+    });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    if (session.submission) {
+      return session.submission;
+    }
+    if (!([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
+      throw new ForbiddenException('Session cannot be submitted');
+    }
+    return this.finalizeSubmission(session, dto.autoSubmitted ?? false);
+  }
+
+  async autoSubmitExpired(now = new Date()) {
+    const sessions = await this.prisma.examSession.findMany({
+      where: {
+        status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] },
+        expiresAt: { lt: now },
+      },
+      include: this.submissionInclude(),
+      take: 200,
+    });
+
+    let autoSubmitted = 0;
+    for (const session of sessions) {
+      try {
+        await this.finalizeSubmission(session, true);
+        autoSubmitted++;
+      } catch {
+        /* a single session must not block the rest */
+      }
+    }
+    return { autoSubmitted };
+  }
+
+  /**
+   * Lets an instructor end an exam before its scheduled end time: every still
+   * open session is force-submitted (graded) and the exam is closed immediately.
+   */
+  async forceEndExam(examId: string, instructorId: string) {
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (exam.status === ExamStatus.CLOSED) {
+      throw new BadRequestException('Exam is already closed');
+    }
+
+    const sessions = await this.prisma.examSession.findMany({
+      where: { examId, status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] } },
+      include: this.submissionInclude(),
+    });
+
+    let forceSubmitted = 0;
+    for (const session of sessions) {
+      try {
+        if (!session.submission) {
+          await this.finalizeSubmission(session, true);
+        } else {
+          await this.prisma.examSession.update({
+            where: { id: session.id },
+            data: { status: SessionStatus.SUBMITTED, submittedAt: new Date() },
+          });
+        }
+        forceSubmitted++;
+        await this.monitoring.emitSessionControl(session.id, { type: 'force-submit' });
+      } catch {
+        /* a single session must not block the rest */
+      }
+    }
+
+    const updated = await this.prisma.exam.update({
+      where: { id: examId },
+      data: { status: ExamStatus.CLOSED, endsAt: new Date() },
+    });
+
+    await this.prisma.activityLog.create({
+      data: {
+        actorId: instructorId,
+        action: 'exams.force_end',
+        metadata: JSON.stringify({ examId, forceSubmitted, totalSessions: sessions.length }),
+      },
+    });
+
+    return { exam: updated, forceSubmitted, totalSessions: sessions.length };
+  }
+
+  private submissionInclude() {
+    return {
+      exam: {
+        include: {
+          questions: {
+            include: { question: { include: { options: true } } },
+          },
+        },
+      },
+      answers: true,
+      submission: true,
+    } as const;
+  }
+
+  private async finalizeSubmission(session: SubmissionSession, autoSubmitted: boolean) {
+    const optionBasedTypes: QuestionType[] = [QuestionType.MULTIPLE_CHOICE, QuestionType.MULTIPLE_SELECT, QuestionType.TRUE_FALSE];
+    const textBasedTypes: QuestionType[] = [QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER];
+    let totalScore = 0;
+    let needsManualGrading = false;
+    const answerByQuestion = new Map(session.answers.map((answer) => [answer.questionId, answer]));
+
+    const updates: Array<{ id: string; score: number }> = [];
+
+    for (const examQuestion of session.exam.questions) {
+      const question = examQuestion.question;
+      const answer = answerByQuestion.get(question.id);
+      let score = 0;
+
+      if (optionBasedTypes.includes(question.type)) {
+        const correctIds = question.options
+          .filter((option) => option.isCorrect)
+          .map((option) => option.id)
+          .sort();
+        let selectedIds: string[] = [];
+        try {
+          selectedIds = JSON.parse(answer?.selectedOptionIds ?? '[]');
+        } catch {
+          selectedIds = [];
+        }
+        selectedIds.sort();
+        score = this.sameSet(correctIds, selectedIds) ? Number(examQuestion.points) : 0;
+      } else if (textBasedTypes.includes(question.type)) {
+        const correctAnswers = question.options
+          .filter((o) => o.isCorrect)
+          .map((o) => o.text.toLowerCase().trim());
+        const studentAnswer = (answer?.answerText ?? '').toLowerCase().trim();
+        score = correctAnswers.some((ca) => studentAnswer.includes(ca) || ca.includes(studentAnswer))
+          ? Number(examQuestion.points)
+          : 0;
+      } else {
+        needsManualGrading = true;
+        continue;
+      }
+
+      totalScore += score;
+
+      if (answer) {
+        updates.push({ id: answer.id, score });
+      }
+    }
+
+    if (updates.length > 0) {
+      await this.prisma.$transaction(
+        updates.map((u) => this.prisma.studentAnswer.update({ where: { id: u.id }, data: { score: u.score } })),
+      );
+    }
+
+    const maxScore = Number(session.exam.totalMarks);
+    const percentage = maxScore > 0 ? Number(((totalScore / maxScore) * 100).toFixed(2)) : 0;
+    const isPassed = totalScore >= Number(session.exam.passingMarks);
+    const status = needsManualGrading ? SubmissionStatus.NEEDS_MANUAL_GRADING : SubmissionStatus.GRADED;
+
+    const submission = await this.prisma.submission.create({
+      data: {
+        sessionId: session.id,
+        status,
+        autoSubmitted,
+        totalScore,
+        maxScore,
+        percentage,
+        isPassed,
+        gradingCompletedAt: needsManualGrading ? null : new Date(),
+        result: {
+          create: {
+            examId: session.examId,
+            studentId: session.studentId,
+            score: totalScore,
+            maxScore,
+            percentage,
+            passed: isPassed,
+            publishedAt: session.exam.showResultImmediately && !needsManualGrading ? new Date() : null,
+          },
+        },
+      },
+      include: { result: true },
+    });
+
+    await this.prisma.examSession.update({
+      where: { id: session.id },
+      data: {
+        status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
+        submittedAt: new Date(),
+        connectionState: 'CONNECTED',
+        lastActivityAt: new Date(),
+      },
+    });
+
+    try {
+      await this.monitoring.recordEvent({
+        examId: session.examId,
+        sessionId: session.id,
+        type: ExamEventType.EXAM_SUBMITTED,
+        metadata: { autoSubmitted, submissionId: submission.id },
+      });
+    } catch {
+      /* best effort */
+    }
+
+    return submission;
+  }
+
+  private sameSet(left: string[], right: string[]) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
+}

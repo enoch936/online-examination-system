@@ -1,0 +1,248 @@
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ExamStatus, ExamEventType, SessionStatus } from '@prisma/client';
+import { MonitoringService } from '../monitoring/monitoring.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { LogViolationDto } from './dto/log-violation.dto';
+import { SaveAnswerDto } from './dto/save-answer.dto';
+
+@Injectable()
+export class ExamSessionsService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly monitoring: MonitoringService,
+  ) {}
+
+  async findByExam(examId: string) {
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId }, select: { id: true } });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const sessions = await this.prisma.examSession.findMany({
+      where: { examId },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, email: true } },
+        submission: { select: { submittedAt: true, status: true } },
+        answers: { select: { selectedOptionIds: true, answerText: true, answerJson: true, isMarkedForReview: true } },
+        exam: { select: { _count: { select: { questions: true } } } },
+        _count: { select: { violations: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return sessions.map((s) => {
+      const totalQuestions = s.exam._count.questions;
+      const answeredCount = s.answers.filter((a) => this.isAnswered(a)).length;
+      return {
+        id: s.id,
+        examId: s.examId,
+        studentId: s.studentId,
+        student: s.student,
+        attemptNumber: s.attemptNumber,
+        status: s.status,
+        startedAt: s.startedAt,
+        submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,
+        violationsCount: s._count.violations,
+        remainingSeconds: s.remainingSeconds,
+        expiresAt: s.expiresAt,
+        connectionState: s.connectionState,
+        lastHeartbeatAt: s.lastHeartbeatAt,
+        lastActivityAt: s.lastActivityAt,
+        currentQuestionId: s.currentQuestionId,
+        currentQuestionIndex: s.currentQuestionIndex,
+        riskScore: s.riskScore,
+        riskLevel: s.riskLevel,
+        answeredCount,
+        totalQuestions,
+        unansweredCount: Math.max(0, totalQuestions - answeredCount),
+        flaggedCount: s.answers.filter((a) => a.isMarkedForReview).length,
+        progress: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0,
+      };
+    });
+  }
+
+  private isAnswered(a: { selectedOptionIds: string; answerText: string | null; answerJson: string | null }) {
+    try {
+      const selected: string[] = JSON.parse(a.selectedOptionIds ?? '[]');
+      if (Array.isArray(selected) && selected.length > 0) return true;
+    } catch {
+      /* ignore */
+    }
+    if (a.answerText && a.answerText.trim().length > 0) return true;
+    if (a.answerJson && a.answerJson !== 'null' && a.answerJson !== '{}' && a.answerJson !== '[]') return true;
+    return false;
+  }
+
+  async startExam(examId: string, studentId: string) {
+    const existing = await this.prisma.examSession.findFirst({
+      where: { examId, studentId, status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] } },
+      include: this.sessionInclude(),
+    });
+    if (existing) {
+      return this.sanitizeSession(existing);
+    }
+
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId },
+      include: {
+        questions: {
+          orderBy: { sortOrder: 'asc' },
+          include: { question: { include: { options: { orderBy: { sortOrder: 'asc' } } } } },
+        },
+      },
+    });
+    if (!exam) {
+      throw new NotFoundException('Exam not found');
+    }
+    if (!([ExamStatus.PUBLISHED, ExamStatus.LIVE] as ExamStatus[]).includes(exam.status)) {
+      throw new ForbiddenException('Exam is not available');
+    }
+
+    const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
+    if (attemptsUsed >= exam.attemptsAllowed) {
+      throw new ForbiddenException('No attempts remaining');
+    }
+
+    const orderedQuestions = exam.randomizeQuestions ? this.shuffle(exam.questions) : exam.questions;
+    const questionOrder = orderedQuestions.map((examQuestion) => examQuestion.questionId);
+    const optionOrder = Object.fromEntries(
+      orderedQuestions.map((examQuestion) => {
+        const options = exam.randomizeOptions
+          ? this.shuffle(examQuestion.question.options)
+          : examQuestion.question.options;
+        return [examQuestion.questionId, options.map((option) => option.id)];
+      }),
+    );
+
+    const session = await this.prisma.examSession.create({
+      data: {
+        examId,
+        studentId,
+        attemptNumber: attemptsUsed + 1,
+        status: SessionStatus.IN_PROGRESS,
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + exam.durationMinutes * 60 * 1000),
+        remainingSeconds: exam.durationMinutes * 60,
+        questionOrder: JSON.stringify(questionOrder),
+        optionOrder: JSON.stringify(optionOrder),
+        currentQuestionIndex: 0,
+      },
+      include: this.sessionInclude(),
+    });
+
+    try {
+      await this.monitoring.recordEvent({
+        examId,
+        sessionId: session.id,
+        type: ExamEventType.EXAM_STARTED,
+        metadata: { questionCount: questionOrder.length, durationMinutes: exam.durationMinutes },
+      });
+    } catch {
+      /* monitoring must not block exam start */
+    }
+
+    return this.sanitizeSession(session);
+  }
+
+  async resumeSession(sessionId: string, studentId: string) {
+    const session = await this.prisma.examSession.findFirst({
+      where: { id: sessionId, studentId },
+      include: this.sessionInclude(),
+    });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    try {
+      await this.monitoring.recordEvent({
+        examId: session.examId,
+        sessionId: session.id,
+        type: ExamEventType.EXAM_RESUMED,
+      });
+    } catch {
+      /* best effort */
+    }
+    return this.sanitizeSession(session);
+  }
+
+  async saveAnswer(sessionId: string, studentId: string, dto: SaveAnswerDto) {
+    const session = await this.prisma.examSession.findFirst({ where: { id: sessionId, studentId } });
+    if (!session || !([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
+      throw new ForbiddenException('Session is not active');
+    }
+
+    const answer = await this.prisma.studentAnswer.upsert({
+      where: { sessionId_questionId: { sessionId, questionId: dto.questionId } },
+      update: {
+        selectedOptionIds: JSON.stringify(dto.selectedOptionIds ?? []),
+        answerText: dto.answerText,
+        answerJson: dto.answerJson !== undefined ? JSON.stringify(dto.answerJson) : undefined,
+        isBookmarked: dto.isBookmarked ?? false,
+        isMarkedForReview: dto.isMarkedForReview ?? false,
+        savedAt: new Date(),
+      },
+      create: {
+        sessionId,
+        questionId: dto.questionId,
+        selectedOptionIds: JSON.stringify(dto.selectedOptionIds ?? []),
+        answerText: dto.answerText,
+        answerJson: dto.answerJson !== undefined ? JSON.stringify(dto.answerJson) : undefined,
+        isBookmarked: dto.isBookmarked ?? false,
+        isMarkedForReview: dto.isMarkedForReview ?? false,
+      },
+    });
+
+    await this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: {
+        remainingSeconds: dto.remainingSeconds ?? session.remainingSeconds,
+        currentQuestionId: dto.questionId,
+        currentQuestionIndex: dto.currentQuestionIndex ?? session.currentQuestionIndex,
+        lastActivityAt: new Date(),
+      },
+    });
+
+    return answer;
+  }
+
+  async logViolation(sessionId: string, studentId: string, dto: LogViolationDto) {
+    const session = await this.prisma.examSession.findFirst({ where: { id: sessionId, studentId } });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    const result = await this.monitoring.recordViolation(session.examId, sessionId, studentId, dto);
+    return result.violation;
+  }
+
+  private sessionInclude() {
+    return {
+      exam: {
+        include: {
+          questions: {
+            orderBy: { sortOrder: 'asc' },
+            include: { question: { include: { options: { orderBy: { sortOrder: 'asc' } } } } },
+          },
+        },
+      },
+      answers: true,
+      violations: true,
+    } as const;
+  }
+
+  private sanitizeSession(session: { exam: { questions: Array<{ question: { options: Array<{ isCorrect: boolean }> } }> } } & Record<string, unknown>) {
+    return {
+      ...session,
+      exam: {
+        ...session.exam,
+        questions: session.exam.questions.map((examQuestion) => ({
+          ...examQuestion,
+          question: {
+            ...examQuestion.question,
+            options: examQuestion.question.options.map(({ isCorrect: _isCorrect, ...option }) => option),
+          },
+        })),
+      },
+    };
+  }
+
+  private shuffle<T>(items: T[]): T[] {
+    return [...items].sort(() => Math.random() - 0.5);
+  }
+}

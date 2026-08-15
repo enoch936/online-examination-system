@@ -1,0 +1,24 @@
+{
+  "name": "online-examination-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enterprise-grade Online Examination System monorepo with Next.js, NestJS, Prisma, PostgreSQL, Socket.IO, Docker, and CI/CD.",
+  "packageManager": "pnpm@10.12.1",
+  "scripts": {
+    "dev": "pnpm --parallel --filter frontend --filter backend dev",
+    "build": "pnpm --recursive build",
+    "lint": "pnpm --recursive lint",
+    "test": "pnpm --recursive test",
+    "format": "pnpm --recursive format",
+    "proctoring": "proctoring/.venv/Scripts/python.exe proctoring/main.py",
+    "proctoring:install": "python -m venv proctoring/.venv && proctoring/.venv/Scripts/pip install -r proctoring/requirements.txt",
+    "db:migrate": "pnpm --filter backend prisma:migrate",
+    "db:studio": "pnpm --filter backend prisma:studio",
+    "docker:up": "docker compose -f deployment/docker-compose.yml up --build",
+    "docker:down": "docker compose -f deployment/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4"
+  }
+}
