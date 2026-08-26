@@ -739,7 +739,7 @@ export class ExamsService {
           showResultImmediately: old.showResultImmediately,
           startsAt: now,
           endsAt: new Date(now.getTime() + old.durationMinutes * 60 * 1000),
-          status: ExamStatus.PUBLISHED,
+          status: ExamStatus.LIVE,
           questionBankId: old.questionBankId,
         },
       });
