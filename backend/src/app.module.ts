@@ -1,5 +1,6 @@
   import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
@@ -32,6 +33,10 @@ import { SubmissionsModule } from './submissions/submissions.module';
 import { UsersModule } from './users/users.module';
 import { RealtimeModule } from './websocket/realtime.module';
 import { SettingsModule } from './settings/settings.module';
+import { RedisConfigModule } from './cache/redis.module';
+import { CacheService } from './cache/cache.service';
+import { QueueModule } from './queue/queue.module';
+import { EventQueueService } from './queue/event-queue.service';
 
 @Module({
   imports: [
@@ -51,6 +56,9 @@ import { SettingsModule } from './settings/settings.module';
         ],
       }),
     }),
+    ScheduleModule.forRoot(),
+    RedisConfigModule,
+    QueueModule,
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -83,6 +91,8 @@ import { SettingsModule } from './settings/settings.module';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+    CacheService,
+    EventQueueService,
   ],
 })
 export class AppModule {}

@@ -16,8 +16,6 @@ async function bootstrap() {
   const apiPrefix = config.get<string>('API_PREFIX', 'api/v1');
   const nodeEnv = config.get<string>('NODE_ENV', 'development');
 
-  // Single source of truth for browser origins across REST + Socket.IO:
-  // CORS_ORIGIN when provided, otherwise FRONTEND_URL (both accept comma lists).
   const corsOrigins = parseOrigins(
     config.get<string>('CORS_ORIGIN') ?? config.get<string>('FRONTEND_URL'),
   );
@@ -43,7 +41,8 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new ResponseTransformInterceptor());
 
-  // eslint-disable-next-line no-console
+  app.enableShutdownHooks();
+
   console.log(`REST CORS: configured (${corsOrigins.length} origin(s): ${corsOrigins.join(', ')})`);
 
   if (config.get<boolean>('SWAGGER_ENABLED', false)) {
@@ -55,12 +54,14 @@ async function bootstrap() {
       .build();
     const document = SwaggerModule.createDocument(app, swaggerConfig);
     SwaggerModule.setup('api/docs', app, document);
-    // eslint-disable-next-line no-console
     console.log('Swagger docs: enabled at /api/docs');
   }
 
   const port = config.get<number>('PORT', 4000);
-  await app.listen(port);
+  const host = config.get<string>('HOST', '0.0.0.0');
+  await app.listen(port, host);
+
+  console.log(`Server running on ${host}:${port} [${nodeEnv}]`);
 }
 
 void bootstrap();

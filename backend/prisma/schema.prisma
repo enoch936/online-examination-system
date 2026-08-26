@@ -511,6 +511,9 @@ model ExamSession {
   @@unique([examId, studentId, attemptNumber])
   @@index([studentId, status])
   @@index([examId, status])
+  @@index([status, expiresAt])
+  @@index([connectionState])
+  @@index([examId, createdAt])
   @@map("exam_sessions")
 }
 
@@ -553,6 +556,7 @@ model Submission {
   result             Result?
 
   @@index([status, submittedAt])
+  @@index([sessionId])
   @@map("submissions")
 }
 
@@ -733,6 +737,7 @@ model ExamEvent {
   @@index([sessionId, timestamp])
   @@index([studentId, timestamp])
   @@index([type])
+  @@index([type, timestamp])
   @@map("exam_events")
 }
 

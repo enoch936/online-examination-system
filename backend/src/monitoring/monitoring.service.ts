@@ -1,6 +1,8 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { ExamEventType, NotificationType, RiskLevel, RoleName, SessionStatus, ViolationType } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
+import { CacheService } from '../cache/cache.service';
+import { EventQueueService } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
 import { InstructorActionDto } from './dto/instructor-action.dto';
@@ -45,6 +47,7 @@ export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
 
 /** Minimum interval between monitor:candidate-update broadcasts triggered by heartbeats. */
 const SNAPSHOT_MIN_INTERVAL_MS = 15_000;
+const BATCH_SNAPSHOT_SIZE = 50;
 
 @Injectable()
 export class MonitoringService {
@@ -54,6 +57,8 @@ export class MonitoringService {
     private readonly prisma: PrismaService,
     private readonly risk: RiskEngine,
     private readonly audit: AuditService,
+    private readonly cache: CacheService,
+    private readonly eventQueue: EventQueueService,
     @Inject(forwardRef(() => RealtimeGateway)) private readonly gateway: RealtimeGateway,
   ) {}
 
@@ -81,10 +86,16 @@ export class MonitoringService {
   }
 
   async getConfig(examId: string) {
+    const cacheKey = `monitoring-config:${examId}`;
+    const cached = await this.cache.get<ReturnType<typeof this.mergeConfig>>(cacheKey);
+    if (cached) return cached;
+
     const exam = await this.prisma.exam.findUnique({ where: { id: examId }, select: { id: true } });
     if (!exam) throw new NotFoundException('Exam not found');
     const stored = await this.prisma.examMonitoringConfig.findUnique({ where: { examId } });
-    return this.mergeConfig(stored);
+    const config = this.mergeConfig(stored);
+    await this.cache.set(cacheKey, config, 300);
+    return config;
   }
 
   async getStudentRequirements(examId: string) {
@@ -128,6 +139,7 @@ export class MonitoringService {
       create: { examId, ...data },
     });
 
+    await this.cache.del(`monitoring-config:${examId}`);
     this.gateway.emitToExam(examId, 'monitor:config-updated', { examId, config: this.mergeConfig(saved) });
     return this.mergeConfig(saved);
   }
@@ -195,6 +207,9 @@ export class MonitoringService {
 
     await this.recomputeSessionRisk(session.id, config);
     this.emitEvent(session.examId, session.id, session.student, input.type, event, points, severity, config);
+
+    await this.eventQueue.addRiskScoring({ sessionId: session.id, incremental: true }).catch(() => {});
+
     return event;
   }
 
@@ -512,11 +527,12 @@ export class MonitoringService {
       where: { examId },
       select: { id: true },
       orderBy: { startedAt: 'desc' },
-      take: 200,
     });
     const snapshots: Array<Record<string, unknown> | null> = [];
-    for (const { id } of sessions) {
-      snapshots.push(await this.snapshot(id));
+    for (let i = 0; i < sessions.length; i += BATCH_SNAPSHOT_SIZE) {
+      const batch = sessions.slice(i, i + BATCH_SNAPSHOT_SIZE);
+      const results = await Promise.all(batch.map(({ id }) => this.snapshot(id)));
+      snapshots.push(...results);
     }
     return snapshots.filter((s): s is Record<string, unknown> => s !== null);
   }

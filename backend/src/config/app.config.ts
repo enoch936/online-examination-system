@@ -35,6 +35,11 @@ const schema = z.object({
   BCRYPT_ROUNDS: z.coerce.number().min(10).default(12),
   RATE_LIMIT_TTL: z.coerce.number().default(60),
   RATE_LIMIT_LIMIT: z.coerce.number().default(120),
+  REDIS_URL: z.string().url().optional().default('redis://localhost:6379'),
+  REDIS_HOST: z.string().default('localhost'),
+  REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_PASSWORD: z.string().optional().default(''),
+  DB_POOL_SIZE: z.coerce.number().min(1).max(100).default(20),
 });
 
 export type AppEnv = z.infer<typeof schema>;

@@ -1,10 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { ExamEventType, ExamStatus, Prisma, QuestionType, SessionStatus, SubmissionStatus } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
+import { EventQueueService, GradingJob } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 
 const LIFECYCLE_INTERVAL_MS = 60_000;
+const BATCH_SIZE = 200;
 
 type SubmissionSession = Prisma.ExamSessionGetPayload<{ include: ReturnType<SubmissionsService['submissionInclude']> }>;
 
@@ -13,6 +15,7 @@ export class SubmissionsService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly monitoring: MonitoringService,
+    private readonly eventQueue: EventQueueService,
   ) {}
 
   onModuleInit() {
@@ -21,10 +24,6 @@ export class SubmissionsService implements OnModuleInit {
     timer.unref?.();
   }
 
-  /**
-   * Flags exams whose window has passed as CLOSED and auto-submits any
-   * sessions that are still open after their time expired.
-   */
   async runLifecycle() {
     const now = new Date();
     const [autoSubmitted, closed] = await Promise.all([
@@ -55,31 +54,33 @@ export class SubmissionsService implements OnModuleInit {
   }
 
   async autoSubmitExpired(now = new Date()) {
-    const sessions = await this.prisma.examSession.findMany({
+    const expiredSessionIds = await this.prisma.examSession.findMany({
       where: {
         status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] },
         expiresAt: { lt: now },
       },
-      include: this.submissionInclude(),
-      take: 200,
+      select: { id: true },
     });
 
     let autoSubmitted = 0;
-    for (const session of sessions) {
-      try {
-        await this.finalizeSubmission(session, true);
-        autoSubmitted++;
-      } catch {
-        /* a single session must not block the rest */
+    for (let i = 0; i < expiredSessionIds.length; i += BATCH_SIZE) {
+      const batch = expiredSessionIds.slice(i, i + BATCH_SIZE);
+      const sessions = await this.prisma.examSession.findMany({
+        where: { id: { in: batch.map((s) => s.id) } },
+        include: this.submissionInclude(),
+      });
+      for (const session of sessions) {
+        try {
+          await this.finalizeSubmission(session, true);
+          autoSubmitted++;
+        } catch {
+          /* a single session must not block the rest */
+        }
       }
     }
     return { autoSubmitted };
   }
 
-  /**
-   * Lets an instructor end an exam before its scheduled end time: every still
-   * open session is force-submitted (graded) and the exam is closed immediately.
-   */
   async forceEndExam(examId: string, instructorId: string) {
     const exam = await this.prisma.exam.findUnique({ where: { id: examId } });
     if (!exam) throw new NotFoundException('Exam not found');

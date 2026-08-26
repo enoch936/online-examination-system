@@ -20,6 +20,8 @@
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@nestjs-modules/ioredis": "^2.2.2",
+    "@nestjs/bullmq": "^11.0.5",
     "@nestjs/common": "latest",
     "@nestjs/config": "latest",
     "@nestjs/core": "latest",
@@ -27,19 +29,24 @@
     "@nestjs/passport": "latest",
     "@nestjs/platform-express": "latest",
     "@nestjs/platform-socket.io": "latest",
+    "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "latest",
     "@nestjs/throttler": "latest",
     "@nestjs/websockets": "latest",
     "@prisma/client": "6.5.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcrypt": "latest",
+    "bullmq": "^6.2.2",
     "class-transformer": "latest",
     "class-validator": "latest",
     "cookie-parser": "latest",
     "exceljs": "latest",
     "helmet": "latest",
+    "ioredis": "^6.0.0",
     "passport": "latest",
     "passport-jwt": "latest",
     "pdfkit": "latest",
+    "redis": "^6.2.1",
     "reflect-metadata": "latest",
     "rxjs": "latest",
     "socket.io": "latest",
@@ -70,7 +77,7 @@
     "ts-node": "latest",
     "tsconfig-paths": "latest",
     "tsx": "latest",
-    "typescript": "latest"
+    "typescript": "^6.0.3"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,5 +1,6 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, OnModuleDestroy } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import {
   ConnectedSocket,
   MessageBody,
@@ -12,8 +13,14 @@ import {
 } from '@nestjs/websockets';
 import { ExamEventType, RoleName, ViolationType } from '@prisma/client';
 import { Server, Socket } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient, RedisClientType } from 'redis';
 import { MonitoringService, STUDENT_GENERATED_EVENTS } from '../monitoring/monitoring.service';
 import { parseOrigins } from '../config/app.config';
+
+const MAX_CONNECTIONS_PER_USER = 5;
+const MAX_TOTAL_CONNECTIONS = 50000;
+const RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
 
 interface SocketUser {
   sub: string;
@@ -25,8 +32,6 @@ const MONITOR_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleNam
 
 const VIOLATION_TYPES = new Set<string>(Object.values(ViolationType));
 
-// Evaluated once at boot; production misconfiguration is rejected by
-// validateConfig before the gateway is ever constructed.
 const CORS_ORIGINS = parseOrigins(process.env.CORS_ORIGIN ?? process.env.FRONTEND_URL);
 
 function isValidId(value: unknown, max = 64): value is string {
@@ -40,20 +45,41 @@ function isValidId(value: unknown, max = 64): value is string {
     origin: CORS_ORIGINS.length > 0 ? CORS_ORIGINS : 'http://localhost:3000',
     credentials: true,
   },
+  transports: ['websocket', 'polling'],
+  pingInterval: 25000,
+  pingTimeout: 20000,
+  maxHttpBufferSize: 1e6,
 })
-export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer()
   server: Server;
 
   private socketSessions = new Map<string, Set<string>>();
   private eventCounts = new Map<string, { minute: number; count: number }>();
+  private userConnections = new Map<string, number>();
+  private totalConnections = 0;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private pubClient: RedisClientType | null = null;
+  private subClient: RedisClientType | null = null;
 
   constructor(
     @Inject(forwardRef(() => MonitoringService)) private readonly monitoring: MonitoringService,
     private readonly jwt: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
-  afterInit(server: Server) {
+  async afterInit(server: Server) {
+    try {
+      const redisUrl = this.config.get<string>('REDIS_URL', 'redis://localhost:6379');
+      this.pubClient = createClient({ url: redisUrl });
+      this.subClient = createClient({ url: redisUrl });
+      await Promise.all([this.pubClient.connect(), this.subClient.connect()]);
+      server.adapter(createAdapter(this.pubClient, this.subClient));
+      console.log('Socket.IO: Redis adapter connected — multi-instance scaling enabled');
+    } catch (err) {
+      console.warn('Socket.IO: Redis adapter failed, running single-process mode:', (err as Error).message);
+    }
+
     server.use((socket, next) => {
       const token = this.extractToken(socket);
       if (!token) {
@@ -68,8 +94,24 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
         next(new Error('unauthorized'));
       }
     });
-    // eslint-disable-next-line no-console
+
+    this.cleanupTimer = setInterval(() => this.cleanupRateLimits(), RATE_LIMIT_CLEANUP_INTERVAL_MS);
     console.log(`Socket.IO CORS: configured (${CORS_ORIGINS.length} origin(s))`);
+  }
+
+  async onModuleDestroy() {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    await this.pubClient?.quit().catch(() => {});
+    await this.subClient?.quit().catch(() => {});
+  }
+
+  private cleanupRateLimits() {
+    const now = Date.now();
+    for (const [key, entry] of this.eventCounts) {
+      if (now - entry.minute >= 60000) {
+        this.eventCounts.delete(key);
+      }
+    }
   }
 
   private extractToken(socket: Socket): string | undefined {
@@ -83,8 +125,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   handleConnection(client: Socket) {
-    client.join(`peer:${client.id}`);
+    if (this.totalConnections >= MAX_TOTAL_CONNECTIONS) {
+      client.emit('error', { message: 'Server connection limit reached' });
+      client.disconnect(true);
+      return;
+    }
+
     const user = client.data.user as SocketUser | undefined;
+    if (user) {
+      const count = (this.userConnections.get(user.sub) ?? 0) + 1;
+      if (count > MAX_CONNECTIONS_PER_USER) {
+        client.emit('error', { message: 'Too many connections' });
+        client.disconnect(true);
+        return;
+      }
+      this.userConnections.set(user.sub, count);
+    }
+
+    this.totalConnections++;
+    client.join(`peer:${client.id}`);
     client.emit('connection:ready', {
       socketId: client.id,
       connectedAt: new Date().toISOString(),
@@ -93,6 +152,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   handleDisconnect(client: Socket) {
+    this.totalConnections = Math.max(0, this.totalConnections - 1);
+    const user = client.data.user as SocketUser | undefined;
+    if (user) {
+      const count = (this.userConnections.get(user.sub) ?? 1) - 1;
+      if (count <= 0) this.userConnections.delete(user.sub);
+      else this.userConnections.set(user.sub, count);
+    }
+
     const sessions = this.socketSessions.get(client.id);
     if (sessions) {
       for (const sessionId of sessions) {
