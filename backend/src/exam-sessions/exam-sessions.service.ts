@@ -50,6 +50,7 @@ export class ExamSessionsService {
         currentQuestionIndex: s.currentQuestionIndex,
         riskScore: s.riskScore,
         riskLevel: s.riskLevel,
+        retakePermitted: s.retakePermitted,
         answeredCount,
         totalQuestions,
         unansweredCount: Math.max(0, totalQuestions - answeredCount),
@@ -92,8 +93,20 @@ export class ExamSessionsService {
     if (!exam) {
       throw new NotFoundException('Exam not found');
     }
-    if (!([ExamStatus.PUBLISHED, ExamStatus.LIVE] as ExamStatus[]).includes(exam.status)) {
-      throw new ForbiddenException('Exam is not available');
+
+    if (exam.status !== ExamStatus.LIVE) {
+      throw new ForbiddenException('Exam has not been started yet. Please wait for the instructor to begin the exam.');
+    }
+
+    const submittedSession = await this.prisma.examSession.findFirst({
+      where: {
+        examId,
+        studentId,
+        status: { in: [SessionStatus.SUBMITTED, SessionStatus.AUTO_SUBMITTED] },
+      },
+    });
+    if (submittedSession && !submittedSession.retakePermitted) {
+      throw new ForbiddenException('You have already submitted this exam. Contact your instructor to retake.');
     }
 
     const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
@@ -209,6 +222,31 @@ export class ExamSessionsService {
     }
     const result = await this.monitoring.recordViolation(session.examId, sessionId, studentId, dto);
     return result.violation;
+  }
+
+  async permitRetake(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    if (!([SessionStatus.SUBMITTED, SessionStatus.AUTO_SUBMITTED] as SessionStatus[]).includes(session.status)) {
+      throw new ForbiddenException('Can only permit retake for submitted sessions');
+    }
+    return this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: { retakePermitted: true },
+    });
+  }
+
+  async revokeRetake(sessionId: string) {
+    const session = await this.prisma.examSession.findUnique({ where: { id: sessionId } });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    return this.prisma.examSession.update({
+      where: { id: sessionId },
+      data: { retakePermitted: false },
+    });
   }
 
   private sessionInclude() {

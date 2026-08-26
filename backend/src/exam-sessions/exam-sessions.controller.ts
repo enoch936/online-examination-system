@@ -49,4 +49,18 @@ export class ExamSessionsController {
   ) {
     return this.sessions.logViolation(sessionId, user.sub, dto);
   }
+
+  @Patch(':sessionId/permit-retake')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('sessions.monitor')
+  permitRetake(@Param('sessionId') sessionId: string) {
+    return this.sessions.permitRetake(sessionId);
+  }
+
+  @Patch(':sessionId/revoke-retake')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('sessions.monitor')
+  revokeRetake(@Param('sessionId') sessionId: string) {
+    return this.sessions.revokeRetake(sessionId);
+  }
 }

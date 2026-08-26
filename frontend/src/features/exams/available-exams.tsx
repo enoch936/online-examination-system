@@ -12,7 +12,7 @@ import { api, unwrap } from '@/services/api';
 import type { ExamSummary } from '@/types/api';
 
 type AvailableExam = ExamSummary & {
-  session: { id: string; status: string; attemptNumber: number } | null;
+  session: { id: string; status: string; attemptNumber: number; retakePermitted?: boolean } | null;
 };
 
 function useNow(intervalMs = 1000) {
@@ -90,6 +90,9 @@ export function AvailableExams() {
           const startsAt = new Date(exam.startsAt).getTime();
           const endsAt = new Date(exam.endsAt).getTime();
           const inProgress = exam.session?.status === 'IN_PROGRESS';
+          const isLive = exam.status === 'LIVE';
+          const isPublished = exam.status === 'PUBLISHED';
+          const hasSubmitted = exam.session?.status === 'SUBMITTED' || exam.session?.status === 'AUTO_SUBMITTED';
           const notStarted = now < startsAt;
           const inWindow = now >= startsAt && now <= endsAt;
 
@@ -105,8 +108,9 @@ export function AvailableExams() {
                 </div>
                 <div className="flex items-center gap-2">
                   {inProgress && <Badge variant="warning">In progress</Badge>}
-                  {exam.session?.status === 'SUBMITTED' && <Badge variant="secondary">Submitted</Badge>}
-                  <Badge variant={exam.status === 'PUBLISHED' ? 'success' : 'secondary'}>{exam.status}</Badge>
+                  {hasSubmitted && <Badge variant="secondary">Submitted</Badge>}
+                  {isPublished && <Badge variant="outline">Waiting to start</Badge>}
+                  {isLive && <Badge variant="success">Live</Badge>}
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -119,6 +123,15 @@ export function AvailableExams() {
                   {inProgress ? (
                     <span className="flex items-center gap-2 text-sm font-medium text-amber-600">
                       <Timer className="h-4 w-4" />In progress
+                    </span>
+                  ) : isPublished ? (
+                    <span className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <Timer className="h-4 w-4" />
+                      {notStarted ? (
+                        <>Starts in <Countdown target={startsAt} /></>
+                      ) : (
+                        <>Waiting for instructor to start</>
+                      )}
                     </span>
                   ) : notStarted ? (
                     <span className="flex items-center gap-2 text-sm font-medium">
@@ -134,10 +147,18 @@ export function AvailableExams() {
                       <RotateCcw className="h-4 w-4" />
                       Resume
                     </Button>
+                  ) : hasSubmitted ? (
+                    <Button disabled>
+                      Already submitted
+                    </Button>
+                  ) : isPublished ? (
+                    <Button disabled>
+                      Not started yet
+                    </Button>
                   ) : (
                     <Button disabled={!inWindow} onClick={() => router.push(`/student/exams/${exam.id}/take`)}>
                       <PlayCircle className="h-4 w-4" />
-                      {notStarted ? 'Not started yet' : 'Start exam'}
+                      Start exam
                     </Button>
                   )}
                 </div>

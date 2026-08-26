@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import {
-  Eye, Send, ClipboardList, Users, Loader2, Calendar, Pencil, Trash2, Plus, Search, X, Play, RotateCcw, XCircle, Share2, ArrowLeftRight,
+  Eye, Send, ClipboardList, Users, Loader2, Calendar, Pencil, Trash2, Plus, Search, X, Play, RotateCcw, XCircle, Share2, ArrowLeftRight, ListChecks, UserCheck, UserX,
 } from 'lucide-react';
 import type { ExamSummary } from '@/types/api';
 
@@ -99,6 +99,7 @@ export default function ManageExamPage() {
   const [shareLevel, setShareLevel] = useState<ExamPermissionLevel>('VIEWER');
   const [transferringId, setTransferringId] = useState<string | null>(null);
   const [transferTarget, setTransferTarget] = useState('');
+  const [sessionsExamId, setSessionsExamId] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState({
     title: '',
@@ -254,6 +255,37 @@ export default function ManageExamPage() {
     onError: () => toast.error('Failed to transfer ownership'),
   });
 
+  const { data: examSessions, refetch: refetchSessions } = useQuery({
+    queryKey: ['exams', 'sessions', sessionsExamId],
+    queryFn: async () => {
+      const { api, unwrap } = await import('@/services/api');
+      return unwrap<Array<{
+        id: string;
+        examId: string;
+        studentId: string;
+        student: { id: string; firstName: string; lastName: string; email: string };
+        attemptNumber: number;
+        status: string;
+        startedAt: string | null;
+        submittedAt: string | null;
+        retakePermitted: boolean;
+      }>>(await api.get(`/exam-sessions?examId=${sessionsExamId}`));
+    },
+    enabled: !!sessionsExamId,
+  });
+
+  const permitRetakeMutation = useMutation({
+    mutationFn: (sessionId: string) => examsService.permitRetake(sessionId),
+    onSuccess: () => { refetchSessions(); toast.success('Retake permitted'); },
+    onError: () => toast.error('Failed to permit retake'),
+  });
+
+  const revokeRetakeMutation = useMutation({
+    mutationFn: (sessionId: string) => examsService.revokeRetake(sessionId),
+    onSuccess: () => { refetchSessions(); toast.success('Retake revoked'); },
+    onError: () => toast.error('Failed to revoke retake'),
+  });
+
   const availableInstructors = (instructors ?? []).filter(
     (i) => i.id !== sharingAccess?.owner?.id && !(sharingAccess?.shares ?? []).some((s) => s.id === i.id),
   );
@@ -370,6 +402,11 @@ export default function ManageExamPage() {
                   <Button variant="outline" size="sm" className="flex-1" asChild>
                     <Link href={`/instructor/exams/${exam.id}`}><Eye className="mr-1 h-3.5 w-3.5" />View</Link>
                   </Button>
+                  {canManage(exam) && (
+                    <Button variant="outline" size="sm" onClick={() => setSessionsExamId(exam.id)}>
+                      <ListChecks className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   {canManage(exam) && (
                     <Button variant="outline" size="sm" onClick={() => { setSharingId(exam.id); setSelectedSharing([]); setShareLevel('VIEWER'); }}>
                       <Share2 className="h-3.5 w-3.5" />
@@ -680,6 +717,65 @@ export default function ManageExamPage() {
             >
               {transferMutation.isPending ? 'Transferring...' : 'Transfer ownership'}
             </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={!!sessionsExamId} onOpenChange={(o) => { if (!o) setSessionsExamId(null); }}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Exam Sessions</SheetTitle>
+            <SheetDescription>View student sessions and manage retake permissions.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {!examSessions ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : examSessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No sessions yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {examSessions.map((session) => (
+                  <div key={session.id} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium">{session.student.firstName} {session.student.lastName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Attempt {session.attemptNumber} · {session.status}
+                        {session.submittedAt && ` · Submitted ${new Date(session.submittedAt).toLocaleString()}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {(session.status === 'SUBMITTED' || session.status === 'AUTO_SUBMITTED') && (
+                        session.retakePermitted ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-amber-600 border-amber-300"
+                            disabled={revokeRetakeMutation.isPending}
+                            onClick={() => revokeRetakeMutation.mutate(session.id)}
+                          >
+                            <UserX className="h-3.5 w-3.5 mr-1" />
+                            Revoke
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-emerald-600 border-emerald-300"
+                            disabled={permitRetakeMutation.isPending}
+                            onClick={() => permitRetakeMutation.mutate(session.id)}
+                          >
+                            <UserCheck className="h-3.5 w-3.5 mr-1" />
+                            Permit retake
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>

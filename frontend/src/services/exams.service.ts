@@ -162,4 +162,12 @@ export const examsService = {
   async submit(sessionId: string, autoSubmitted = false) {
     return unwrap(await api.post('/submissions', { sessionId, autoSubmitted }));
   },
+
+  async permitRetake(sessionId: string) {
+    return unwrap(await api.patch(`/exam-sessions/${sessionId}/permit-retake`));
+  },
+
+  async revokeRetake(sessionId: string) {
+    return unwrap(await api.patch(`/exam-sessions/${sessionId}/revoke-retake`));
+  },
 };

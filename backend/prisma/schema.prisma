@@ -3,8 +3,13 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Prisma CLI (migrate) uses this direct connection when the runtime
+  // DATABASE_URL is pooled (e.g. Neon pgBouncer). Falls back cleanly when
+  // unset only if not referenced — set DIRECT_DATABASE_URL wherever
+  // migrations run (CI / Render pre-deploy command).
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum UserStatus {
@@ -491,6 +496,7 @@ model ExamSession {
   lastActivityAt   DateTime?
   riskScore        Int              @default(0)
   riskLevel        RiskLevel        @default(LOW)
+  retakePermitted  Boolean          @default(false)
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -599,9 +605,10 @@ model Notification {
   metadata String?
   createdAt DateTime         @default(now())
 
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
+  @@index([userId, createdAt])
   @@map("notifications")
 }
 
