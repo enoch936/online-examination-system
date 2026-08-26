@@ -88,7 +88,11 @@ export function PublicNav() {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-80 border-l border-border/40 bg-background/95 backdrop-blur-md p-6">
+            <SheetContent
+              side="right"
+              data-lenis-prevent
+              className="max-h-full w-80 overflow-y-auto overscroll-contain border-l border-border/40 bg-background/95 p-6 backdrop-blur-md"
+            >
               <div className="flex flex-col gap-6 pt-6">
                 <Link href="/" className="flex items-center gap-2 font-bold text-xl text-foreground">
                   <GraduationCap className="h-6 w-6 text-primary" />

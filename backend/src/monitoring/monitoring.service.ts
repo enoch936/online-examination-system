@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import { ExamEventType, NotificationType, RiskLevel, SessionStatus, ViolationType } from '@prisma/client';
+import { ExamEventType, NotificationType, RiskLevel, RoleName, SessionStatus, ViolationType } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
@@ -18,7 +18,7 @@ const VIOLATION_TO_EVENT: Record<ViolationType, ExamEventType> = {
   MANUAL_FLAG: ExamEventType.MANUAL_FLAG,
 };
 
-const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
+export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
   ExamEventType.QUESTION_VIEWED,
   ExamEventType.QUESTION_ANSWERED,
   ExamEventType.QUESTION_FLAGGED,
@@ -43,8 +43,13 @@ const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
   ExamEventType.MANUAL_FLAG,
 ]);
 
+/** Minimum interval between monitor:candidate-update broadcasts triggered by heartbeats. */
+const SNAPSHOT_MIN_INTERVAL_MS = 15_000;
+
 @Injectable()
 export class MonitoringService {
+  private static readonly MONITOR_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly risk: RiskEngine,
@@ -53,6 +58,27 @@ export class MonitoringService {
   ) {}
 
   private lastStatsAt = new Map<string, number>();
+  /** sessionId -> timestamp of the last monitor:candidate-update broadcast. */
+  private lastSnapshotAt = new Map<string, number>();
+
+  /**
+   * Socket authorization: a user may interact with an exam session only if
+   * they own it (student) or hold a monitoring role (staff).
+   */
+  async assertSessionAccess(
+    sessionId: string,
+    userId: string,
+    roles: RoleName[],
+  ): Promise<{ examId: string; studentId: string } | null> {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, examId: true, studentId: true },
+    });
+    if (!session) return null;
+    if (session.studentId === userId) return { examId: session.examId, studentId: session.studentId };
+    const isMonitor = MonitoringService.MONITOR_ROLES.some((role) => roles.includes(role));
+    return isMonitor ? { examId: session.examId, studentId: session.studentId } : null;
+  }
 
   async getConfig(examId: string) {
     const exam = await this.prisma.exam.findUnique({ where: { id: examId }, select: { id: true } });
@@ -248,6 +274,17 @@ export class MonitoringService {
       },
     });
 
+    // Heartbeats arrive every ~10s per active student. The full snapshot query
+    // is only needed when something material changed; otherwise the instructor
+    // view refreshes on the next event/action or at most every 15s.
+    const now = Date.now();
+    const lastBroadcast = this.lastSnapshotAt.get(sessionId) ?? 0;
+    if (session.connectionState === 'CONNECTED' && now - lastBroadcast < SNAPSHOT_MIN_INTERVAL_MS) {
+      return null;
+    }
+    this.lastSnapshotAt.set(sessionId, now);
+    if (this.lastSnapshotAt.size > 5000) this.lastSnapshotAt.clear();
+
     const snapshot = await this.snapshot(sessionId);
     if (snapshot) this.gateway.emitToExam(session.examId, 'monitor:candidate-update', snapshot);
     return snapshot;
@@ -315,7 +352,10 @@ export class MonitoringService {
     }
 
     const snapshot = await this.snapshot(sessionId);
-    if (snapshot) this.gateway.emitToExam(session.examId, 'monitor:candidate-update', snapshot);
+    if (snapshot) {
+      this.markSnapshotBroadcast(sessionId);
+      this.gateway.emitToExam(session.examId, 'monitor:candidate-update', snapshot);
+    }
     this.broadcastStatsThrottled(session.examId);
     return snapshot;
   }
@@ -353,7 +393,10 @@ export class MonitoringService {
 
     const snapshotPromise = this.snapshot(sessionId);
     snapshotPromise.then((snapshot) => {
-      if (snapshot) this.gateway.emitToExam(examId, 'monitor:candidate-update', snapshot);
+      if (snapshot) {
+        this.markSnapshotBroadcast(sessionId);
+        this.gateway.emitToExam(examId, 'monitor:candidate-update', snapshot);
+      }
     });
 
     if (forceAlert || severity === RiskLevel.HIGH || severity === RiskLevel.CRITICAL || type === ExamEventType.MANUAL_FLAG) {
@@ -755,9 +798,17 @@ export class MonitoringService {
     );
 
     const snapshot = await this.snapshot(session.id);
-    if (snapshot) this.gateway.emitToExam(session.examId, 'monitor:candidate-update', snapshot);
+    if (snapshot) {
+      this.markSnapshotBroadcast(session.id);
+      this.gateway.emitToExam(session.examId, 'monitor:candidate-update', snapshot);
+    }
     this.broadcastStatsThrottled(session.examId);
     return snapshot ?? { sessionId };
+  }
+
+  private markSnapshotBroadcast(sessionId: string) {
+    this.lastSnapshotAt.set(sessionId, Date.now());
+    if (this.lastSnapshotAt.size > 5000) this.lastSnapshotAt.clear();
   }
 
   private async recordInstructorEvent(

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Next.js frontend for the Enterprise Online Examination System.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev --webpack --port 3000",
     "build": "next build",

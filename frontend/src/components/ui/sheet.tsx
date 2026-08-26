@@ -22,6 +22,7 @@ export function SheetContent({ className, children, side = 'right', ...props }: 
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
       <DialogPrimitive.Content
+        data-lenis-prevent
         className={cn(
           'fixed z-50 gap-4 bg-background/95 p-6 shadow-xl backdrop-blur-xl transition ease-in-out',
           side === 'right' && 'inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right',

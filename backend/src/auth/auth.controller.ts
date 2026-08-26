@@ -16,6 +16,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { PrismaService } from '../prisma/prisma.service';
+import { durationToMs } from '../common/utils/duration.util';
 
 type TokenResponse = Awaited<ReturnType<AuthService['login']>>;
 
@@ -77,8 +78,7 @@ export class AuthController {
   @Post('logout')
   async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
     const result = await this.auth.logout(request.cookies?.refresh_token);
-    response.clearCookie('access_token');
-    response.clearCookie('refresh_token');
+    this.clearAuthCookies(response);
     return result;
   }
 
@@ -150,8 +150,7 @@ export class AuthController {
     }
 
     await this.auth.revokeAllSessions(currentUser.sub, excludeSessionId);
-    response.clearCookie('access_token');
-    response.clearCookie('refresh_token');
+    this.clearAuthCookies(response);
     return { revoked: true };
   }
 
@@ -163,23 +162,41 @@ export class AuthController {
   }
 
   private setAuthCookies(response: Response, result: TokenResponse) {
-    const production = this.config.get<string>('NODE_ENV') === 'production';
-    const domain = this.config.get<string>('COOKIE_DOMAIN');
+    const domain = this.config.get<string | undefined>('COOKIE_DOMAIN');
+    const sameSite = this.config.get<'lax' | 'strict' | 'none'>('COOKIE_SAME_SITE', 'lax');
+    const secure = this.config.get<boolean>('COOKIE_SECURE', false) || sameSite === 'none';
+    const path = this.config.get<string>('COOKIE_PATH', '/');
     const common = {
       httpOnly: true,
-      secure: production,
-      sameSite: 'lax' as const,
-      domain: domain === 'localhost' ? undefined : domain,
-      path: '/',
+      secure,
+      sameSite,
+      // Browsers reject a Domain attribute for localhost hosts.
+      domain: domain === 'localhost' || domain === '' ? undefined : domain,
+      path,
     };
+
+    const accessMaxAge = durationToMs(this.config.get<string>('JWT_ACCESS_EXPIRES_IN'), 15 * 60 * 1000);
+    const refreshMaxAge = durationToMs(this.config.get<string>('JWT_REFRESH_EXPIRES_IN'), 7 * 24 * 60 * 60 * 1000);
 
     response.cookie('access_token', result.accessToken, {
       ...common,
-      maxAge: 15 * 60 * 1000,
+      maxAge: accessMaxAge,
     });
     response.cookie('refresh_token', result.refreshToken, {
       ...common,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: refreshMaxAge,
+    });
+  }
+
+  private clearAuthCookies(response: Response) {
+    const domain = this.config.get<string | undefined>('COOKIE_DOMAIN');
+    response.clearCookie('access_token', {
+      domain: domain === 'localhost' || domain === '' ? undefined : domain,
+      path: this.config.get<string>('COOKIE_PATH', '/'),
+    });
+    response.clearCookie('refresh_token', {
+      domain: domain === 'localhost' || domain === '' ? undefined : domain,
+      path: this.config.get<string>('COOKIE_PATH', '/'),
     });
   }
 }

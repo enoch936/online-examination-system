@@ -29,6 +29,7 @@ export class ExamsService {
 
     const exams = await this.prisma.exam.findMany({
       where,
+      take: 500,
       include: {
         course: { include: { subject: true } },
         courses: { include: { course: { include: { subject: true } } } },
@@ -47,10 +48,15 @@ export class ExamsService {
     });
 
     const examIds = exams.map((exam) => exam.id);
-    const [sessionRows, violationRows] = await Promise.all([
+    const [submissionRows, sessionRows, violationRows] = await Promise.all([
+      this.prisma.examSession.groupBy({
+        by: ['examId'],
+        where: { examId: { in: examIds }, submission: { isNot: null } },
+        _count: { _all: true },
+      }),
       this.prisma.examSession.findMany({
         where: { examId: { in: examIds } },
-        select: { id: true, examId: true, submission: { select: { id: true } } },
+        select: { id: true, examId: true },
       }),
       this.prisma.examViolation.groupBy({
         by: ['sessionId'],
@@ -62,10 +68,8 @@ export class ExamsService {
     const sessionExam = new Map(sessionRows.map((s) => [s.id, s.examId]));
     const violationsByExam = new Map<string, number>();
     const submissionsByExam = new Map<string, number>();
-    for (const session of sessionRows) {
-      if (session.submission) {
-        submissionsByExam.set(session.examId, (submissionsByExam.get(session.examId) ?? 0) + 1);
-      }
+    for (const row of submissionRows) {
+      submissionsByExam.set(row.examId, row._count._all);
     }
     for (const violation of violationRows) {
       const examId = sessionExam.get(violation.sessionId);

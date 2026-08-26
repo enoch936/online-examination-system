@@ -17,6 +17,7 @@ import { useAutosave } from '@/hooks/use-autosave';
 import { useCountdown } from '@/hooks/use-countdown';
 import { useExamMonitoring, type ProctorControl } from '@/hooks/use-exam-monitoring';
 import { useProctoring } from '@/hooks/use-proctoring';
+import { apiErrorMessage } from '@/lib/api-error';
 import { formatDuration } from '@/lib/utils';
 import { examsService } from '@/services/exams.service';
 import { monitoringService } from '@/services/monitoring.service';
@@ -156,6 +157,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     queryKey: ['exam-session', examId, sessionId],
     queryFn: () => (sessionId ? examsService.resume(sessionId) : examsService.start(examId ?? '')),
     enabled: Boolean(sessionId || examId),
+    retry: false,
   });
 
   const submitMutation = useMutation({
@@ -170,8 +172,8 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
         router.push('/student/results');
       }
     },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Failed to submit exam');
+    onError: (err) => {
+      toast.error(apiErrorMessage(err, 'Failed to submit exam'));
     },
   });
 
@@ -344,12 +346,35 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     );
   }
 
-  if (!query.data || !currentQuestion) {
+  if (query.isError) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Exam session unavailable</CardTitle>
         </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">{apiErrorMessage(query.error, 'We could not open your exam session.')}</p>
+          <Button onClick={() => router.push('/student/exams')}>Back to exams</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!query.data || !currentQuestion) {
+    const emptyExam = Boolean(query.data) && (query.data?.exam.questions.length ?? 0) === 0;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{emptyExam ? 'This exam has no questions yet' : 'Exam session unavailable'}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {emptyExam
+              ? 'The instructor has not added questions to this exam. Please contact your instructor or try again later.'
+              : 'Your exam session could not be opened. It may have already been submitted or is no longer available.'}
+          </p>
+          <Button onClick={() => router.push('/student/exams')}>Back to exams</Button>
+        </CardContent>
       </Card>
     );
   }

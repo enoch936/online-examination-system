@@ -54,8 +54,14 @@ export class ExamsController {
     return this.exams.getQuestionPool(ids);
   }
 
+  // Staff-only: the detail payload includes option.isCorrect flags, which must
+  // never be exposed to student accounts. Students consume sanitized session
+  // payloads from /exam-sessions instead.
   @Get(':id')
-  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('exams.manage')
+  async findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanMonitor(id, user);
     return this.exams.findOne(id);
   }
 

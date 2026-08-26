@@ -3,6 +3,13 @@ import { join } from 'path';
 import { PrismaClient, RoleName, UserStatus, QuestionType, Difficulty, ExamStatus, QuestionBankStatus, SessionStatus, SubmissionStatus, NotificationType, ViolationType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
+// Guard: the seed creates well-known demo accounts with public passwords.
+// Never allow it to run against a production database unless explicitly forced.
+if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PRODUCTION !== 'true') {
+  console.error('Refusing to seed: NODE_ENV=production. Set SEED_ALLOW_PRODUCTION=true only for throwaway environments.');
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
 // this is a permoission seed for the role

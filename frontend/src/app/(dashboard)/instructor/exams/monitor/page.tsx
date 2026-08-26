@@ -6,6 +6,7 @@ import { examsService } from '@/services/exams.service';
 import { messagesService } from '@/services/messages.service';
 import { monitoringService } from '@/services/monitoring.service';
 import { getSocket } from '@/services/socket.service';
+import { getIceServers } from '@/services/webrtc';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -647,14 +648,7 @@ function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitl
       if (payload.sessionId !== sessionId) return;
       peerSocketIdRef.current = payload.peerSocketId;
       pcRef.current?.close();
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun.services.mozilla.com' },
-        ],
-      });
+      const pc = new RTCPeerConnection({ iceServers: getIceServers() });
       pcRef.current = pc;
       pc.onicecandidate = (e) => {
         if (e.candidate && peerSocketIdRef.current) {

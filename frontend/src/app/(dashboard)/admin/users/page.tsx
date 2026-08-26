@@ -6,6 +6,7 @@ import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar } from 'lucide-reac
 import { toast } from 'sonner';
 import { usersService } from '@/services/users.service';
 import { api } from '@/services/api';
+import { useHasPermission } from '@/hooks/use-permissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,6 +25,7 @@ const statusVariant: Record<string, 'success' | 'warning' | 'default' | 'outline
 
 function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: string, role: string) => void }) {
   const [assigning, setAssigning] = useState(false);
+  const canWrite = useHasPermission()('users.write');
   const roleNames = user.roles.map((r) => r.role.name).join(', ');
 
   const handleAssign = async (role: string) => {
@@ -50,7 +52,8 @@ function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: st
           <span className="text-sm">{roleNames || '—'}</span>
           <select
             className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            disabled={assigning}
+            disabled={assigning || !canWrite}
+            title={canWrite ? undefined : 'Requires users.write permission'}
             onChange={(e) => handleAssign(e.target.value)}
             defaultValue=""
           >
@@ -71,6 +74,7 @@ function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: st
 
 export default function AdminUsersPage() {
   const queryClient = useQueryClient();
+  const canWrite = useHasPermission()('users.write');
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ email: '', firstName: '', lastName: '', password: '' });
 
@@ -113,9 +117,11 @@ export default function AdminUsersPage() {
           <Users className="h-4 w-4" />
           {users && <span>{users.length} total</span>}
         </div>
-        <Button onClick={() => setShowAdd(!showAdd)}>
-          <Plus className="mr-1 h-4 w-4" /> Add user
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setShowAdd(!showAdd)}>
+            <Plus className="mr-1 h-4 w-4" /> Add user
+          </Button>
+        )}
       </div>
 
       {showAdd && (

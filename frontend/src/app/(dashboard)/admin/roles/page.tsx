@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { Shield, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { rolesService } from '@/services/roles.service';
 import { permissionsService } from '@/services/permissions.service';
+import type { RoleName } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,7 +17,7 @@ export default function AdminRolesPage() {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<{ roleId: string; permissionId: string } | null>(null);
-
+  const [revoking, setRevoking] = useState<{ roleId: string; permissionId: string } | null>(null);
   const { data: roles, isLoading: rolesLoading, error: rolesError } = useQuery({
     queryKey: ['admin', 'roles'],
     queryFn: () => rolesService.list(),
@@ -28,13 +29,23 @@ export default function AdminRolesPage() {
   });
 
   const assignMutation = useMutation({
-    mutationFn: (data: { roleId: string; permissionId: string }) => rolesService.assignPermission(data),
+    mutationFn: (data: { role: RoleName; permission: string }) => rolesService.assignPermission(data),
     onSuccess: () => {
       toast.success('Permission assigned');
       queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
       setAssigning(null);
     },
     onError: () => toast.error('Failed to assign permission'),
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (data: { role: RoleName; permission: string }) => rolesService.revokePermission(data),
+    onSuccess: () => {
+      toast.success('Permission revoked');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
+      setRevoking(null);
+    },
+    onError: () => toast.error('Failed to revoke permission'),
   });
 
   return (
@@ -108,7 +119,23 @@ export default function AdminRolesPage() {
                         {role.rolePermissions.map((rp) => (
                           <div key={rp.permission.id} className="flex items-center gap-2 rounded bg-muted px-2 py-1 text-xs">
                             <span className="font-medium">{rp.permission.key}</span>
-                            <span className="text-muted-foreground">— {rp.permission.label}</span>
+                            <span className="min-w-0 flex-1 truncate text-muted-foreground">— {rp.permission.label}</span>
+                            <button
+                              type="button"
+                              title="Revoke permission"
+                              aria-label={`Revoke ${rp.permission.key}`}
+                              onClick={() => {
+                                setRevoking({ roleId: role.id, permissionId: rp.permission.id });
+                                revokeMutation.mutate({ role: role.name, permission: rp.permission.key });
+                              }}
+                              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              {revoking?.roleId === role.id && revoking?.permissionId === rp.permission.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <X className="h-3 w-3" />
+                              )}
+                            </button>
                           </div>
                         ))}
                         {permCount === 0 && (
@@ -123,7 +150,7 @@ export default function AdminRolesPage() {
                           onChange={(e) => {
                             if (e.target.value) {
                               setAssigning({ roleId: role.id, permissionId: e.target.value });
-                              assignMutation.mutate({ roleId: role.id, permissionId: e.target.value });
+                              assignMutation.mutate({ role: role.name, permission: e.target.value });
                             }
                           }}
                         >
@@ -131,7 +158,7 @@ export default function AdminRolesPage() {
                           {permissions?.filter(
                             (p) => !role.rolePermissions.some((rp) => rp.permission.id === p.id),
                           ).map((p) => (
-                            <option key={p.id} value={p.id}>
+                            <option key={p.id} value={p.key}>
                               {p.key}
                             </option>
                           ))}

@@ -2,15 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '@/services/socket.service';
+import { getIceServers } from '@/services/webrtc';
 
 type ProctoringStatus = 'idle' | 'starting' | 'active' | 'denied' | 'error';
-
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun2.l.google.com:19302' },
-  { urls: 'stun:stun.services.mozilla.com' },
-];
 
 function waitForSocketConnect(timeoutMs = 5000): Promise<void> {
   const socket = getSocket();
@@ -107,7 +101,7 @@ export function useProctoring(input: {
       const createConnection = () => {
         lastCreateAt = Date.now();
         pcRef.current?.close();
-        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        const pc = new RTCPeerConnection({ iceServers: getIceServers() });
         pcRef.current = pc;
         stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 

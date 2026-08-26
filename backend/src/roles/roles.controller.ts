@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { IsEnum, IsString } from 'class-validator';
@@ -33,5 +33,11 @@ export class RolesController {
   @Permissions('roles.manage')
   assignPermission(@Body() dto: AssignPermissionDto) {
     return this.roles.assignPermission(dto.role, dto.permission);
+  }
+
+  @Delete('permissions')
+  @Permissions('roles.manage')
+  revokePermission(@Body() dto: AssignPermissionDto) {
+    return this.roles.revokePermission(dto.role, dto.permission);
   }
 }

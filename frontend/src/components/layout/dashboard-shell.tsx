@@ -29,15 +29,24 @@ import {
 import { cn } from '@/lib/utils';
 import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/store/auth.store';
+import { disconnectSocket } from '@/services/socket.service';
+import { useHasPermission } from '@/hooks/use-permissions';
 import type { RoleName } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { ThemeToggle } from './theme-toggle';
 
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  permission?: string;
+};
+
 type NavGroup = {
   label: string;
   roles: RoleName[];
-  items: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }> }>;
+  items: NavItem[];
 };
 
 const nav: NavGroup[] = [
@@ -58,12 +67,13 @@ const nav: NavGroup[] = [
     roles: ['INSTRUCTOR'] as RoleName[],
     items: [
       { href: '/instructor/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/instructor/question-bank', label: 'Question Bank', icon: Library },
-      { href: '/instructor/exams/create', label: 'Create Exam', icon: BookOpen },
-      { href: '/instructor/exams/manage', label: 'Manage Exams', icon: ClipboardList },
-      { href: '/instructor/exams/monitor', label: 'Monitor Exam', icon: Monitor },
+      { href: '/instructor/question-bank', label: 'Question Bank', icon: Library, permission: 'questions.manage' },
+      { href: '/instructor/exams/create', label: 'Create Exam', icon: BookOpen, permission: 'exams.manage' },
+      { href: '/instructor/exams/manage', label: 'Manage Exams', icon: ClipboardList, permission: 'exams.manage' },
+      { href: '/instructor/exams/monitor', label: 'Monitor Exam', icon: Monitor, permission: 'sessions.monitor' },
+      { href: '/instructor/courses', label: 'Courses', icon: GraduationCap, permission: 'courses.manage' },
       { href: '/instructor/messages', label: 'Messages', icon: Mail },
-      { href: '/instructor/reports', label: 'Reports', icon: BarChart3 },
+      { href: '/instructor/reports', label: 'Reports', icon: BarChart3, permission: 'reports.read' },
     ],
   },
   {
@@ -71,14 +81,15 @@ const nav: NavGroup[] = [
     roles: ['SUPER_ADMIN', 'ADMIN'] as RoleName[],
     items: [
       { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/admin/users', label: 'Users', icon: Users },
-      { href: '/admin/roles', label: 'Roles', icon: UserCog },
-      { href: '/admin/permissions', label: 'Permissions', icon: LockKeyhole },
-      { href: '/admin/subjects', label: 'Subjects', icon: BookOpen },
-      { href: '/admin/courses', label: 'Courses', icon: GraduationCap },
-      { href: '/admin/analytics', label: 'Analytics', icon: Activity },
-      { href: '/admin/audit-logs', label: 'Audit Logs', icon: Shield },
-      { href: '/admin/instructors', label: 'Instructors', icon: UserRoundCog },
+      { href: '/admin/users', label: 'Users', icon: Users, permission: 'users.read' },
+      { href: '/admin/roles', label: 'Roles', icon: UserCog, permission: 'roles.manage' },
+      { href: '/admin/permissions', label: 'Permissions', icon: LockKeyhole, permission: 'roles.manage' },
+      { href: '/admin/subjects', label: 'Subjects', icon: BookOpen, permission: 'subjects.manage' },
+      { href: '/admin/courses', label: 'Courses', icon: GraduationCap, permission: 'courses.manage' },
+      { href: '/admin/exams', label: 'Exams', icon: ClipboardList, permission: 'exams.manage' },
+      { href: '/admin/analytics', label: 'Analytics', icon: Activity, permission: 'reports.read' },
+      { href: '/admin/audit-logs', label: 'Audit Logs', icon: Shield, permission: 'audit.read' },
+      { href: '/admin/instructors', label: 'Instructors', icon: UserRoundCog, permission: 'users.read' },
     ],
   },
 ];
@@ -103,8 +114,15 @@ function pageTitle(pathname: string): string {
 function SidebarNav({ collapsed }: { collapsed: boolean }) {
   const pathname = usePathname();
   const user = useAuthStore((state) => state.user);
+  const hasPermission = useHasPermission();
 
-  const visibleGroups = nav.filter((group) => user && group.roles.some((r) => user.roles.includes(r)));
+  const visibleGroups = nav
+    .filter((group) => user && group.roles.some((r) => user.roles.includes(r)))
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => hasPermission(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -189,6 +207,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     } catch {
       // ignore backend errors
     }
+    disconnectSocket();
     useAuthStore.getState().clearSession();
     router.push('/login');
   };
@@ -200,6 +219,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-muted/20">
       {/* Desktop sidebar */}
       <aside
+        data-lenis-prevent
         className={cn(
           'fixed inset-y-0 left-0 z-40 hidden flex-col border-r bg-background/80 backdrop-blur-xl transition-[width] duration-300 lg:flex',
           collapsed ? 'w-[72px]' : 'w-64',
@@ -250,9 +270,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile sidebar */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="flex w-72 flex-col p-0">
+        <SheetContent side="left" data-lenis-prevent className="flex w-72 flex-col p-0">
           <Brand collapsed={false} />
-          <div className="flex-1 overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <SidebarNav collapsed={false} />
           </div>
           <div className="border-t p-3">

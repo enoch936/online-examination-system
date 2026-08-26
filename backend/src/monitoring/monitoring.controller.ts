@@ -8,6 +8,7 @@ import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { PrismaService } from '../prisma/prisma.service';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RecordEventDto } from './dto/record-event.dto';
 import { UpdateMonitoringConfigDto } from './dto/update-monitoring-config.dto';
@@ -21,6 +22,7 @@ export class MonitoringController {
     private readonly monitoring: MonitoringService,
     private readonly access: ExamAccessService,
     private readonly audit: AuditService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Public()
@@ -31,6 +33,25 @@ export class MonitoringController {
       service: 'online-examination-system-api',
       checkedAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Readiness probe: verifies the process can reach its database.
+   * Kept separate from /health so Render liveness never depends on
+   * external services (a DB blip restarts nothing; it just fails ready).
+   */
+  @Public()
+  @Get('health/ready')
+  async readiness() {
+    try {
+      await Promise.race([
+        this.prisma.$queryRaw`SELECT 1`,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('db timeout')), 2000)),
+      ]);
+      return { status: 'ok', database: 'up', checkedAt: new Date().toISOString() };
+    } catch {
+      return { status: 'degraded', database: 'down', checkedAt: new Date().toISOString() };
+    }
   }
 
   @Get('exams/:examId/requirements')

@@ -29,4 +29,20 @@ export class RolesService {
       create: { roleId: role.id, permissionId: permission.id },
     });
   }
+
+  async revokePermission(roleName: RoleName, permissionKey: string) {
+    const [role, permission] = await Promise.all([
+      this.prisma.role.findUnique({ where: { name: roleName } }),
+      this.prisma.permission.findUnique({ where: { key: permissionKey } }),
+    ]);
+    if (!role || !permission) return { revoked: false };
+    const existing = await this.prisma.rolePermission.findUnique({
+      where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+    });
+    if (!existing) return { revoked: false };
+    await this.prisma.rolePermission.delete({
+      where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
+    });
+    return { revoked: true };
+  }
 }

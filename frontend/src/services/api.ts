@@ -38,7 +38,12 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original?._retry) {
+    const status = error.response?.status;
+    const isAuthCall = typeof original?.url === 'string' && original.url.includes('/auth/');
+
+    // 401: session expired. 403: token predates a permission change —
+    // refreshing re-issues tokens with up-to-date roles/permissions.
+    if ((status === 401 || status === 403) && !original?._retry && !isAuthCall) {
       original._retry = true;
 
       if (!refreshPromise) {
@@ -51,7 +56,9 @@ api.interceptors.response.use(
         return api(original);
       }
 
-      window.location.href = '/login';
+      if (status === 401) {
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
     return Promise.reject(error);

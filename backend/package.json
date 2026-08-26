@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "NestJS API for the Enterprise Online Examination System.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "nest build && node --watch dist/src/main.js",
     "start": "node dist/src/main.js",

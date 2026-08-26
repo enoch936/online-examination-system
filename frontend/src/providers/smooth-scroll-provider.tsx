@@ -22,6 +22,20 @@ export function SmoothScrollProvider({ children }: { children: React.ReactNode }
       smoothWheel: !isMobile,
       wheelMultiplier: 1,
       touchMultiplier: 1.5,
+      // Let native scrolling take over inside any scrollable container
+      // (sidebars, sheets, dropdowns, max-h lists, textareas, ...)
+      prevent: (node) => {
+        let el = node instanceof Element ? node : null;
+        while (el && el !== document.body) {
+          if (el.hasAttribute('data-lenis-prevent')) return true;
+          const { overflowY } = window.getComputedStyle(el);
+          if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight) {
+            return true;
+          }
+          el = el.parentElement;
+        }
+        return false;
+      },
     });
 
     lenisRef.current = lenis;

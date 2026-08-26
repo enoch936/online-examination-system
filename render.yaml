@@ -1,0 +1,86 @@
+# Render Blueprint for the Online Examination System
+# Deploy with: Render Dashboard -> New -> Blueprint -> select this repository.
+# Requires a linked PostgreSQL instance (Neon recommended) - set its pooled
+# connection string as `DATABASE_URL` and the direct one as `DIRECT_DATABASE_URL`.
+
+databases: []
+
+services:
+  # ------------------------------------------------------------------ API ---
+  - type: web
+    name: oes-backend
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: backend
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm prisma generate && pnpm build
+    preDeployCommand: pnpm prisma migrate deploy
+    startCommand: node dist/src/main.js
+    healthCheckPath: /api/v1/monitoring/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "4000"
+      - key: API_PREFIX
+        value: api/v1
+      - key: DATABASE_URL
+        sync: false          # Neon POOLED url (?sslmode=require&pgbouncer=true&connection_limit=10)
+      - key: DIRECT_DATABASE_URL
+        sync: false          # Neon DIRECT url (used by prisma migrate deploy)
+      - key: JWT_ACCESS_SECRET
+        generateValue: true  # >=32 random chars
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: FRONTEND_URL
+        sync: false          # e.g. https://oes.vercel.app
+      - key: CORS_ORIGIN
+        sync: false          # same origin(s) as FRONTEND_URL (Socket.IO)
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAME_SITE
+        value: lax           # use none ONLY when frontend+api share no site
+      - key: COOKIE_PATH
+        value: /
+      # Set COOKIE_DOMAIN to ".yourdomain.com" ONLY if app+api are subdomains
+      # of one registrable domain; leave unset for vercel.app/onrender.com.
+      - key: SWAGGER_ENABLED
+        value: "false"
+      - key: BCRYPT_ROUNDS
+        value: "12"
+
+  # ------------------------------------------------------- Proctoring API ---
+  - type: web
+    name: oes-proctoring
+    runtime: python
+    plan: starter
+    region: oregon
+    rootDir: proctoring
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: ENVIRONMENT
+        value: production
+      - key: ALLOWED_ORIGINS
+        sync: false          # e.g. https://oes.vercel.app
+
+# The Next.js frontend deploys on Vercel (Root Directory: frontend):
+#   Build Command: cd .. && corepack enable && pnpm install --frozen-lockfile && pnpm --filter frontend build
+#   Output: .next  |  Install Command: (handled above)
+# Env vars (set BEFORE building - they are inlined into the bundle):
+#   NEXT_PUBLIC_API_URL       https://<oes-backend>.onrender.com/api/v1
+#   NEXT_PUBLIC_SOCKET_URL    https://<oes-backend>.onrender.com/realtime
+#   NEXT_PUBLIC_PROCTORING_URL https://<oes-proctoring>.onrender.com

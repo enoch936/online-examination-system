@@ -5,6 +5,7 @@ import { RoleName, User, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { durationToMs } from '../common/utils/duration.util';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -398,19 +399,6 @@ export class AuthService {
   }
 
   private refreshTokenLifetimeMs() {
-    const value = this.config.get<string>('JWT_REFRESH_EXPIRES_IN', '7d');
-    const match = /^(\d+)([smhd])$/.exec(value);
-    if (!match) {
-      return 7 * 24 * 60 * 60 * 1000;
-    }
-    const amount = Number(match[1]);
-    const unit = match[2];
-    const multipliers: Record<string, number> = {
-      s: 1000,
-      m: 60 * 1000,
-      h: 60 * 60 * 1000,
-      d: 24 * 60 * 60 * 1000,
-    };
-    return amount * multipliers[unit];
+    return durationToMs(this.config.get<string>('JWT_REFRESH_EXPIRES_IN'), 7 * 24 * 60 * 60 * 1000);
   }
 }

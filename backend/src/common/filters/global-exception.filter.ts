@@ -5,19 +5,31 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
-    // Log the full exception for easier debugging in development
-    // (keeps response shape unchanged)
-    // eslint-disable-next-line no-console
-    console.error('Unhandled exception:', exception);
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const body = exception instanceof HttpException ? exception.getResponse() : 'Internal server error';
+
+    if (status >= 500) {
+      // Full detail stays in server logs only — never in the response body.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[${new Date().toISOString()}] ${request?.method} ${request?.originalUrl ?? request?.url} -> ${status}`,
+        exception,
+      );
+    }
+
+    let body: unknown;
+    if (exception instanceof HttpException) {
+      body = exception.getResponse();
+    } else {
+      body = 'Internal server error';
+    }
 
     response.status(status).json({
       success: false,

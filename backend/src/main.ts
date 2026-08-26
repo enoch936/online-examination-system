@@ -8,17 +8,27 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response-transform.interceptor';
+import { parseOrigins } from './config/app.config';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
   const apiPrefix = config.get<string>('API_PREFIX', 'api/v1');
-  const frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  const nodeEnv = config.get<string>('NODE_ENV', 'development');
+
+  // Single source of truth for browser origins across REST + Socket.IO:
+  // CORS_ORIGIN when provided, otherwise FRONTEND_URL (both accept comma lists).
+  const corsOrigins = parseOrigins(
+    config.get<string>('CORS_ORIGIN') ?? config.get<string>('FRONTEND_URL'),
+  );
+  if (corsOrigins.length === 0 && nodeEnv !== 'production') {
+    corsOrigins.push('http://localhost:3000');
+  }
 
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({
-    origin: frontendUrl.split(',').map((origin) => origin.trim()),
+    origin: corsOrigins,
     credentials: true,
   });
   app.setGlobalPrefix(apiPrefix);
@@ -33,14 +43,21 @@ async function bootstrap() {
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useGlobalInterceptors(new ResponseTransformInterceptor());
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('Online Examination System API')
-    .setDescription('Enterprise-grade OES REST API')
-    .setVersion('1.0.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  // eslint-disable-next-line no-console
+  console.log(`REST CORS: configured (${corsOrigins.length} origin(s): ${corsOrigins.join(', ')})`);
+
+  if (config.get<boolean>('SWAGGER_ENABLED', false)) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('Online Examination System API')
+      .setDescription('Enterprise-grade OES REST API')
+      .setVersion('1.0.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+    // eslint-disable-next-line no-console
+    console.log('Swagger docs: enabled at /api/docs');
+  }
 
   const port = config.get<number>('PORT', 4000);
   await app.listen(port);
