@@ -712,44 +712,65 @@ export class ExamsService {
   }
 
   async restart(id: string) {
-    const exam = await this.findOne(id);
-    if (exam.status !== ExamStatus.CLOSED) {
+    const old = await this.findOne(id);
+    if (old.status !== ExamStatus.CLOSED) {
       throw new BadRequestException('Only closed exams can be restarted');
     }
     const now = new Date();
-    const windowPassed = exam.endsAt.getTime() < now.getTime();
+    const slug = `${this.slugify(old.title)}-${Date.now()}`;
 
-    const sessions = await this.prisma.examSession.findMany({
-      where: { examId: id },
-      select: { id: true },
-    });
-    const sessionIds = sessions.map((s) => s.id);
-
-    await this.prisma.$transaction(async (tx) => {
-      if (sessionIds.length > 0) {
-        await tx.studentAnswer.deleteMany({ where: { sessionId: { in: sessionIds } } });
-        await tx.submission.deleteMany({ where: { sessionId: { in: sessionIds } } });
-        await tx.result.deleteMany({ where: { examId: id } });
-        await tx.examViolation.deleteMany({ where: { sessionId: { in: sessionIds } } });
-        await tx.examEvent.deleteMany({ where: { sessionId: { in: sessionIds } } });
-        await tx.examSession.deleteMany({ where: { examId: id } });
-      }
-
-      await tx.exam.update({
-        where: { id },
+    const newExam = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.exam.create({
         data: {
+          courseId: old.courseId,
+          createdById: old.createdById,
+          title: old.title,
+          slug,
+          description: old.description,
+          instructions: old.instructions,
+          durationMinutes: old.durationMinutes,
+          totalMarks: old.totalMarks,
+          passingMarks: old.passingMarks,
+          negativeMarkingRate: old.negativeMarkingRate,
+          attemptsAllowed: old.attemptsAllowed,
+          randomizeQuestions: old.randomizeQuestions,
+          randomizeOptions: old.randomizeOptions,
+          fullscreenRequired: old.fullscreenRequired,
+          showResultImmediately: old.showResultImmediately,
+          startsAt: now,
+          endsAt: new Date(now.getTime() + old.durationMinutes * 60 * 1000),
           status: ExamStatus.PUBLISHED,
-          ...(windowPassed
-            ? {
-                startsAt: now,
-                endsAt: new Date(now.getTime() + exam.durationMinutes * 60 * 1000),
-              }
-            : {}),
+          questionBankId: old.questionBankId,
         },
       });
+
+      if (old.courses && old.courses.length > 0) {
+        await tx.examCourse.createMany({
+          data: old.courses.map((ec) => ({ examId: created.id, courseId: ec.course.id })),
+        });
+      }
+
+      if (old.questionBanks && old.questionBanks.length > 0) {
+        await tx.examQuestionBank.createMany({
+          data: old.questionBanks.map((qb) => ({ examId: created.id, questionBankId: qb.questionBank.id })),
+        });
+      }
+
+      if (old.questions && old.questions.length > 0) {
+        await tx.examQuestion.createMany({
+          data: old.questions.map((eq, index) => ({
+            examId: created.id,
+            questionId: eq.questionId,
+            points: eq.points,
+            sortOrder: index,
+          })),
+        });
+      }
+
+      return created;
     });
 
-    return this.findOne(id);
+    return this.findOne(newExam.id);
   }
 
   async assignStudents(examId: string, studentIds: string[]) {
