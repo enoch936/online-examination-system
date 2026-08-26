@@ -718,18 +718,38 @@ export class ExamsService {
     }
     const now = new Date();
     const windowPassed = exam.endsAt.getTime() < now.getTime();
-    return this.prisma.exam.update({
-      where: { id },
-      data: {
-        status: ExamStatus.PUBLISHED,
-        ...(windowPassed
-          ? {
-              startsAt: now,
-              endsAt: new Date(now.getTime() + exam.durationMinutes * 60 * 1000),
-            }
-          : {}),
-      },
+
+    const sessions = await this.prisma.examSession.findMany({
+      where: { examId: id },
+      select: { id: true },
     });
+    const sessionIds = sessions.map((s) => s.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      if (sessionIds.length > 0) {
+        await tx.studentAnswer.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await tx.submission.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await tx.result.deleteMany({ where: { examId: id } });
+        await tx.examViolation.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await tx.examEvent.deleteMany({ where: { sessionId: { in: sessionIds } } });
+        await tx.examSession.deleteMany({ where: { examId: id } });
+      }
+
+      await tx.exam.update({
+        where: { id },
+        data: {
+          status: ExamStatus.PUBLISHED,
+          ...(windowPassed
+            ? {
+                startsAt: now,
+                endsAt: new Date(now.getTime() + exam.durationMinutes * 60 * 1000),
+              }
+            : {}),
+        },
+      });
+    });
+
+    return this.findOne(id);
   }
 
   async assignStudents(examId: string, studentIds: string[]) {
