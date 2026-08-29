@@ -24,6 +24,14 @@
         Redis Cloud (REDIS_URL) — cache, BullMQ queues, Socket.IO adapter
 ```
 
+## Live Environment (deployed 2026-08-29)
+
+- Frontend: https://online-examination-system-enoch3696-5998s-projects.vercel.app
+- Backend: https://oes-backend-nrpu.onrender.com
+- Proctoring: https://oes-proctoring.onrender.com
+- Database: Neon project `dark-mud-33047371` (db `neondb`, branch `br-flat-feather-ay9wwj2k`)
+- Cache/queues: Upstash Redis `known-terrier-214929.upstash.io` (TLS)
+
 - **Frontend:** Vercel (`frontend/`). `NEXT_PUBLIC_*` values are inlined at
   build time, so they are set as Vercel environment variables and trigger a
   redeploy when changed.
@@ -33,7 +41,7 @@
 - **Database:** Neon PostgreSQL. Use the pooled connection string for
   `DATABASE_URL` (via PgBouncer) and the direct string for
   `DIRECT_DATABASE_URL` (Prisma `directUrl`, also used by migrations).
-- **Realtime/queues:** Redis Cloud. `REDIS_URL` (`rediss://` with TLS) drives
+- **Realtime/queues:** Upstash Redis. `REDIS_URL` (`rediss://` with TLS) drives
   the cache, BullMQ queues, and the Socket.IO adapter. The API degrades
   gracefully to single-process realtime when Redis is unreachable, but queue
   workers stay disabled — set `REDIS_URL` for full behavior.
@@ -58,7 +66,7 @@ Configure Render/Nginx health checks against these.
 | `NODE_ENV` | `production` |
 | `DATABASE_URL` | Neon pooled connection string (`prisma://` / PgBouncer) |
 | `DIRECT_DATABASE_URL` | Neon direct connection string (Prisma `directUrl`) |
-| `REDIS_URL` | Redis Cloud `rediss://...` (TLS) |
+| `REDIS_URL` | Upstash Redis `rediss://...` (TLS) |
 | `JWT_ACCESS_SECRET` | Long random string (>= 32 chars) |
 | `JWT_REFRESH_SECRET` | Long random string (>= 32 chars) |
 | `FRONTEND_URL` | `https://<your-vercel-domain>` |
