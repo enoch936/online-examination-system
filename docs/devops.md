@@ -32,6 +32,7 @@
 - Database: Neon project `dark-mud-33047371` (db `neondb`, branch `br-flat-feather-ay9wwj2k`)
 - Cache/queues: Upstash Redis `known-terrier-214929.upstash.io` (TLS)
 - Auto-redeploy: pushes to `main` trigger GitHub Actions CI, Vercel, and Render (GitHub webhook).
+- Render webhook verified 2026-08-29 (git-triggered deploys).
 
 - **Frontend:** Vercel (`frontend/`). `NEXT_PUBLIC_*` values are inlined at
   build time, so they are set as Vercel environment variables and trigger a
