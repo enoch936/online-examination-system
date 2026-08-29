@@ -34,9 +34,7 @@ import { UsersModule } from './users/users.module';
 import { RealtimeModule } from './websocket/realtime.module';
 import { SettingsModule } from './settings/settings.module';
 import { RedisConfigModule } from './cache/redis.module';
-import { CacheService } from './cache/cache.service';
 import { QueueModule } from './queue/queue.module';
-import { EventQueueService } from './queue/event-queue.service';
 
 @Module({
   imports: [
@@ -58,7 +56,7 @@ import { EventQueueService } from './queue/event-queue.service';
     }),
     ScheduleModule.forRoot(),
     RedisConfigModule,
-    QueueModule,
+    QueueModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -91,8 +89,6 @@ import { EventQueueService } from './queue/event-queue.service';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
-    CacheService,
-    EventQueueService,
   ],
 })
 export class AppModule {}

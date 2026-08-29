@@ -1,35 +1,67 @@
-import { Module, Global } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
+import { DynamicModule, Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { BullModule } from '@nestjs/bullmq';
 import { EventQueueService } from './event-queue.service';
 import { QueueWorkers } from './workers';
 
 const QUEUES = ['exam-events', 'grading', 'risk-scoring', 'notifications'] as const;
+const logger = new Logger('QueueModule');
 
 @Global()
-@Module({
-  imports: [
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
-          password: config.get<string>('REDIS_PASSWORD', ''),
-          maxRetriesPerRequest: 3,
-        },
-        defaultJobOptions: {
-          removeOnComplete: { age: 3600, count: 1000 },
-          removeOnFail: { age: 86400, count: 500 },
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 1000 },
-        },
-      }),
-    }),
-    ...QUEUES.map((name) => BullModule.registerQueue({ name })),
-  ],
-  providers: [EventQueueService, QueueWorkers],
-  exports: [BullModule, EventQueueService],
-})
-export class QueueModule {}
+@Module({})
+export class QueueModule {
+  static forRoot(): DynamicModule {
+    const hasRedis = !!process.env.REDIS_URL;
+
+    if (!hasRedis) {
+      logger.warn('REDIS_URL not set — queue workers disabled');
+      return {
+        module: QueueModule,
+        global: true,
+        providers: [
+          {
+            provide: EventQueueService,
+            useValue: {
+              addEvent: async () => logger.warn('Queue disabled — event dropped'),
+              addBatchEvents: async () => {},
+              addGrading: async () => {},
+              addBatchGrading: async () => {},
+              addRiskScoring: async () => {},
+              getEventQueueStats: async () => ({ waiting: 0, active: 0, completed: 0, failed: 0 }),
+              onModuleDestroy: async () => {},
+            },
+          },
+        ],
+        exports: [EventQueueService],
+      };
+    }
+
+    return {
+      module: QueueModule,
+      global: true,
+      imports: [
+        BullModule.forRootAsync({
+          imports: [ConfigModule],
+          inject: [ConfigService],
+          useFactory: (config: ConfigService) => ({
+            connection: {
+              host: config.get<string>('REDIS_HOST', 'localhost'),
+              port: config.get<number>('REDIS_PORT', 6379),
+              password: config.get<string>('REDIS_PASSWORD', '') || undefined,
+              maxRetriesPerRequest: 3,
+            },
+            defaultJobOptions: {
+              removeOnComplete: { age: 3600, count: 1000 },
+              removeOnFail: { age: 86400, count: 500 },
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 1000 },
+            },
+          }),
+        }),
+        ...QUEUES.map((name) => BullModule.registerQueue({ name })),
+      ],
+      providers: [EventQueueService, QueueWorkers],
+      exports: [BullModule, EventQueueService],
+    };
+  }
+}

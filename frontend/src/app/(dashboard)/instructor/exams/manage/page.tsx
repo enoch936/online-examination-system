@@ -157,13 +157,13 @@ export default function ManageExamPage() {
 
   const startMutation = useMutation({
     mutationFn: (id: string) => examsService.startNow(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['exams'] }); toast.success('Exam started'); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['exams'] }); queryClient.invalidateQueries({ queryKey: ['admin', 'exams'] }); toast.success('Exam started'); },
     onError: () => toast.error('Failed to start exam'),
   });
 
   const restartMutation = useMutation({
     mutationFn: (id: string) => examsService.restart(id),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['exams'] }); toast.success('Exam restarted'); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['exams'] }); queryClient.invalidateQueries({ queryKey: ['admin', 'exams'] }); toast.success('Exam restarted'); },
     onError: () => toast.error('Failed to restart exam'),
   });
 

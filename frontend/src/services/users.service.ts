@@ -15,4 +15,7 @@ export const usersService = {
   async update(id: string, data: Partial<{ firstName: string; lastName: string; email: string; phone: string; status: string }>) {
     return unwrap<User>(await api.patch(`/users/${id}`, data));
   },
+  async removeRole(userId: string, roleName: string) {
+    return unwrap<User>(await api.delete(`/users/${userId}/roles/${roleName}`));
+  },
 };

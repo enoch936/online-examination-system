@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { Permissions } from '../common/decorators/permissions.decorator';
@@ -43,5 +43,11 @@ export class UsersController {
   @Permissions('roles.manage')
   assignRole(@Param('id') id: string, @Body() dto: AssignRoleDto) {
     return this.users.assignRole(id, dto.role);
+  }
+
+  @Delete(':id/roles/:roleName')
+  @Permissions('roles.manage')
+  removeRole(@Param('id') id: string, @Param('roleName') roleName: RoleName) {
+    return this.users.removeRole(id, roleName);
   }
 }

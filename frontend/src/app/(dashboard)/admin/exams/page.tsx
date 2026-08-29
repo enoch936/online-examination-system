@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, Eye, Loader2, Send, Trash2, Filter, BookOpen, ListChecks, Users, Search, X, Play, UserCheck, UserX } from 'lucide-react';
+import { FileText, Eye, Loader2, Send, Trash2, Filter, BookOpen, ListChecks, Users, Search, X, Play, UserCheck, UserX, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { examsService } from '@/services/exams.service';
 import { usersService } from '@/services/users.service';
@@ -16,9 +16,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 
 const statusVariant: Record<string, 'default' | 'success' | 'warning' | 'secondary' | 'outline'> = {
   DRAFT: 'default',
+  SCHEDULED: 'outline',
   PUBLISHED: 'success',
-  IN_PROGRESS: 'warning',
-  COMPLETED: 'secondary',
+  LIVE: 'warning',
+  CLOSED: 'secondary',
   ARCHIVED: 'outline',
 };
 
@@ -64,6 +65,15 @@ export default function AdminExamsPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'exams'] });
     },
     onError: () => toast.error('Failed to delete exam'),
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (examId: string) => examsService.restart(examId),
+    onSuccess: () => {
+      toast.success('Exam restarted');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'exams'] });
+    },
+    onError: () => toast.error('Failed to restart exam'),
   });
 
   const { data: students } = useQuery({
@@ -164,8 +174,8 @@ export default function AdminExamsPage() {
             <option value="">All statuses</option>
             <option value="DRAFT">Draft</option>
             <option value="PUBLISHED">Published</option>
-            <option value="IN_PROGRESS">In progress</option>
-            <option value="COMPLETED">Completed</option>
+            <option value="LIVE">Live</option>
+            <option value="CLOSED">Closed</option>
             <option value="ARCHIVED">Archived</option>
           </select>
         </div>
@@ -273,6 +283,25 @@ export default function AdminExamsPage() {
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Play className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                        {exam.status === 'CLOSED' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Restart exam"
+                            disabled={restartMutation.isPending}
+                            onClick={() => {
+                              if (window.confirm('Restart this exam? A new draft will be created.')) {
+                                restartMutation.mutate(exam.id);
+                              }
+                            }}
+                          >
+                            {restartMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-4 w-4" />
                             )}
                           </Button>
                         )}

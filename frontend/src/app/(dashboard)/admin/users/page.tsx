@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar } from 'lucide-react';
+import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { usersService } from '@/services/users.service';
 import { api } from '@/services/api';
@@ -23,10 +23,19 @@ const statusVariant: Record<string, 'success' | 'warning' | 'default' | 'outline
   PENDING_VERIFICATION: 'outline',
 };
 
-function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: string, role: string) => void }) {
+const ALL_ROLES = ['SUPER_ADMIN', 'ADMIN', 'INSTRUCTOR', 'STUDENT'] as const;
+
+const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: 'Super Admin',
+  ADMIN: 'Admin',
+  INSTRUCTOR: 'Instructor',
+  STUDENT: 'Student',
+};
+
+function UserRow({ user, onRoleChange, onRoleRemove }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void }) {
   const [assigning, setAssigning] = useState(false);
   const canWrite = useHasPermission()('users.write');
-  const roleNames = user.roles.map((r) => r.role.name).join(', ');
+  const assignedRoles = user.roles.map((r) => r.role.name);
 
   const handleAssign = async (role: string) => {
     setAssigning(true);
@@ -40,6 +49,17 @@ function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: st
     }
   };
 
+  const handleRemove = async (roleName: string) => {
+    try {
+      await onRoleRemove(user.id, roleName);
+      toast.success(`Role removed from ${user.email}`);
+    } catch {
+      toast.error('Failed to remove role');
+    }
+  };
+
+  const availableRoles = ALL_ROLES.filter((r) => !assignedRoles.includes(r));
+
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
       <td className="p-3 font-medium">{user.firstName} {user.lastName}</td>
@@ -48,20 +68,35 @@ function UserRow({ user, onRoleChange }: { user: User; onRoleChange: (userId: st
         <Badge variant={statusVariant[user.status] ?? 'default'}>{user.status}</Badge>
       </td>
       <td className="p-3">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">{roleNames || '—'}</span>
-          <select
-            className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            disabled={assigning || !canWrite}
-            title={canWrite ? undefined : 'Requires users.write permission'}
-            onChange={(e) => handleAssign(e.target.value)}
-            defaultValue=""
-          >
-            <option value="" disabled>Assign role</option>
-            <option value="ADMIN">Admin</option>
-            <option value="INSTRUCTOR">Instructor</option>
-            <option value="STUDENT">Student</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {assignedRoles.map((roleName) => (
+            <Badge key={roleName} variant="secondary" className="gap-1 pr-1">
+              {ROLE_LABELS[roleName] ?? roleName}
+              {canWrite && assignedRoles.length > 1 && (
+                <button
+                  type="button"
+                  className="ml-0.5 rounded-full p-0.5 hover:bg-muted/80"
+                  onClick={() => handleRemove(roleName)}
+                  title={`Remove ${ROLE_LABELS[roleName] ?? roleName} role`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </Badge>
+          ))}
+          {availableRoles.length > 0 && canWrite && (
+            <select
+              className="h-7 rounded-lg border bg-background px-2 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              disabled={assigning}
+              onChange={(e) => { if (e.target.value) handleAssign(e.target.value); e.target.value = ''; }}
+              defaultValue=""
+            >
+              <option value="" disabled>+ Role</option>
+              {availableRoles.map((r) => (
+                <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
+              ))}
+            </select>
+          )}
         </div>
       </td>
       <td className="p-3 text-sm text-muted-foreground">
@@ -86,6 +121,15 @@ export default function AdminUsersPage() {
   const assignRoleMutation = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       api.patch(`/users/${userId}/roles`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+
+  const removeRoleMutation = useMutation({
+    mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
+      usersService.removeRole(userId, roleName),
+    onError: (err: Error) => toast.error(err.message || 'Failed to remove role'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
@@ -206,6 +250,7 @@ export default function AdminUsersPage() {
                     key={user.id}
                     user={user}
                     onRoleChange={(userId, role) => assignRoleMutation.mutate({ userId, role })}
+                    onRoleRemove={(userId, roleName) => removeRoleMutation.mutate({ userId, roleName })}
                   />
                 ))}
               </tbody>

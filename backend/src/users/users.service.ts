@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -82,6 +82,31 @@ export class UsersService {
       update: {},
       create: { userId: id, roleId: role.id },
     });
+    return this.findOne(id);
+  }
+
+  async removeRole(id: string, roleName: RoleName) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: { roles: { include: { role: true } } },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.roles.length <= 1) {
+      throw new BadRequestException('Cannot remove the last role from a user');
+    }
+
+    const role = await this.prisma.role.findUnique({ where: { name: roleName } });
+    if (!role) {
+      throw new NotFoundException('Role not found');
+    }
+
+    await this.prisma.userRole.deleteMany({
+      where: { userId: id, roleId: role.id },
+    });
+
     return this.findOne(id);
   }
 
