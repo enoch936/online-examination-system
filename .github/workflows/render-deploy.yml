@@ -1,0 +1,30 @@
+name: Render Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: render-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Trigger Render deploys via API
+    runs-on: ubuntu-latest
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+    steps:
+      - name: Trigger backend + proctoring deploys
+        run: |
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "RENDER_API_KEY secret not set - skipping Render deploys"
+            exit 0
+          fi
+          for sid in srv-da94gvajnfac73cldbn0 srv-da94h2lg1s2s7396p38g; do
+            echo "== trigger $sid =="
+            curl -fsS -X POST "https://api.render.com/v1/services/$sid/deploys" \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Accept: application/json" -H "Content-Type: application/json" -d '{}'
+            echo
+          done
