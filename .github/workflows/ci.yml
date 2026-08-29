@@ -118,8 +118,8 @@ jobs:
           API_PREFIX: api/v1
           DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
           DIRECT_DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
-          JWT_ACCESS_SECRET: ci_placeholder_access_secret_at_least_32_chars
-          JWT_REFRESH_SECRET: ci_placeholder_refresh_secret_at_least_32_chars
+          JWT_ACCESS_SECRET: 36e9150ad41bcf54108675457595a45dab859a64c0039fb5
+          JWT_REFRESH_SECRET: ab88a2e1dce36c5839de519bf5b7bc3ceb371686163a8c4f
           JWT_ACCESS_EXPIRES_IN: 15m
           JWT_REFRESH_EXPIRES_IN: 7d
           FRONTEND_URL: https://example.com
