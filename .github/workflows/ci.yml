@@ -102,6 +102,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter backend prisma:generate
 
+      - name: Build
+        run: pnpm --filter backend build
+
       - name: Apply production migrations
         run: pnpm --filter backend prisma:deploy
         env:
@@ -191,8 +194,9 @@ jobs:
         run: docker build -t oes-backend:ci -f docker/backend.Dockerfile .
 
       - name: Build frontend image
-        run: docker build -t oes-frontend:ci \
-          --build-arg NEXT_PUBLIC_API_URL=https://example.com/api/v1 \
-          --build-arg NEXT_PUBLIC_SOCKET_URL=https://example.com/realtime \
-          --build-arg NEXT_PUBLIC_PROCTORING_URL=https://example.com \
-          -f docker/frontend.Dockerfile .
+        run: |
+          docker build -t oes-frontend:ci \
+            --build-arg NEXT_PUBLIC_API_URL=https://example.com/api/v1 \
+            --build-arg NEXT_PUBLIC_SOCKET_URL=https://example.com/realtime \
+            --build-arg NEXT_PUBLIC_PROCTORING_URL=https://example.com \
+            -f docker/frontend.Dockerfile .
