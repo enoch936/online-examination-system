@@ -318,24 +318,66 @@ async function main() {
   const instructorRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.INSTRUCTOR } });
   const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.ADMIN } });
 
-  // Create admin user
-  const adminPasswordHash = await bcrypt.hash('Admin@123456', 12);
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@oes.local' },
+  const isProd = process.env.NODE_ENV === 'production';
+  const fileEnv = readBackendEnv();
+  const fromEnv = (name: string, fallback?: string): string | undefined =>
+    process.env[name] ?? fileEnv[name] ?? fallback;
+
+  // Secret credentials: read from the environment (.env / platform secrets), never hardcoded.
+  const superAdminEmail = fromEnv('SEED_SUPER_ADMIN_EMAIL', isProd ? undefined : 'superadmin@oes.local');
+  const adminEmail = fromEnv('SEED_ADMIN_EMAIL', isProd ? undefined : 'admin@oes.local');
+  const superAdminPassword = fromEnv('SEED_SUPER_ADMIN_PASSWORD', isProd ? undefined : 'SuperAdmin@12345');
+  const adminPassword = fromEnv('SEED_ADMIN_PASSWORD', isProd ? undefined : 'Admin@123456');
+
+  if (isProd && (!superAdminEmail || !superAdminPassword || !adminEmail || !adminPassword)) {
+    console.error(
+      'Refusing production seed: SEED_SUPER_ADMIN_EMAIL/PASSWORD and SEED_ADMIN_EMAIL/PASSWORD must be set.',
+    );
+    process.exit(1);
+  }
+  if ((superAdminPassword?.length ?? 0) < 12) {
+    console.warn('WARN: SEED_SUPER_ADMIN_PASSWORD is shorter than 12 characters; choose a stronger password.');
+  }
+  if ((adminPassword?.length ?? 0) < 12) {
+    console.warn('WARN: SEED_ADMIN_PASSWORD is shorter than 12 characters; choose a stronger password.');
+  }
+
+  // Create the super admin (role SUPER_ADMIN) from env secrets
+  const superAdmin = await prisma.user.upsert({
+    where: { email: superAdminEmail! },
     update: {},
     create: {
-      email: 'admin@oes.local',
-      passwordHash: adminPasswordHash,
-      firstName: 'System',
-      lastName: 'Admin',
+      email: superAdminEmail!,
+      passwordHash: await bcrypt.hash(superAdminPassword!, 12),
+      firstName: 'Root',
+      lastName: 'Super Admin',
       status: UserStatus.ACTIVE,
       emailVerifiedAt: new Date(),
       roles: { create: { roleId: superAdminRole.id } },
     },
   });
 
+  // Create a distinct ADMIN account (also credential-driven, never hardcoded)
+  const admin = await prisma.user.upsert({
+    where: { email: adminEmail! },
+    update: {},
+    create: {
+      email: adminEmail!,
+      passwordHash: await bcrypt.hash(adminPassword!, 12),
+      firstName: 'System',
+      lastName: 'Admin',
+      status: UserStatus.ACTIVE,
+      emailVerifiedAt: new Date(),
+      roles: { create: { roleId: adminRole.id } },
+    },
+  });
+
   // Create instructor and student users
-  const createdUsers: Record<string, string> = { admin: admin.id };
+  const createdUsers: Record<string, string> = {
+    admin: superAdmin.id,
+    [superAdminEmail!]: superAdmin.id,
+    [adminEmail!]: admin.id,
+  };
   for (const def of userDefs) {
     const passwordHash = await bcrypt.hash(def.password, 12);
     const roleId = def.role === RoleName.STUDENT ? studentRole.id : instructorRole.id;
@@ -742,6 +784,81 @@ async function main() {
         },
       });
     }
+  }
+
+  // Seed representative audit + activity logs (idempotent: guarded by a fixed marker row)
+  const seedMarker = 'demo-bootstrap-v1';
+  const existingMarker = await prisma.auditLog.findFirst({
+    where: { entity: 'SEED', entityId: seedMarker },
+  });
+  if (!existingMarker) {
+    const instructorSeedId = createdUsers['dr.sarah@oes.local'];
+    const seededStudentEmails = userDefs.filter((d) => d.role === RoleName.STUDENT);
+
+    await prisma.auditLog.createMany({
+      data: [
+        {
+          actorId: superAdmin.id,
+          action: 'BOOTSTRAP_IAM',
+          entity: 'SEED',
+          entityId: seedMarker,
+          after: JSON.stringify({
+            roles: Object.keys(rolePermissionsMap).length,
+            permissions: permissions.length,
+            students: seededStudentEmails.length,
+            instructors: userDefs.filter((d) => d.role === RoleName.INSTRUCTOR).length,
+          }),
+          ipAddress: '127.0.0.1',
+          userAgent: 'seed-script/1.0',
+        },
+        {
+          actorId: superAdmin.id,
+          action: 'BOOTSTRAP_CATALOG',
+          entity: 'SEED',
+          entityId: seedMarker,
+          after: JSON.stringify({
+            subjects: subjects.length,
+            courses: courses.length,
+            questions: Object.values(questionsByCourse).reduce((n, qs) => n + qs.length, 0),
+            questionBanks: Object.keys(bankRecords).length,
+          }),
+        },
+        {
+          actorId: admin.id,
+          action: 'BOOTSTRAP_EXAMS',
+          entity: 'SEED',
+          entityId: seedMarker,
+          after: JSON.stringify({ exams: examRecords.length, assignments: publishableExams.length * studentIds.length }),
+        },
+        {
+          actorId: instructorSeedId,
+          action: 'EXAM_PUBLISH',
+          entity: 'Exam',
+          entityId: examRecords[0].id,
+          after: JSON.stringify({ title: examRecords[0].title }),
+        },
+      ],
+    });
+
+    await prisma.activityLog.createMany({
+      data: [
+        {
+          actorId: superAdmin.id,
+          action: 'SEED_RUN',
+          ipAddress: '203.0.113.10',
+          userAgent: 'seed-script/1.0',
+          metadata: JSON.stringify({ nodeEnv: process.env.NODE_ENV ?? 'development', at: now.toISOString() }),
+        },
+        ...studentIds.map((sid, i) => ({
+          actorId: sid,
+          action: 'LOGIN',
+          ipAddress: `203.0.113.${20 + i}`,
+          userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36',
+          metadata: JSON.stringify({ email: seededStudentEmails[i]?.email ?? '', at: now.toISOString() }),
+        })),
+      ],
+    });
+    console.log(`Seeded audit logs (4) + activity logs (${1 + studentIds.length})`);
   }
 
   // Platform settings (stored and served from the database)
