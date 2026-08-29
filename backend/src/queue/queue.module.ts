@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { EventQueueService } from './event-queue.service';
 import { QueueWorkers } from './workers';
+import { redisConnectionOptions } from './redis-connection';
 
 const QUEUES = ['exam-events', 'grading', 'risk-scoring', 'notifications'] as const;
 const logger = new Logger('QueueModule');
@@ -44,12 +45,7 @@ export class QueueModule {
           imports: [ConfigModule],
           inject: [ConfigService],
           useFactory: (config: ConfigService) => ({
-            connection: {
-              host: config.get<string>('REDIS_HOST', 'localhost'),
-              port: config.get<number>('REDIS_PORT', 6379),
-              password: config.get<string>('REDIS_PASSWORD', '') || undefined,
-              maxRetriesPerRequest: 3,
-            },
+            connection: redisConnectionOptions(config),
             defaultJobOptions: {
               removeOnComplete: { age: 3600, count: 1000 },
               removeOnFail: { age: 86400, count: 500 },

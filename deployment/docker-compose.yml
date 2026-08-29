@@ -1,18 +1,27 @@
+# Local / single-VPS deployment for the Online Examination System.
+#   docker compose -f deployment/docker-compose.yml up --build
+#
+# Secrets (POSTGRES_*, JWT_*, COOKIE_*, …) are read from:
+#   1. `deployment/.env`                            (compose interpolation, required)
+#   2. `deployment/.env.production`                 (backend runtime env, optional)
+# Copy `deployment/.env.example` to `deployment/.env` and fill in strong values.
+# NEVER commit `deployment/.env` or `deployment/.env.production`.
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: oes
-      POSTGRES_PASSWORD: oes_password
-      POSTGRES_DB: oes
+      POSTGRES_USER: ${POSTGRES_USER:-oes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deployment/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-oes}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U oes -d oes"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oes} -d ${POSTGRES_DB:-oes}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -20,8 +29,14 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in deployment/.env}"]
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -29,28 +44,36 @@ services:
       dockerfile: docker/backend.Dockerfile
     restart: unless-stopped
     env_file:
-      - ./.env.production.example
+      - path: ./.env.production
+        required: false
     environment:
-      DATABASE_URL: postgresql://oes:oes_password@postgres:5432/oes?schema=public
-      FRONTEND_URL: http://localhost
+      API_PREFIX: api/v1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-oes}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oes}?schema=public
+      DIRECT_DATABASE_URL: postgresql://${POSTGRES_USER:-oes}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-oes}?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "4000:4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/v1/monitoring/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/v1/monitoring/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
       interval: 20s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 30s
 
   frontend:
     build:
       context: ..
       dockerfile: docker/frontend.Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost/api/v1
-        NEXT_PUBLIC_SOCKET_URL: http://localhost/realtime
+        NEXT_PUBLIC_API_URL: ${FRONTEND_URL:-http://localhost}/api/v1
+        NEXT_PUBLIC_SOCKET_URL: ${FRONTEND_URL:-http://localhost}/realtime
     restart: unless-stopped
     depends_on:
       - backend

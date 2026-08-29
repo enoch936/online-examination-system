@@ -47,7 +47,11 @@ services:
       - key: COOKIE_SECURE
         value: "true"
       - key: COOKIE_SAME_SITE
-        value: lax           # use none ONLY when frontend+api share no site
+        value: none
+        # REQUIRED: the Vercel frontend and this Render API are different
+        # sites, so browsers only send the auth cookies on cross-site XHR when
+        # SameSite=None + Secure. If you later proxy /api through the same
+        # domain as the frontend, you may switch back to `lax`.
       - key: COOKIE_PATH
         value: /
       # Set COOKIE_DOMAIN to ".yourdomain.com" ONLY if app+api are subdomains
@@ -56,6 +60,10 @@ services:
         value: "false"
       - key: BCRYPT_ROUNDS
         value: "12"
+      - key: REDIS_URL
+        sync: false
+        # Redis Cloud connection string, e.g. rediss://default:<pass>@<host>:<port>
+        # Used by the cache, BullMQ queues and the Socket.IO multi-instance adapter.
 
   # ------------------------------------------------------- Proctoring API ---
   - type: web

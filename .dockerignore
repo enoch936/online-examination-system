@@ -1,0 +1,50 @@
+# --- Version control -------------------------------------------------------
+.git
+.gitignore
+.github
+
+# --- Secrets / local env (never ship into image build context) --------------
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+frontend/.env.local*
+deployment/.env
+deployment/.env.production
+
+# --- Node / dependencies ----------------------------------------------------
+node_modules
+backend/node_modules
+frontend/node_modules
+**/node_modules
+pnpm-debug.log*
+
+# --- Build & coverage output ------------------------------------------------
+dist
+*.tsbuildinfo
+.next
+coverage
+.turbo
+.next-build
+
+# --- Runtime data / logs ----------------------------------------------------
+uploads
+*.log
+server_log.txt
+server.out.log
+server.err.log
+
+# --- Tooling / misc ---------------------------------------------------------
+tmp
+.vscode
+.idea
+.DS_Store
+
+# --- Python / proctoring ----------------------------------------------------
+proctoring/.venv
+proctoring/__pycache__
+
+# --- Docker & CI (don't leak into image build contexts) ---------------------
+Dockerfile*
+docker-compose*.yml

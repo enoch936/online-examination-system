@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ExamEventJob, GradingJob, RiskScoringJob } from '../event-queue.service';
 import { ConfigService } from '@nestjs/config';
 import { RiskLevel } from '@prisma/client';
+import { redisConnectionOptions } from '../redis-connection';
 
 @Injectable()
 export class QueueWorkers implements OnModuleDestroy {
@@ -13,11 +14,7 @@ export class QueueWorkers implements OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {
-    const connection = {
-      host: config.get<string>('REDIS_HOST', 'localhost'),
-      port: config.get<number>('REDIS_PORT', 6379),
-      password: config.get<string>('REDIS_PASSWORD', ''),
-    };
+    const connection = redisConnectionOptions(config);
 
     const eventWorker = new Worker<ExamEventJob>(
       'exam-events',

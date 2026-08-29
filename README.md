@@ -118,6 +118,40 @@ The backend exposes modular REST endpoints for authentication, users, exams, ses
 
 The repository includes Docker and Nginx assets to support local development and production-style environments. GitHub Actions assets are available for CI/CD customization when the project is deployed to a remote environment.
 
+## Deployment
+
+Production targets are serverless/simple-hosting platforms — no Kubernetes
+required. See [DevOps](docs/devops.md) for the full variable tables and order.
+
+```text
+Vercel (Next.js) ──► Render (NestJS API) ──► Neon (PostgreSQL)
+                    └── Redis Cloud (cache, queues, Socket.IO)
+                    └── Render (FastAPI proctoring)
+```
+
+1. **Neon** — create the PostgreSQL database; note the pooled `DATABASE_URL`
+   and direct `DIRECT_DATABASE_URL`.
+2. **Redis Cloud** — create a Redis instance; note the TLS `REDIS_URL`.
+3. **Render** — create the backend Web Service (root `backend/`, uses
+   `render.yaml` env defaults) and the proctoring Web Service; fill in the
+   secrets. Run `pnpm --filter backend prisma:deploy` after deploy.
+4. **Vercel** — import `frontend/` (uses `vercel.json` monorepo commands); set
+   `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SOCKET_URL`,
+   `NEXT_PUBLIC_PROCTORING_URL`.
+5. **CI/CD** — push to `main`; `.github/workflows/ci.yml` runs lint, test,
+   build, a production boot smoke test against a real PostgreSQL, and Docker
+   image builds.
+6. **Smoke test** — visit the live frontend, log in, and confirm
+   `GET /api/v1/monitoring/health` (liveness) and
+   `GET /api/v1/monitoring/health/ready` (DB) both return `ok`.
+
+Local production-style containers (Docker):
+
+```bash
+cp deployment/.env.example deployment/.env      # set POSTGRES_/REDIS_ passwords
+pnpm docker:up                                  # postgres, redis, backend, frontend, nginx
+```
+
 ## License
 
 No license file is currently included in the repository.
