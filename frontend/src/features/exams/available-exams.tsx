@@ -66,7 +66,7 @@ export function AvailableExams() {
         <div>
           <Badge variant="outline">Student</Badge>
           <h1 className="mt-3 text-3xl font-semibold tracking-normal">Available exams</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Start or resume exams within their configured windows.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Exams started by your instructor are available immediately, even outside their scheduled window.</p>
         </div>
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12">
@@ -83,7 +83,7 @@ export function AvailableExams() {
       <div>
         <Badge variant="outline">Student</Badge>
         <h1 className="mt-3 text-3xl font-semibold tracking-normal">Available exams</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Start or resume exams within their configured windows.</p>
+        <p className="mt-2 text-sm text-muted-foreground">Exams started by your instructor are available immediately, even outside their scheduled window.</p>
       </div>
       <div className="grid gap-4">
         {exams.map((exam) => {
@@ -156,7 +156,7 @@ export function AvailableExams() {
                       Not started yet
                     </Button>
                   ) : (
-                    <Button disabled={!inWindow} onClick={() => router.push(`/student/exams/${exam.id}/take`)}>
+                    <Button disabled={!(inWindow || isLive)} onClick={() => router.push(`/student/exams/${exam.id}/take`)}>
                       <PlayCircle className="h-4 w-4" />
                       Start exam
                     </Button>

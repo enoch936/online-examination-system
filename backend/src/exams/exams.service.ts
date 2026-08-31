@@ -705,7 +705,7 @@ export class ExamsService {
       where: { id },
       data: {
         status: ExamStatus.LIVE,
-        startsAt: now,
+        startsAt: new Date(now.getTime() - 60_000),
         endsAt: new Date(now.getTime() + exam.durationMinutes * 60 * 1000),
       },
     });
