@@ -1,11 +1,13 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { RoleName, User, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { passwordPolicyProblem } from '../common/utils/password.util';
 import { durationToMs } from '../common/utils/duration.util';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -163,6 +165,49 @@ export class AuthService {
       { secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'), expiresIn: '15m' },
     );
     return { sent: true };
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ changed: true }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, passwordHash: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // The current password must be supplied and verified before any change.
+    const currentValid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!currentValid) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    // Enforce the policy even on top of the DTO validation.
+    const problem = passwordPolicyProblem(dto.newPassword, { email: user.email });
+    if (problem) {
+      throw new BadRequestException(problem);
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, this.config.get<number>('BCRYPT_ROUNDS', 12));
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+
+    // Invalidate all refresh tokens/sessions so the password change takes effect everywhere.
+    await this.revokeAllSessions(userId);
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorId: userId,
+        entity: 'USER',
+        entityId: userId,
+        action: 'PASSWORD_CHANGED',
+        after: JSON.stringify({ at: new Date().toISOString() }),
+      },
+    });
+
+    return { changed: true };
   }
 
   async resetPassword(dto: ResetPasswordDto) {

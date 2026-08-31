@@ -130,14 +130,17 @@ Vercel (Next.js) ──► Render (NestJS API) ──► Neon (PostgreSQL)
 ```
 
 1. **Neon** — create the PostgreSQL database; note the pooled `DATABASE_URL`
-   and direct `DIRECT_DATABASE_URL`.
+   and direct `DIRECT_DATABASE_URL`. A fresh database has no SUPER_ADMIN, so the
+   first backend start must provide the bootstrap env vars (fail-fast).
 2. **Redis Cloud** — create a Redis instance; note the TLS `REDIS_URL`.
 3. **Render** — create the backend Web Service (root `backend/`, uses
    `render.yaml` env defaults) and the proctoring Web Service; fill in the
-   secrets. Run `pnpm --filter backend prisma:deploy` after deploy.
+   secrets, including `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` (server-side
+   only, see below) and `RATE_LIMIT_TTL` / `RATE_LIMIT_LIMIT`. Run
+   `pnpm --filter backend prisma:deploy` after deploy.
 4. **Vercel** — import `frontend/` (uses `vercel.json` monorepo commands); set
    `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SOCKET_URL`,
-   `NEXT_PUBLIC_PROCTORING_URL`.
+   `NEXT_PUBLIC_PROCTORING_URL`. Never add backend secrets here.
 5. **CI/CD** — push to `main`; `.github/workflows/ci.yml` runs lint, test,
    build, a production boot smoke test against a real PostgreSQL, and Docker
    image builds.
@@ -148,9 +151,17 @@ Vercel (Next.js) ──► Render (NestJS API) ──► Neon (PostgreSQL)
 Local production-style containers (Docker):
 
 ```bash
-cp deployment/.env.example deployment/.env      # set POSTGRES_/REDIS_ passwords
+cp deployment/.env.example deployment/.env      # set POSTGRES_/REDIS_/SUPERADMIN_ values
 pnpm docker:up                                  # postgres, redis, backend, frontend, nginx
 ```
+
+The backend bootstraps the initial **SUPER_ADMIN** once (when no SUPER_ADMIN
+exists) from the server-side `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD`
+variables — never hardcoded, never a committed default. The password is stored
+only as a bcrypt hash and is never overwritten on redeploy/restart. On Render
+set these as secret env vars on the `oes-backend` service (see `render.yaml`
+and the [DevOps guide](docs/devops.md)); on Vercel never add them as
+`NEXT_PUBLIC_*` (anything shipped to the browser is public).
 
 ## License
 

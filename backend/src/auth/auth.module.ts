@@ -6,6 +6,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { SuperAdminBootstrapService } from './superadmin.bootstrap';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { JwtStrategy } from './jwt.strategy';
     AuditLogsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  providers: [AuthService, JwtStrategy, SuperAdminBootstrapService],
+  exports: [AuthService, SuperAdminBootstrapService],
 })
 export class AuthModule {}

@@ -53,6 +53,12 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      # Initial SUPER_ADMIN bootstrap (server-side only, read once when no
+      # SUPER_ADMIN exists). Set SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD in
+      # deployment/.env or deployment/.env.production. Backend refuses to start
+      # on a fresh database without them (no default password).
+      SUPERADMIN_EMAIL: ${SUPERADMIN_EMAIL:-}
+      SUPERADMIN_PASSWORD: ${SUPERADMIN_PASSWORD:-}
     depends_on:
       postgres:
         condition: service_healthy

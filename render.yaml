@@ -60,10 +60,21 @@ services:
         value: "false"
       - key: BCRYPT_ROUNDS
         value: "12"
+      - key: RATE_LIMIT_TTL
+        value: "60"
+      - key: RATE_LIMIT_LIMIT
+        value: "120"
       - key: REDIS_URL
         sync: false
         # Redis Cloud connection string, e.g. rediss://default:<pass>@<host>:<port>
         # Used by the cache, BullMQ queues and the Socket.IO multi-instance adapter.
+      # Initial SUPER_ADMIN bootstrap (server-side only, see backend/src/auth/superadmin.bootstrap.ts).
+      # Used ONCE at first start to create the SUPER_ADMIN with a bcrypt hash; the
+      # password is never overwritten afterwards. Never prefix with NEXT_PUBLIC_.
+      - key: SUPERADMIN_EMAIL
+        sync: false          # e.g. superadmin@example.com
+      - key: SUPERADMIN_PASSWORD
+        sync: false          # strong random string (>= 12 chars, mixed classes)
 
   # ------------------------------------------------------- Proctoring API ---
   - type: web

@@ -40,6 +40,19 @@ const schema = z.object({
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
   DB_POOL_SIZE: z.coerce.number().min(1).max(100).default(20),
+  // Initial SUPER_ADMIN bootstrap credentials (optional here). They are read
+  // ONLY on the server side by SuperAdminBootstrapService when no SUPER_ADMIN
+  // exists yet. Empty values are treated as unset so a dev .env without them
+  // does not fail validation; the bootstrap itself fails fast if required and
+  // missing. Never expose these through NEXT_PUBLIC_* variables.
+  SUPERADMIN_EMAIL: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().email().optional(),
+  ),
+  SUPERADMIN_PASSWORD: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().min(1).optional(),
+  ),
 });
 
 export type AppEnv = z.infer<typeof schema>;

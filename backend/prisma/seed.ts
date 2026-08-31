@@ -3,8 +3,11 @@ import { join } from 'path';
 import { PrismaClient, RoleName, UserStatus, QuestionType, Difficulty, ExamStatus, QuestionBankStatus, SessionStatus, SubmissionStatus, NotificationType, ViolationType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
-// Guard: the seed creates well-known demo accounts with public passwords.
-// Never allow it to run against a production database unless explicitly forced.
+// Guard: this seed only creates well-known demo STUDENT/INSTRUCTOR accounts and
+// course/exam content with public passwords. Never allow it to run against a
+// production database unless explicitly forced. The SUPER_ADMIN account is NOT
+// created here — it is bootstrapped at runtime from server-side
+// SUPERADMIN_EMAIL/SUPERADMIN_PASSWORD env vars (backend/src/auth/superadmin.bootstrap.ts).
 if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PRODUCTION !== 'true') {
   console.error('Refusing to seed: NODE_ENV=production. Set SEED_ALLOW_PRODUCTION=true only for throwaway environments.');
   process.exit(1);
@@ -193,6 +196,12 @@ const questionsByCourse: Record<string, QuestionDef[]> = {
   ],
 };
 
+// DEV/DEMO-ONLY accounts for local play. These are NOT production accounts and
+// their passwords are intentionally public demo values. The whole seed file is
+// guarded so it refuses to run against production unless SEED_ALLOW_PRODUCTION
+// is explicitly set. No SUPER_ADMIN or ADMIN account is ever created here — the
+// SUPER_ADMIN is bootstrapped once at runtime from server-side
+// SUPERADMIN_EMAIL/SUPERADMIN_PASSWORD env vars.
 const userDefs = [
   { email: 'john.doe@oes.local', password: 'Student@123', firstName: 'John', lastName: 'Doe', role: 'STUDENT' as RoleName },
   { email: 'jane.smith@oes.local', password: 'Student@123', firstName: 'Jane', lastName: 'Smith', role: 'STUDENT' as RoleName },
@@ -313,71 +322,15 @@ async function main() {
     }
   }
 
-  const superAdminRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.SUPER_ADMIN } });
   const studentRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.STUDENT } });
   const instructorRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.INSTRUCTOR } });
-  const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: RoleName.ADMIN } });
 
-  const isProd = process.env.NODE_ENV === 'production';
-  const fileEnv = readBackendEnv();
-  const fromEnv = (name: string, fallback?: string): string | undefined =>
-    process.env[name] ?? fileEnv[name] ?? fallback;
-
-  // Secret credentials: read from the environment (.env / platform secrets), never hardcoded.
-  const superAdminEmail = fromEnv('SEED_SUPER_ADMIN_EMAIL', isProd ? undefined : 'superadmin@oes.local');
-  const adminEmail = fromEnv('SEED_ADMIN_EMAIL', isProd ? undefined : 'admin@oes.local');
-  const superAdminPassword = fromEnv('SEED_SUPER_ADMIN_PASSWORD', isProd ? undefined : 'SuperAdmin@12345');
-  const adminPassword = fromEnv('SEED_ADMIN_PASSWORD', isProd ? undefined : 'Admin@123456');
-
-  if (isProd && (!superAdminEmail || !superAdminPassword || !adminEmail || !adminPassword)) {
-    console.error(
-      'Refusing production seed: SEED_SUPER_ADMIN_EMAIL/PASSWORD and SEED_ADMIN_EMAIL/PASSWORD must be set.',
-    );
-    process.exit(1);
-  }
-  if ((superAdminPassword?.length ?? 0) < 12) {
-    console.warn('WARN: SEED_SUPER_ADMIN_PASSWORD is shorter than 12 characters; choose a stronger password.');
-  }
-  if ((adminPassword?.length ?? 0) < 12) {
-    console.warn('WARN: SEED_ADMIN_PASSWORD is shorter than 12 characters; choose a stronger password.');
-  }
-
-  // Create the super admin (role SUPER_ADMIN) from env secrets
-  const superAdmin = await prisma.user.upsert({
-    where: { email: superAdminEmail! },
-    update: {},
-    create: {
-      email: superAdminEmail!,
-      passwordHash: await bcrypt.hash(superAdminPassword!, 12),
-      firstName: 'Root',
-      lastName: 'Super Admin',
-      status: UserStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-      roles: { create: { roleId: superAdminRole.id } },
-    },
-  });
-
-  // Create a distinct ADMIN account (also credential-driven, never hardcoded)
-  const admin = await prisma.user.upsert({
-    where: { email: adminEmail! },
-    update: {},
-    create: {
-      email: adminEmail!,
-      passwordHash: await bcrypt.hash(adminPassword!, 12),
-      firstName: 'System',
-      lastName: 'Admin',
-      status: UserStatus.ACTIVE,
-      emailVerifiedAt: new Date(),
-      roles: { create: { roleId: adminRole.id } },
-    },
-  });
-
-  // Create instructor and student users
-  const createdUsers: Record<string, string> = {
-    admin: superAdmin.id,
-    [superAdminEmail!]: superAdmin.id,
-    [adminEmail!]: admin.id,
-  };
+  // NOTE: The SUPER_ADMIN (and any ADMIN) account is deliberately NOT created
+  // here. It is bootstrapped once at runtime from server-side
+  // SUPERADMIN_EMAIL / SUPERADMIN_PASSWORD env vars
+  // (backend/src/auth/superadmin.bootstrap.ts). This seed only creates demo
+  // STUDENT/INSTRUCTOR accounts and course/exam content.
+  const createdUsers: Record<string, string> = {};
   for (const def of userDefs) {
     const passwordHash = await bcrypt.hash(def.password, 12);
     const roleId = def.role === RoleName.STUDENT ? studentRole.id : instructorRole.id;
@@ -396,6 +349,9 @@ async function main() {
     });
     createdUsers[def.email] = user.id;
   }
+
+  // Demo content is created on behalf of the seeded lead instructor.
+  const instructorId = createdUsers['dr.sarah@oes.local'];
 
   // Create subjects and courses
   const subjectRecords: Record<string, string> = {};
@@ -420,7 +376,7 @@ async function main() {
   for (const [courseCode, qDefs] of Object.entries(questionsByCourse)) {
     const subjectCode = courses.find(c => c.code === courseCode)!.subjectCode;
     for (let i = 0; i < qDefs.length; i++) {
-      questionRecords[`${courseCode}_q${i}`] = await upsertQuestion(qDefs[i], subjectRecords[subjectCode], admin.id);
+      questionRecords[`${courseCode}_q${i}`] = await upsertQuestion(qDefs[i], subjectRecords[subjectCode], instructorId);
     }
   }
 
@@ -450,7 +406,7 @@ async function main() {
           data: {
             courseId,
             categoryId,
-            createdById: admin.id,
+            createdById: instructorId,
             name: bankName,
             description: `Reusable pool of questions for ${courseDef.name}.`,
             difficulty: Difficulty.MEDIUM,
@@ -471,7 +427,6 @@ async function main() {
   const dayMs = 24 * 60 * 60 * 1000;
 
   // Create exams
-  const instructorId = createdUsers['dr.sarah@oes.local'];
   const examDefs = [
     {
       courseCode: 'CS101', title: 'Introduction to Programming - Midterm', slug: 'cs101-midterm',
@@ -747,22 +702,6 @@ async function main() {
     }
   }
 
-  // Admin notification (deduplicated)
-  const adminMessage = 'The Online Examination System has been initialized with sample data. Review the dashboard for an overview.';
-  const adminNotif = await prisma.notification.findFirst({
-    where: { userId: admin.id, type: NotificationType.SYSTEM, message: adminMessage },
-  });
-  if (!adminNotif) {
-    await prisma.notification.create({
-      data: {
-        userId: admin.id,
-        type: NotificationType.SYSTEM,
-        title: 'System Setup Complete',
-        message: adminMessage,
-      },
-    });
-  }
-
   // Deterministic monitoring violations for a few historical sessions
   const violationSessions = await prisma.examSession.findMany({
     where: {
@@ -794,11 +733,17 @@ async function main() {
   if (!existingMarker) {
     const instructorSeedId = createdUsers['dr.sarah@oes.local'];
     const seededStudentEmails = userDefs.filter((d) => d.role === RoleName.STUDENT);
+    // Prefer the runtime-bootstrapped super admin as the actor for bootstrap
+    // audit rows when present; otherwise attribute them to the organization.
+    const adminActorId = ((await prisma.user.findFirst({
+      where: { roles: { some: { role: { name: RoleName.SUPER_ADMIN } } } },
+      select: { id: true },
+    }))?.id) ?? instructorSeedId;
 
     await prisma.auditLog.createMany({
       data: [
         {
-          actorId: superAdmin.id,
+          actorId: adminActorId,
           action: 'BOOTSTRAP_IAM',
           entity: 'SEED',
           entityId: seedMarker,
@@ -812,7 +757,7 @@ async function main() {
           userAgent: 'seed-script/1.0',
         },
         {
-          actorId: superAdmin.id,
+          actorId: adminActorId,
           action: 'BOOTSTRAP_CATALOG',
           entity: 'SEED',
           entityId: seedMarker,
@@ -824,7 +769,7 @@ async function main() {
           }),
         },
         {
-          actorId: admin.id,
+          actorId: adminActorId,
           action: 'BOOTSTRAP_EXAMS',
           entity: 'SEED',
           entityId: seedMarker,
@@ -843,7 +788,7 @@ async function main() {
     await prisma.activityLog.createMany({
       data: [
         {
-          actorId: superAdmin.id,
+          actorId: adminActorId,
           action: 'SEED_RUN',
           ipAddress: '203.0.113.10',
           userAgent: 'seed-script/1.0',

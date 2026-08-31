@@ -8,6 +8,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ResponseTransformInterceptor } from './common/interceptors/response-transform.interceptor';
+import { SuperAdminBootstrapService } from './auth/superadmin.bootstrap';
 import { parseOrigins } from './config/app.config';
 
 async function bootstrap() {
@@ -42,6 +43,11 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseTransformInterceptor());
 
   app.enableShutdownHooks();
+
+  // Idempotent super admin bootstrap: creates the SUPER_ADMIN only when none
+  // exists, using server-side env credentials (never hardcoded). Throws a clear
+  // config error instead of starting if credentials are missing when required.
+  await app.get(SuperAdminBootstrapService).ensure();
 
   console.log(`REST CORS: configured (${corsOrigins.length} origin(s): ${corsOrigins.join(', ')})`);
 

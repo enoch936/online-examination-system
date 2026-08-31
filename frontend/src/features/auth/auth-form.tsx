@@ -23,7 +23,10 @@ const loginSchema = z.object({
 const registerSchema = loginSchema.extend({
   firstName: z.string().min(2),
   lastName: z.string().min(2),
-  password: z.string().min(10).regex(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)/, 'Must include uppercase, lowercase, and a number'),
+  password: z
+    .string()
+    .min(12, 'Must be at least 12 characters')
+    .regex(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])/, 'Must include uppercase, lowercase, a number, and a symbol'),
 });
 
 type AuthFormProps = {

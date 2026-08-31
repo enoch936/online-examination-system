@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
-import { IsEmail, IsEnum, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsStrongPassword } from '../../common/decorators/is-strong-password.decorator';
 
 export class CreateUserDto {
   @ApiProperty()
@@ -18,9 +19,7 @@ export class CreateUserDto {
   lastName: string;
 
   @ApiProperty()
-  @IsString()
-  @MinLength(10)
-  @Matches(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d).+$/)
+  @IsStrongPassword()
   password: string;
 
   @ApiPropertyOptional({ enum: RoleName })

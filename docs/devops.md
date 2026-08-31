@@ -43,6 +43,13 @@
 - **Database:** Neon PostgreSQL. Use the pooled connection string for
   `DATABASE_URL` (via PgBouncer) and the direct string for
   `DIRECT_DATABASE_URL` (Prisma `directUrl`, also used by migrations).
+- **Neon (PostgreSQL):** set `DATABASE_URL` to the **pooled** connection string
+  and `DIRECT_DATABASE_URL` to the **direct** one (used by
+  `prisma migrate deploy`). A brand-new Neon database has no SUPER_ADMIN, so
+  the first Render/Docker/VPS start must have `SUPERADMIN_EMAIL` /
+  `SUPERADMIN_PASSWORD` set or the backend refuses to start (fail fast, no
+  default password). Do **not** commit Neon credentials or `DATABASE_URL` to
+  the repository (`deployment/.env.production` and platform secret stores only).
 - **Realtime/queues:** Upstash Redis. `REDIS_URL` (`rediss://` with TLS) drives
   the cache, BullMQ queues, and the Socket.IO adapter. The API degrades
   gracefully to single-process realtime when Redis is unreachable, but queue
@@ -76,7 +83,48 @@ Configure Render/Nginx health checks against these.
 | `COOKIE_SECURE` | `true` |
 | `COOKIE_SAME_SITE` | `none` (required for cross-site cookies Vercel → Render) |
 | `SWAGGER_ENABLED` | `false` (disable `/api/docs` in production) |
+| `BCRYPT_ROUNDS` | `12` (bcrypt cost for all password hashing) |
+| `RATE_LIMIT_TTL` | `60` (global throttle window in seconds) |
+| `RATE_LIMIT_LIMIT` | `120` (global throttle max requests per window per IP) |
 | `PORT` | Provided by Render |
+
+Brute-force protection is enforced per endpoint on top of the global limit:
+login `POST /auth/login` at 10 req/min/IP, registration at 5 req/min/IP,
+and password change `POST /auth/change-password` at 5 req/min/IP.
+
+### Super admin bootstrap (`SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD`)
+
+The initial **SUPER_ADMIN** account is created automatically **once** by the
+backend at server start (`backend/src/auth/superadmin.bootstrap.ts`) and only
+when no SUPER_ADMIN exists yet. Security model:
+
+- Credentials are read **server-side only** from the process environment.
+- The password is **bcrypt-hashed before it is stored** in PostgreSQL; the
+  plaintext is never persisted, returned by any API, or logged.
+- The bootstrap is **idempotent** — if a SUPER_ADMIN already exists it is a
+  no-op and the existing password is **never overwritten or reset** on
+  redeploy/restart.
+- If the server must bootstrap and one of the variables is missing, startup
+  **fails fast** with a clear configuration error (no default password).
+- After creation, authentication relies entirely on the stored bcrypt hash.
+- Shared policy: passwords must be >= 12 chars with upper/lower/number/symbol
+  and not a common/sequential/repeated password (see
+  `backend/src/common/utils/password.util.ts`).
+
+Where to configure them:
+
+- **Render (backend web service):** Dashboard → `oes-backend` → *Environment* →
+  add `SUPERADMIN_EMAIL` and `SUPERADMIN_PASSWORD` as **secret** vars (or via
+  Blueprint: `render.yaml` lists them as `sync: false`).
+- **Docker / single VPS:** set them in `deployment/.env.production`
+  (git-ignored, loaded via the compose `env_file`), or pass `-e` flags.
+- **Vercel / frontend:** **never** configure these there. Backend secrets must
+  never be added as `NEXT_PUBLIC_*` variables — anything with a `NEXT_PUBLIC_`
+  prefix is inlined into the client bundle and is not a secret.
+
+The authenticated password-change endpoint is `POST /api/v1/auth/change-password`
+(current password required, strong-policy enforced, sessions revoked on change,
+rate-limited at 5 req/min per IP, like login at 10 req/min per IP).
 
 ### Frontend (Vercel)
 

@@ -111,6 +111,18 @@ jobs:
           DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
           DIRECT_DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
 
+      # Throwaway bootstrap credentials for the fresh smoke-test database only.
+      # They are generated per job run (never committed, never real). Real
+      # deployments use server-side platform secrets + SUPERADMIN_EMAIL/
+      # SUPERADMIN_PASSWORD Env Vars on Render/Docker.
+      - name: Generate throwaway bootstrap credentials
+        run: |
+          RAND_PART="$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 18)"
+          # Suffix guarantees the strong-password character classes for the
+          # throwaway credential; the secret itself is the random prefix.
+          echo "SUPERADMIN_EMAIL=ci-superadmin@example.com" >> "$GITHUB_ENV"
+          echo "SUPERADMIN_PASSWORD=${RAND_PART}Aa1!" >> "$GITHUB_ENV"
+
       - name: Boot API in production mode and hit health endpoint
         env:
           NODE_ENV: production
@@ -118,8 +130,8 @@ jobs:
           API_PREFIX: api/v1
           DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
           DIRECT_DATABASE_URL: postgresql://oes:ci_local_only_password@localhost:5432/oes?schema=public
-          JWT_ACCESS_SECRET: 36e9150ad41bcf54108675457595a45dab859a64c0039fb5
-          JWT_REFRESH_SECRET: ab88a2e1dce36c5839de519bf5b7bc3ceb371686163a8c4f
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET || 'ci-access-a91c4f07b2e3d5f6801ac94e2bc7d3f5a8' }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET || 'ci-refresh-d28e5a91c4f07b2e3d5f6801ac94e2bc7d3' }}
           JWT_ACCESS_EXPIRES_IN: 15m
           JWT_REFRESH_EXPIRES_IN: 7d
           FRONTEND_URL: https://example.com
@@ -131,6 +143,8 @@ jobs:
           BCRYPT_ROUNDS: '10'
           RATE_LIMIT_TTL: '60'
           RATE_LIMIT_LIMIT: '120'
+          SUPERADMIN_EMAIL: ${{ env.SUPERADMIN_EMAIL }}
+          SUPERADMIN_PASSWORD: ${{ env.SUPERADMIN_PASSWORD }}
         run: |
           pnpm --filter backend start &
           for i in $(seq 1 30); do

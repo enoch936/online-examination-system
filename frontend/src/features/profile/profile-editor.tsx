@@ -1,7 +1,8 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Save } from 'lucide-react';
+import { KeyRound, Loader2, Save } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -10,10 +11,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { authService } from '@/services/auth.service';
 import { profileService } from '@/services/profile.service';
 import { useAuthStore } from '@/store/auth.store';
 
+const STRONG_PASSWORD_RE = /^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z0-9])/;
+
+export function changePasswordPolicyMessage(password: string): string | null {
+  if (password.length < 12) return 'Must be at least 12 characters';
+  if (!STRONG_PASSWORD_RE.test(password)) return 'Must include uppercase, lowercase, a number, and a symbol';
+  return null;
+}
+
 export function ProfileEditor({ role }: { role: string }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const setSession = useAuthStore((s) => s.setSession);
   const storeUser = useAuthStore((s) => s.user);
@@ -28,6 +39,29 @@ export function ProfileEditor({ role }: { role: string }) {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [initialized, setInitialized] = useState(false);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const changePasswordMutation = useMutation({
+    mutationFn: authService.changePassword,
+    onSuccess: async () => {
+      toast.success('Password changed — signing you out. Log in again with your new password.');
+      try {
+        await authService.logout();
+      } catch {
+        /* session may already be revoked server-side */
+      }
+      useAuthStore.getState().clearSession();
+      router.push('/login');
+    },
+    onError: (err: any) => {
+      const message = err?.response?.data?.message;
+      setPasswordError(Array.isArray(message) ? message[0] : (message ?? 'Failed to change password'));
+    },
+  });
 
   if (profile && !initialized) {
     setFirstName(profile.firstName ?? '');
@@ -52,6 +86,26 @@ export function ProfileEditor({ role }: { role: string }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     mutation.mutate({ firstName, lastName, email, phone: phone || undefined });
+  };
+
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError('');
+
+    if (!currentPassword) {
+      setPasswordError('Enter your current password to authorize the change.');
+      return;
+    }
+    const policy = changePasswordPolicyMessage(newPassword);
+    if (policy) {
+      setPasswordError(policy);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    changePasswordMutation.mutate({ currentPassword, newPassword });
   };
 
   if (isLoading) {
@@ -148,6 +202,40 @@ export function ProfileEditor({ role }: { role: string }) {
             <span className="text-muted-foreground">Member since</span>
             <span>{profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : '-'}</span>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Change Password</CardTitle>
+          <CardDescription>
+            Your current password is required. Changing it signs you out of all sessions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword">Current password</Label>
+              <Input id="currentPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPassword">New password</Label>
+              <Input id="newPassword" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <p className="text-xs text-muted-foreground">
+                At least 12 characters with uppercase, lowercase, a number, and a symbol.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm new password</Label>
+              <Input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            </div>
+            {passwordError && <p className="text-sm text-destructive">{passwordError}</p>}
+            <Button type="submit" variant="outline" disabled={changePasswordMutation.isPending}>
+              {changePasswordMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <KeyRound className="mr-2 h-4 w-4" />
+              Change password
+            </Button>
+          </form>
         </CardContent>
       </Card>
     </div>

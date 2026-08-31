@@ -51,7 +51,7 @@ function ResetPasswordForm() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={10}
+              minLength={12}
             />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
