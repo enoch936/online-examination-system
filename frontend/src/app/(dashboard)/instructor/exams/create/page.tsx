@@ -134,6 +134,8 @@ export default function CreateExamPage() {
     if (!startsAt) { toast.error('Please select a start date'); return; }
     if (!endsAt) { toast.error('Please select an end date'); return; }
     if (new Date(endsAt) <= new Date(startsAt)) { toast.error('End date must be after start date'); return; }
+    if (Number(passingMarks) > Number(totalMarks)) { toast.error('Passing marks cannot exceed total marks'); return; }
+    if (Number(negativeMarkingRate) > 1) { toast.error('Negative marking rate must be between 0 and 1'); return; }
     if (selectedQuestionIds.length === 0) { toast.error('Please select at least one question'); return; }
 
     createMutation.mutate({

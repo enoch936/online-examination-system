@@ -316,6 +316,8 @@ export default function ManageExamPage() {
 
   function handleSaveEdit() {
     if (!editingId) return;
+    if (Number(editForm.passingMarks) > Number(editForm.totalMarks)) { toast.error('Passing marks cannot exceed total marks'); return; }
+    if (Number(editForm.negativeMarkingRate) > 1) { toast.error('Negative marking rate must be between 0 and 1'); return; }
     const data: Record<string, unknown> = {};
     if (editForm.title.trim()) data.title = editForm.title.trim();
     if (editForm.description) data.description = editForm.description || undefined;

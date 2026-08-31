@@ -1,8 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ExamEventType, ExamStatus, Prisma, QuestionType, SessionStatus, SubmissionStatus } from '@prisma/client';
+import { ExamEventType, ExamStatus, Prisma, SessionStatus, SubmissionStatus } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { EventQueueService, GradingJob } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { clampScore, gradeQuestion } from './scoring.util';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 
 const LIFECYCLE_INTERVAL_MS = 60_000;
@@ -142,8 +143,7 @@ export class SubmissionsService implements OnModuleInit {
   }
 
   private async finalizeSubmission(session: SubmissionSession, autoSubmitted: boolean) {
-    const optionBasedTypes: QuestionType[] = [QuestionType.MULTIPLE_CHOICE, QuestionType.MULTIPLE_SELECT, QuestionType.TRUE_FALSE];
-    const textBasedTypes: QuestionType[] = [QuestionType.FILL_BLANK, QuestionType.SHORT_ANSWER];
+    const negativeMarkingRate = Number(session.exam.negativeMarkingRate) || 0;
     let totalScore = 0;
     let needsManualGrading = false;
     const answerByQuestion = new Map(session.answers.map((answer) => [answer.questionId, answer]));
@@ -153,38 +153,20 @@ export class SubmissionsService implements OnModuleInit {
     for (const examQuestion of session.exam.questions) {
       const question = examQuestion.question;
       const answer = answerByQuestion.get(question.id);
-      let score = 0;
 
-      if (optionBasedTypes.includes(question.type)) {
-        const correctIds = question.options
-          .filter((option) => option.isCorrect)
-          .map((option) => option.id)
-          .sort();
-        let selectedIds: string[] = [];
-        try {
-          selectedIds = JSON.parse(answer?.selectedOptionIds ?? '[]');
-        } catch {
-          selectedIds = [];
-        }
-        selectedIds.sort();
-        score = this.sameSet(correctIds, selectedIds) ? Number(examQuestion.points) : 0;
-      } else if (textBasedTypes.includes(question.type)) {
-        const correctAnswers = question.options
-          .filter((o) => o.isCorrect)
-          .map((o) => o.text.toLowerCase().trim());
-        const studentAnswer = (answer?.answerText ?? '').toLowerCase().trim();
-        score = correctAnswers.some((ca) => studentAnswer.includes(ca) || ca.includes(studentAnswer))
-          ? Number(examQuestion.points)
-          : 0;
-      } else {
-        needsManualGrading = true;
-        continue;
-      }
+      const graded = gradeQuestion({
+        type: question.type,
+        points: Number(examQuestion.points),
+        options: question.options,
+        answer: answer ?? null,
+        negativeMarkingRate,
+      });
 
-      totalScore += score;
+      totalScore += graded.score;
+      if (graded.needsManualGrading) needsManualGrading = true;
 
       if (answer) {
-        updates.push({ id: answer.id, score });
+        updates.push({ id: answer.id, score: graded.score });
       }
     }
 
@@ -195,8 +177,9 @@ export class SubmissionsService implements OnModuleInit {
     }
 
     const maxScore = Number(session.exam.totalMarks);
-    const percentage = maxScore > 0 ? Number(((totalScore / maxScore) * 100).toFixed(2)) : 0;
-    const isPassed = totalScore >= Number(session.exam.passingMarks);
+    const finalScore = clampScore(totalScore, maxScore);
+    const percentage = maxScore > 0 ? Number(((finalScore / maxScore) * 100).toFixed(2)) : 0;
+    const isPassed = finalScore >= Number(session.exam.passingMarks);
     const status = needsManualGrading ? SubmissionStatus.NEEDS_MANUAL_GRADING : SubmissionStatus.GRADED;
 
     const submission = await this.prisma.submission.create({
@@ -204,7 +187,7 @@ export class SubmissionsService implements OnModuleInit {
         sessionId: session.id,
         status,
         autoSubmitted,
-        totalScore,
+        totalScore: finalScore,
         maxScore,
         percentage,
         isPassed,
@@ -213,7 +196,7 @@ export class SubmissionsService implements OnModuleInit {
           create: {
             examId: session.examId,
             studentId: session.studentId,
-            score: totalScore,
+            score: finalScore,
             maxScore,
             percentage,
             passed: isPassed,
@@ -246,9 +229,5 @@ export class SubmissionsService implements OnModuleInit {
     }
 
     return submission;
-  }
-
-  private sameSet(left: string[], right: string[]) {
-    return left.length === right.length && left.every((value, index) => value === right[index]);
   }
 }

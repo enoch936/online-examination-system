@@ -3,6 +3,7 @@ import { ExamPermissionLevel, ExamStatus, RoleName } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { distributePoints } from '../submissions/scoring.util';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
 
@@ -427,6 +428,8 @@ export class ExamsService {
     if (questionBankIds.length > 0) {
       await this.assertBanksInCourses(questionBankIds, courseIds);
     }
+    this.assertScoringBounds(dto.totalMarks, dto.passingMarks, dto.negativeMarkingRate ?? 0);
+    const points = distributePoints(dto.totalMarks, questionIds.length);
 
     return this.prisma.exam.create({
       data: {
@@ -459,7 +462,7 @@ export class ExamsService {
         questions: {
           create: questionIds.map((questionId, index) => ({
             questionId,
-            points: 1,
+            points: points[index],
             sortOrder: index,
           })),
         },
@@ -573,6 +576,21 @@ export class ExamsService {
     }
   }
 
+  private assertScoringBounds(totalMarks: number, passingMarks: number, negativeMarkingRate: number) {
+    if (!(totalMarks >= 1)) {
+      throw new BadRequestException('Total marks must be at least 1');
+    }
+    if (passingMarks < 0) {
+      throw new BadRequestException('Passing marks cannot be negative');
+    }
+    if (passingMarks > totalMarks) {
+      throw new BadRequestException('Passing marks cannot exceed total marks');
+    }
+    if (negativeMarkingRate < 0 || negativeMarkingRate > 1) {
+      throw new BadRequestException('Negative marking rate must be between 0 and 1');
+    }
+  }
+
   private shuffle<T>(items: T[]): T[] {
     const arr = [...items];
     for (let i = arr.length - 1; i > 0; i--) {
@@ -584,6 +602,13 @@ export class ExamsService {
 
   async update(id: string, dto: UpdateExamDto) {
     const existing = await this.findOne(id);
+    const effectiveTotalMarks = Number(dto.totalMarks ?? existing.totalMarks);
+    const effectivePassingMarks = Number(dto.passingMarks ?? existing.passingMarks);
+    this.assertScoringBounds(
+      effectiveTotalMarks,
+      effectivePassingMarks,
+      Number(dto.negativeMarkingRate ?? existing.negativeMarkingRate),
+    );
     const data: Record<string, unknown> = {};
     if (dto.courseId !== undefined) data.courseId = dto.courseId;
     if (dto.title !== undefined) data.title = dto.title;
@@ -624,12 +649,13 @@ export class ExamsService {
           new Set(courses.map((c) => c.id)),
           new Set(courses.map((c) => c.subjectId)),
         );
+        const newPoints = distributePoints(effectiveTotalMarks, dto.questionIds!.length);
         await tx.examQuestion.deleteMany({ where: { examId: id } });
         await tx.examQuestion.createMany({
           data: dto.questionIds!.map((questionId, index) => ({
             examId: id,
             questionId,
-            points: 1,
+            points: newPoints[index],
             sortOrder: index,
           })),
         });
@@ -658,6 +684,16 @@ export class ExamsService {
         await tx.examQuestionBank.createMany({
           data: dto.questionBankIds.map((questionBankId) => ({ examId: id, questionBankId })),
         });
+      }
+
+      if (dto.totalMarks !== undefined && !dto.questionIds) {
+        const newPoints = distributePoints(dto.totalMarks, existing.questions.length);
+        for (const [index, examQuestion] of existing.questions.entries()) {
+          await tx.examQuestion.update({
+            where: { id: examQuestion.id },
+            data: { points: newPoints[index] },
+          });
+        }
       }
 
       return tx.exam.update({

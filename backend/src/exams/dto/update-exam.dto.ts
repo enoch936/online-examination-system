@@ -7,6 +7,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ArrayMinSize,
 } from 'class-validator';
@@ -85,6 +86,7 @@ export class UpdateExamDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @Max(1)
   negativeMarkingRate?: number;
 
   @ApiPropertyOptional()
