@@ -168,6 +168,7 @@ export type ExamSummary = {
   randomizeOptions: boolean;
   fullscreenRequired: boolean;
   showResultImmediately: boolean;
+  resumeApprovalRequired: boolean;
   course?: { name: string; subject?: { name: string } };
   courses?: Array<{ id: string; course: Course }>;
   questionBank?: { id: string; name: string } | null;

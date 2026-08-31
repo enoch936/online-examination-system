@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, Grid3X3,
-  LayoutList, ListChecks, Maximize, Mic, Send, ShieldAlert, Type, Video,
+  LayoutList, ListChecks, Loader2, Maximize, Mic, Send, ShieldAlert, Type, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -159,6 +159,16 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     enabled: Boolean(sessionId || examId),
     retry: false,
   });
+
+  const resumeErrorCode = (
+    query.error as { response?: { data?: { error?: { code?: string } | undefined } } } | null
+  )?.response?.data?.error?.code;
+
+  useEffect(() => {
+    if (resumeErrorCode !== 'RESUME_PENDING') return;
+    const timer = setInterval(() => void query.refetch(), 5000);
+    return () => clearInterval(timer);
+  }, [resumeErrorCode, query]);
 
   const submitMutation = useMutation({
     mutationFn: (autoSubmitted: boolean) => examsService.submit(query.data?.id ?? '', autoSubmitted),
@@ -347,6 +357,42 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   }
 
   if (query.isError) {
+    if (resumeErrorCode === 'RESUME_PENDING') {
+      return (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <ShieldAlert className="mx-auto h-8 w-8 text-warning" />
+            <h2 className="mt-3 text-lg font-semibold">Waiting for instructor approval</h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              Your session was interrupted and is now paused. Your instructor has been notified — once they
+              approve your resume, you will be taken straight back to your exam.
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Checking for approval...
+            </div>
+            <Button className="mt-4" variant="outline" onClick={() => router.push('/student/exams')}>
+              Back to exams
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    if (resumeErrorCode === 'RESUME_DENIED') {
+      return (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <ShieldAlert className="mx-auto h-8 w-8 text-destructive" />
+            <h2 className="mt-3 text-lg font-semibold">Resume denied</h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              Your instructor did not approve your resume request. The exam remains paused — contact your
+              instructor for help.
+            </p>
+            <Button className="mt-4" onClick={() => router.push('/student/exams')}>Back to exams</Button>
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card>
         <CardHeader>

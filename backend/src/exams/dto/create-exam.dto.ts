@@ -71,6 +71,11 @@ export class CreateExamDto {
   @IsBoolean()
   showResultImmediately?: boolean;
 
+  @ApiPropertyOptional({ description: 'Require instructor approval before a student resumes an interrupted session' })
+  @IsOptional()
+  @IsBoolean()
+  resumeApprovalRequired?: boolean;
+
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @IsNumber()

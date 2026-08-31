@@ -296,6 +296,7 @@ model Exam {
   randomizeOptions    Boolean         @default(true)
   fullscreenRequired  Boolean         @default(true)
   showResultImmediately Boolean       @default(false)
+  resumeApprovalRequired Boolean      @default(false)
   startsAt            DateTime
   endsAt              DateTime
   status              ExamStatus      @default(DRAFT)
@@ -497,6 +498,8 @@ model ExamSession {
   riskScore        Int              @default(0)
   riskLevel        RiskLevel        @default(LOW)
   retakePermitted  Boolean          @default(false)
+  resumeApprovedAt DateTime?
+  resumeDeniedAt   DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

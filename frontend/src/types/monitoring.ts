@@ -25,6 +25,10 @@ export interface SessionSnapshot {
   riskLevel: RiskLevel;
   violationsCount: number;
   reportCount: number;
+  resumeApprovalRequired: boolean;
+  resumeApprovedAt: string | null;
+  resumeDeniedAt: string | null;
+  resumePending: boolean;
 }
 
 export interface LiveStats {
@@ -99,4 +103,6 @@ export type InstructorAction =
   | 'extend'
   | 'force_submit'
   | 'disconnect'
-  | 'note';
+  | 'note'
+  | 'approve_resume'
+  | 'deny_resume';

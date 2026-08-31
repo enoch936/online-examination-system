@@ -53,6 +53,7 @@ export default function CreateExamPage() {
   const [randomizeOptions, setRandomizeOptions] = useState(true);
   const [fullscreenRequired, setFullscreenRequired] = useState(true);
   const [showResultImmediately, setShowResultImmediately] = useState(false);
+  const [resumeApprovalRequired, setResumeApprovalRequired] = useState(false);
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [expandedBankIds, setExpandedBankIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -150,6 +151,7 @@ export default function CreateExamPage() {
       randomizeOptions,
       fullscreenRequired,
       showResultImmediately,
+      resumeApprovalRequired,
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       questionIds: selectedQuestionIds,
@@ -416,6 +418,15 @@ export default function CreateExamPage() {
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input type="checkbox" className="h-4 w-4" checked={showResultImmediately} onChange={(e) => setShowResultImmediately(e.target.checked)} />
                   <div><p className="text-sm font-medium">Show result immediately</p><p className="text-xs text-muted-foreground">Display score right after submission</p></div>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4" checked={resumeApprovalRequired} onChange={(e) => setResumeApprovalRequired(e.target.checked)} />
+                  <div>
+                    <p className="text-sm font-medium">Require approval to resume</p>
+                    <p className="text-xs text-muted-foreground">
+                      If a student&apos;s session is interrupted, pause it and require an instructor to approve the resume
+                    </p>
+                  </div>
                 </label>
               </CardContent>
             </Card>

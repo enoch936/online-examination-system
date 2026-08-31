@@ -445,6 +445,7 @@ export class ExamsService {
         randomizeOptions: dto.randomizeOptions ?? true,
         fullscreenRequired: dto.fullscreenRequired ?? true,
         showResultImmediately: dto.showResultImmediately ?? false,
+        resumeApprovalRequired: dto.resumeApprovalRequired ?? false,
         startsAt: new Date(dto.startsAt),
         endsAt: new Date(dto.endsAt),
         status: ExamStatus.SCHEDULED,
@@ -596,6 +597,7 @@ export class ExamsService {
     if (dto.randomizeOptions !== undefined) data.randomizeOptions = dto.randomizeOptions;
     if (dto.fullscreenRequired !== undefined) data.fullscreenRequired = dto.fullscreenRequired;
     if (dto.showResultImmediately !== undefined) data.showResultImmediately = dto.showResultImmediately;
+    if (dto.resumeApprovalRequired !== undefined) data.resumeApprovalRequired = dto.resumeApprovalRequired;
     if (dto.negativeMarkingRate !== undefined) data.negativeMarkingRate = dto.negativeMarkingRate;
     if (dto.startsAt !== undefined) data.startsAt = new Date(dto.startsAt);
     if (dto.endsAt !== undefined) data.endsAt = new Date(dto.endsAt);

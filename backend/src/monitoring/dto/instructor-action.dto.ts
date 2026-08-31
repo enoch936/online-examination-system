@@ -6,6 +6,8 @@ export const INSTRUCTOR_ACTIONS = [
   'message',
   'pause',
   'resume',
+  'approve_resume',
+  'deny_resume',
   'extend',
   'force_submit',
   'disconnect',

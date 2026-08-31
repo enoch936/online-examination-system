@@ -15,6 +15,7 @@ export type CreateExamData = {
   randomizeOptions?: boolean;
   fullscreenRequired?: boolean;
   showResultImmediately?: boolean;
+  resumeApprovalRequired?: boolean;
   negativeMarkingRate?: number;
   startsAt: string;
   endsAt: string;

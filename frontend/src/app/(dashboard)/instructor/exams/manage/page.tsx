@@ -115,6 +115,7 @@ export default function ManageExamPage() {
     randomizeOptions: true,
     fullscreenRequired: true,
     showResultImmediately: false,
+    resumeApprovalRequired: false,
     negativeMarkingRate: '0',
   });
 
@@ -307,6 +308,7 @@ export default function ManageExamPage() {
       randomizeOptions: exam.randomizeOptions,
       fullscreenRequired: exam.fullscreenRequired,
       showResultImmediately: exam.showResultImmediately,
+      resumeApprovalRequired: exam.resumeApprovalRequired,
       negativeMarkingRate: String(exam.negativeMarkingRate),
     });
     setEditingId(exam.id);
@@ -331,6 +333,7 @@ export default function ManageExamPage() {
     data.randomizeOptions = editForm.randomizeOptions;
     data.fullscreenRequired = editForm.fullscreenRequired;
     data.showResultImmediately = editForm.showResultImmediately;
+    data.resumeApprovalRequired = editForm.resumeApprovalRequired;
     data.negativeMarkingRate = Number(editForm.negativeMarkingRate) || 0;
     updateMutation.mutate({ id: editingId, data });
   }
@@ -508,6 +511,7 @@ export default function ManageExamPage() {
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.randomizeOptions} onChange={(e) => setEditForm({ ...editForm, randomizeOptions: e.target.checked })} /> Randomize options</label>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.fullscreenRequired} onChange={(e) => setEditForm({ ...editForm, fullscreenRequired: e.target.checked })} /> Fullscreen required</label>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.showResultImmediately} onChange={(e) => setEditForm({ ...editForm, showResultImmediately: e.target.checked })} /> Show result immediately</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.resumeApprovalRequired} onChange={(e) => setEditForm({ ...editForm, resumeApprovalRequired: e.target.checked })} /> Require instructor approval to resume interrupted sessions</label>
             </div>
             <div className="flex gap-3 pt-4">
               <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} className="flex-1">

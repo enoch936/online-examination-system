@@ -128,15 +128,25 @@ function SessionActions({
       >
         <MessageSquare className="mr-1 h-3.5 w-3.5" /> Warn
       </Button>
-      {session.status === 'PAUSED' ? (
+      {session.status === 'PAUSED' && session.resumePending && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => run({ action: 'approve_resume' })}>
+            <CheckCircle className="mr-1 h-3.5 w-3.5" /> Approve
+          </Button>
+          <Button size="sm" variant="destructive" onClick={() => run({ action: 'deny_resume', message: 'Resume request denied' })}>
+            <XCircle className="mr-1 h-3.5 w-3.5" /> Deny
+          </Button>
+        </>
+      )}
+      {session.status === 'PAUSED' && !session.resumePending ? (
         <Button size="sm" variant="outline" onClick={() => run({ action: 'resume' })}>
           <Play className="mr-1 h-3.5 w-3.5" /> Resume
         </Button>
-      ) : (
+      ) : session.status === 'IN_PROGRESS' ? (
         <Button size="sm" variant="outline" onClick={() => run({ action: 'pause' })}>
           <Pause className="mr-1 h-3.5 w-3.5" /> Pause
         </Button>
-      )}
+      ) : null}
       <Button
         size="sm"
         variant="outline"
@@ -194,6 +204,12 @@ function SessionTable({ sessions, onOpenEvents }: { sessions: SessionSnapshot[];
                     Risk {s.riskScore} · {s.riskLevel}
                   </Badge>
                   <ConnectionBadge state={s.connectionState} />
+                  {s.resumePending && (
+                    <Badge variant="warning" className="gap-1">
+                      <Clock className="h-3 w-3" />
+                      Awaiting approval
+                    </Badge>
+                  )}
                   {s.reportCount > 0 && (
                     <Badge variant="warning" className="gap-1">
                       <Flag className="h-3 w-3" />

@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import { ExamEventType, NotificationType, RiskLevel, RoleName, SessionStatus, ViolationType } from '@prisma/client';
+import { ExamEventType, ExamStatus, NotificationType, RiskLevel, RoleName, SessionStatus, ViolationType } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { CacheService } from '../cache/cache.service';
 import { EventQueueService } from '../queue/event-queue.service';
@@ -310,7 +310,7 @@ export class MonitoringService {
       where: { id: sessionId },
       include: {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
-        exam: { select: { id: true, status: true } },
+        exam: { select: { id: true, status: true, resumeApprovalRequired: true } },
       },
     });
     if (!session) return null;
@@ -328,6 +328,25 @@ export class MonitoringService {
     });
 
     if (state === 'DISCONNECTED' && wasConnected) {
+      if (session.exam.status === ExamStatus.LIVE && session.status === SessionStatus.IN_PROGRESS && session.exam.resumeApprovalRequired) {
+        await this.prisma.examSession.update({
+          where: { id: sessionId },
+          data: { status: SessionStatus.PAUSED, resumeApprovedAt: null, resumeDeniedAt: null },
+        });
+        const event = await this.prisma.examEvent.create({
+          data: {
+            examId: session.examId,
+            sessionId,
+            studentId: session.studentId,
+            type: ExamEventType.PAUSED,
+            riskScore: 0,
+            severity: RiskLevel.LOW,
+            metadata: JSON.stringify({ reason: 'connection lost', pendingApproval: true }),
+          },
+        });
+        this.gateway.emitToExam(session.examId, 'monitor:event', { ...event, student: session.student });
+        this.emitAlert(session.examId, session.student, 'RESUME_APPROVAL_PENDING', 'WARNING', `${session.student.firstName} ${session.student.lastName} lost connection and needs approval to resume.`);
+      }
       const config = await this.getConfig(session.examId);
       const points = this.risk.weight(ExamEventType.CONNECTION_LOST, config.weights);
       const severity = this.risk.classify(points, config.thresholds);
@@ -470,7 +489,7 @@ export class MonitoringService {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
         answers: { select: { questionId: true, selectedOptionIds: true, answerText: true, answerJson: true, isMarkedForReview: true } },
         submission: { select: { submittedAt: true, status: true } },
-        exam: { select: { id: true, _count: { select: { questions: true } } } },
+        exam: { select: { id: true, _count: { select: { questions: true } }, resumeApprovalRequired: true } },
         _count: { select: { violations: true } },
       },
     });
@@ -489,6 +508,10 @@ export class MonitoringService {
       studentId: s.student.id,
       student: s.student,
       status: s.status,
+      resumeApprovalRequired: s.exam.resumeApprovalRequired,
+      resumeApprovedAt: s.resumeApprovedAt,
+      resumeDeniedAt: s.resumeDeniedAt,
+      resumePending: s.exam.resumeApprovalRequired && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
       connectionState: s.connectionState,
       startedAt: s.startedAt,
       submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,
@@ -756,6 +779,26 @@ export class MonitoringService {
         await this.prisma.examSession.update({ where: { id: sessionId }, data: { status: SessionStatus.IN_PROGRESS } });
         await this.recordInstructorEvent(session, 'RESUMED', {});
         this.gateway.emitToSession(session.id, 'exam:control', { type: 'resume' });
+        break;
+      }
+      case 'approve_resume': {
+        if (session.status !== SessionStatus.PAUSED) throw new BadRequestException('Session is not paused');
+        await this.prisma.examSession.update({
+          where: { id: sessionId },
+          data: { status: SessionStatus.IN_PROGRESS, resumeApprovedAt: new Date(), resumeDeniedAt: null },
+        });
+        await this.recordInstructorEvent(session, 'RESUMED', { approved: true });
+        this.gateway.emitToSession(session.id, 'exam:control', { type: 'resume', approved: true });
+        break;
+      }
+      case 'deny_resume': {
+        if (session.status !== SessionStatus.PAUSED) throw new BadRequestException('Session is not paused');
+        await this.prisma.examSession.update({
+          where: { id: sessionId },
+          data: { resumeDeniedAt: new Date(), resumeApprovedAt: null },
+        });
+        await this.recordInstructorEvent(session, 'PAUSED', { denied: true, message: message ?? null });
+        this.gateway.emitToSession(session.id, 'exam:control', { type: 'resume-denied', message: message ?? null });
         break;
       }
       case 'extend': {

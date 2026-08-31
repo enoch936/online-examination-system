@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { ExamStatus, ExamEventType, SessionStatus } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,7 +22,7 @@ export class ExamSessionsService {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
         submission: { select: { submittedAt: true, status: true } },
         answers: { select: { selectedOptionIds: true, answerText: true, answerJson: true, isMarkedForReview: true } },
-        exam: { select: { _count: { select: { questions: true } } } },
+        exam: { select: { resumeApprovalRequired: true, _count: { select: { questions: true } } } },
         _count: { select: { violations: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -38,7 +38,10 @@ export class ExamSessionsService {
         student: s.student,
         attemptNumber: s.attemptNumber,
         status: s.status,
-        startedAt: s.startedAt,
+        resumeApprovalRequired: s.exam.resumeApprovalRequired,
+        resumeApprovedAt: s.resumeApprovedAt,
+        resumeDeniedAt: s.resumeDeniedAt,
+        resumePending: s.exam.resumeApprovalRequired && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
         submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,
         violationsCount: s._count.violations,
         remainingSeconds: s.remainingSeconds,
@@ -78,6 +81,7 @@ export class ExamSessionsService {
       include: this.sessionInclude(),
     });
     if (existing) {
+      await this.assertResumeAllowed(existing);
       return this.sanitizeSession(existing);
     }
 
@@ -163,6 +167,7 @@ export class ExamSessionsService {
     if (!session) {
       throw new NotFoundException('Exam session not found');
     }
+    await this.assertResumeAllowed(session);
     try {
       await this.monitoring.recordEvent({
         examId: session.examId,
@@ -175,11 +180,52 @@ export class ExamSessionsService {
     return this.sanitizeSession(session);
   }
 
+  /**
+   * When the exam has resume-approval protection enabled, a student whose
+   * session was paused (e.g. dropped connection) must wait for an instructor
+   * to approve before they can continue. Approving flips the session back to
+   * IN_PROGRESS server-side; denying leaves it PAUSED.
+   */
+  private async assertResumeAllowed(session: {
+    status: SessionStatus;
+    exam: { resumeApprovalRequired: boolean };
+    resumeApprovedAt: Date | null;
+    resumeDeniedAt: Date | null;
+  }) {
+    if (
+      session.status !== SessionStatus.PAUSED ||
+      !session.exam.resumeApprovalRequired ||
+      session.resumeApprovedAt
+    ) {
+      return;
+    }
+    if (session.resumeDeniedAt) {
+      throw new HttpException(
+        {
+          code: 'RESUME_DENIED',
+          message: 'Your resume request was denied by your instructor. Contact them for help.',
+        },
+        HttpStatus.LOCKED,
+      );
+    }
+    throw new HttpException(
+      {
+        code: 'RESUME_PENDING',
+        message: 'Your session was interrupted and is paused. An instructor must approve you before you can resume.',
+      },
+      HttpStatus.LOCKED,
+    );
+  }
+
   async saveAnswer(sessionId: string, studentId: string, dto: SaveAnswerDto) {
-    const session = await this.prisma.examSession.findFirst({ where: { id: sessionId, studentId } });
+    const session = await this.prisma.examSession.findFirst({
+      where: { id: sessionId, studentId },
+      include: { exam: { select: { resumeApprovalRequired: true } } },
+    });
     if (!session || !([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
       throw new ForbiddenException('Session is not active');
     }
+    await this.assertResumeAllowed(session);
 
     const answer = await this.prisma.studentAnswer.upsert({
       where: { sessionId_questionId: { sessionId, questionId: dto.questionId } },
