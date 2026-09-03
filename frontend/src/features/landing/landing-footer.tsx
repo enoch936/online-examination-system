@@ -14,9 +14,8 @@ const columns = [
   {
     heading: 'Resources',
     links: [
-      { label: 'Pricing', href: '/pricing' },
       { label: 'About', href: '/about' },
-      { label: 'Contact', href: '/contact' },
+      { label: 'tsdat', href: '/contact' },
     ],
   },
   {

@@ -57,10 +57,10 @@ export function LandingNav() {
             </a>
           ))}
           <Link
-            href="/pricing"
+            href="/contact"
             className="rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
           >
-            Pricing
+            tsdat
           </Link>
         </div>
 
@@ -125,7 +125,7 @@ export function LandingNav() {
               </div>
 
               <nav className="flex flex-col gap-1">
-                {[...links, { href: '/pricing', label: 'Pricing' }].map((l, i) => (
+                {[...links, { href: '/contact', label: 'tsdat' }].map((l, i) => (
                   <a
                     key={l.href}
                     href={l.href}
