@@ -14,12 +14,11 @@ const links = [
   { href: '#how-it-works', label: 'How It Works' },
   { href: '#roles', label: 'Roles' },
   { href: '#faq', label: 'FAQ' },
-  { href: '#contact', label: 'Contact' },
 ];
 
 const pageLinks = [
   { href: '/about', label: 'About' },
-  { href: '/pricing', label: 'Pricing' },
+  { href: '/contact', label: 'Contact' },
 ];
 
 export function PublicNav() {
