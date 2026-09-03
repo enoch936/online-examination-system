@@ -108,30 +108,6 @@ export function LifecycleSection() {
                 );
               })}
             </div>
-
-            {/* Pencil-write lifecycle connector (draws on entry) */}
-            <div className="mt-6 hidden h-10 items-center gap-3 sm:flex" aria-hidden>
-              <svg viewBox="0 0 200 24" className="h-6 w-full overflow-visible" preserveAspectRatio="none">
-                <motion.path
-                  d="M0 12 H200"
-                  fill="none"
-                  stroke="hsl(var(--border) / 0.7)"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeDasharray="3 5"
-                />
-                <motion.circle
-                  cx="12"
-                  cy="12"
-                  r="3"
-                  fill="hsl(var(--primary))"
-                  initial={{ pathLength: 0 }}
-                />
-              </svg>
-              <span className="shrink-0 font-mono text-[0.65rem] text-muted-foreground">
-                pipeline.svg
-              </span>
-            </div>
           </div>
 
           {/* Preview panel */}
