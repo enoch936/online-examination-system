@@ -1,6 +1,7 @@
 'use client';
 
 import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
@@ -211,35 +212,59 @@ export function OrbitObjects({
   className?: string;
 }) {
   const reduce = useReducedMotion() ?? false;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const items = objects.map((node, i) => {
+    const angle = (i / objects.length) * 360;
+    const radians = (angle * Math.PI) / 180;
+    const startX = Math.cos(radians) * radius;
+    const startY = Math.sin(radians) * radius;
+    const dir = i % 2 === 0 ? 1 : -1;
+    return { node, startX, startY, dir };
+  });
+
   return (
     <div className={cn('pointer-events-none absolute inset-0', className)} aria-hidden>
-      {objects.map((node, i) => {
-        const angle = (i / objects.length) * 360;
-        const radians = (angle * Math.PI) / 180;
-        const startX = Math.cos(radians) * radius;
-        const startY = Math.sin(radians) * radius;
-        const dir = i % 2 === 0 ? 1 : -1;
-        return (
-          <motion.div
-            key={i}
-            className="absolute left-1/2 top-1/2"
-            initial={reduce ? { x: 0, y: 0, opacity: 1 } : { x: startX, y: startY, opacity: 0, scale: 0.6 }}
-            animate={{ x: startX, y: startY, opacity: 1, scale: 1 }}
-            transition={{ duration: 1, delay: 0.6 + i * 0.12, ease: [0.16, 1, 0.3, 1] }}
-            style={{ marginLeft: -16, marginTop: -16 }}
-          >
-            {!reduce && (
-              <motion.div
-                animate={{ x: [0, dir * 6, 0], y: [0, -6, 0] }}
-                transition={{ duration: 5 + i, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+      {!mounted
+        ? items.map(({ node }, i) => (
+            <div
+              key={i}
+              className="absolute left-1/2 top-1/2 -mt-4 -ml-4 opacity-0"
+              style={{ transform: `translate(0px, 0px)` }}
+            >
+              {node}
+            </div>
+          ))
+        : items.map(({ node, startX, startY, dir }, i) =>
+            reduce ? (
+              <div
+                key={i}
+                className="absolute left-1/2 top-1/2 -mt-4 -ml-4"
+                style={{ transform: `translate3d(${startX}px, ${startY}px, 0px)` }}
               >
                 {node}
+              </div>
+            ) : (
+              <motion.div
+                key={i}
+                className="absolute left-1/2 top-1/2"
+                initial={reduce ? { x: 0, y: 0, opacity: 1 } : { x: startX, y: startY, opacity: 0, scale: 0.6 }}
+                animate={{ x: startX, y: startY, opacity: 1, scale: 1 }}
+                transition={{ duration: 1, delay: 0.6 + i * 0.12, ease: [0.16, 1, 0.3, 1] }}
+                style={{ marginLeft: -16, marginTop: -16 }}
+              >
+                <motion.div
+                  animate={{ x: [0, dir * 6, 0], y: [0, -6, 0] }}
+                  transition={{ duration: 5 + i, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+                >
+                  {node}
+                </motion.div>
               </motion.div>
-            )}
-            {reduce && node}
-          </motion.div>
-        );
-      })}
+            ),
+          )}
     </div>
   );
 }
