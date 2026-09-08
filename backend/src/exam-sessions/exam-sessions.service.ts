@@ -138,17 +138,20 @@ export class ExamSessionsService {
         retakeRequests: { where: { studentId, status: { in: [RetakeRequestStatus.PENDING, RetakeRequestStatus.APPROVED] } } },
       },
     });
+    let approvedRetake = false;
     if (submittedSession) {
       const hasApprovedRetake = submittedSession.retakeRequests.some(
         (r) => r.status === RetakeRequestStatus.APPROVED,
       );
-      const approved = exam.retakePolicy !== ExamRetakePolicy.DISABLED && (submittedSession.retakePermitted || hasApprovedRetake);
-      if (!approved) {
+      approvedRetake =
+        exam.retakePolicy !== ExamRetakePolicy.DISABLED &&
+        (submittedSession.retakePermitted || hasApprovedRetake);
+      if (!approvedRetake) {
         if (exam.retakePolicy === ExamRetakePolicy.AUTO) {
           const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
           if (attemptsUsed >= exam.attemptsAllowed) {
             throw new HttpException(
-              { code: 'RETAKE_REQUIRED', message: 'No retake attempts remaining' },
+              { code: 'RETAKE_REQUIRED', message: 'No retake attempts remaining', retakePolicy: exam.retakePolicy },
               HttpStatus.LOCKED,
             );
           }
@@ -159,6 +162,7 @@ export class ExamSessionsService {
           throw new HttpException(
             {
               code: hasPending ? 'RETAKE_PENDING' : 'RETAKE_REQUIRED',
+              retakePolicy: exam.retakePolicy,
               message: hasPending
                 ? 'Your retake request is pending approval. Contact your instructor if this takes too long.'
                 : 'You have already submitted this exam. Contact your instructor to retake.',
@@ -170,7 +174,7 @@ export class ExamSessionsService {
     }
 
     const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
-    if (attemptsUsed >= exam.attemptsAllowed) {
+    if (attemptsUsed >= exam.attemptsAllowed && !approvedRetake) {
       throw new ForbiddenException('No attempts remaining');
     }
 

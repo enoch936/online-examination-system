@@ -33,7 +33,7 @@ export class RequestsService {
     });
     if (!exam) throw new NotFoundException('Exam not found');
 
-    if (exam.resumePolicy === ExamResumePolicy.DISABLED || exam.retakePolicy === ExamRetakePolicy.DISABLED) {
+    if (exam.retakePolicy === ExamRetakePolicy.DISABLED) {
       throw new ForbiddenException('Retakes are not enabled for this exam');
     }
 

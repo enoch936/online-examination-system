@@ -164,6 +164,9 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
 const resumeErrorCode = (
     query.error as { response?: { data?: { error?: { code?: string } | undefined } } | null }
   )?.response?.data?.error?.code;
+const resumeErrorPolicy = (
+    query.error as { response?: { data?: { error?: { retakePolicy?: string } | undefined } } | null }
+  )?.response?.data?.error?.retakePolicy;
 
   const retakeMutation = useMutation({
     mutationFn: () => requestsService.requestRetake({ examId: examId ?? '' }),
@@ -184,7 +187,7 @@ const resumeErrorCode = (
   });
 
   useEffect(() => {
-    if (resumeErrorCode !== 'RESUME_PENDING') return;
+    if (resumeErrorCode !== 'RESUME_PENDING' && resumeErrorCode !== 'RETAKE_PENDING') return;
     const timer = setInterval(() => void query.refetch(), 5000);
     return () => clearInterval(timer);
   }, [resumeErrorCode, query]);
@@ -461,7 +464,7 @@ const resumeErrorCode = (
                 ? 'Your retake request is awaiting instructor approval. You will be able to start a new attempt once it is approved.'
                 : 'You have already submitted this exam. Ask your instructor for permission to take it again.'}
             </p>
-            {resumeErrorCode === 'RETAKE_REQUIRED' && (
+            {resumeErrorCode === 'RETAKE_REQUIRED' && resumeErrorPolicy !== 'DISABLED' && (
               <Button
                 className="mt-4"
                 disabled={retakeMutation.isPending}
@@ -470,6 +473,17 @@ const resumeErrorCode = (
                 {retakeMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
                 Request a retake
               </Button>
+            )}
+            {resumeErrorCode === 'RETAKE_REQUIRED' && resumeErrorPolicy === 'DISABLED' && (
+              <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">
+                Retakes are not enabled for this exam.
+              </p>
+            )}
+            {resumeErrorCode === 'RETAKE_PENDING' && (
+              <div className="mt-4 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Checking for approval...
+              </div>
             )}
             <div className="mt-3 flex items-center justify-center gap-2">
               <Button variant="outline" onClick={() => router.push('/student/exams')}>
