@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { RoleName } from '@prisma/client';
+import { ExamPermissionLevel, RoleName } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { LogViolationDto } from './dto/log-violation.dto';
 import { SaveAnswerDto } from './dto/save-answer.dto';
@@ -13,12 +14,16 @@ import { ExamSessionsService } from './exam-sessions.service';
 @ApiTags('Exam Sessions')
 @Controller('exam-sessions')
 export class ExamSessionsController {
-  constructor(private readonly sessions: ExamSessionsService) {}
+  constructor(
+    private readonly sessions: ExamSessionsService,
+    private readonly access: ExamAccessService,
+  ) {}
 
   @Get()
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   @Permissions('sessions.monitor')
-  findByExam(@Query('examId') examId: string) {
+  async findByExam(@Query('examId') examId: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanMonitor(examId, user);
     return this.sessions.findByExam(examId);
   }
 
@@ -53,14 +58,20 @@ export class ExamSessionsController {
   @Patch(':sessionId/permit-retake')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   @Permissions('sessions.monitor')
-  permitRetake(@Param('sessionId') sessionId: string) {
+  async permitRetake(@Param('sessionId') sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanMonitorSession(sessionId, user);
+    const examId = await this.sessions.getExamIdForSession(sessionId);
+    await this.access.assertCanAct(examId, user, ExamPermissionLevel.CO_OWNER);
     return this.sessions.permitRetake(sessionId);
   }
 
   @Patch(':sessionId/revoke-retake')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   @Permissions('sessions.monitor')
-  revokeRetake(@Param('sessionId') sessionId: string) {
+  async revokeRetake(@Param('sessionId') sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanMonitorSession(sessionId, user);
+    const examId = await this.sessions.getExamIdForSession(sessionId);
+    await this.access.assertCanAct(examId, user, ExamPermissionLevel.CO_OWNER);
     return this.sessions.revokeRetake(sessionId);
   }
 }

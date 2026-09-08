@@ -1,5 +1,9 @@
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type ConnectionState = 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING';
+export type WebcamMode = 'DISABLED' | 'PROMPT' | 'REQUIRED';
+export type MicMode = 'DISABLED' | 'PROMPT' | 'REQUIRED';
+export type FullscreenPolicy = 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
+export type MonitoringStrictness = 'RELAXED' | 'STANDARD' | 'STRICT';
 
 export interface SessionSnapshot {
   sessionId: string;
@@ -57,6 +61,17 @@ export interface MonitorConfig {
   aiDetectionEnabled: boolean;
   eventLoggingEnabled: boolean;
   requireConsent: boolean;
+  webcamMode: WebcamMode;
+  micMode: MicMode;
+  fullscreenPolicy: FullscreenPolicy;
+  trackTabSwitches: boolean;
+  trackWindowBlur: boolean;
+  disableCopy: boolean;
+  disablePaste: boolean;
+  detectClipboard: boolean;
+  detectShortcuts: boolean;
+  violationThreshold: number;
+  strictness: MonitoringStrictness;
   weights: Record<string, number>;
   thresholds: Record<string, number>;
 }
@@ -70,6 +85,17 @@ export interface StudentRequirements {
   aiDetectionEnabled: boolean;
   eventLoggingEnabled: boolean;
   requireConsent: boolean;
+  webcamMode: WebcamMode;
+  micMode: MicMode;
+  fullscreenPolicy: FullscreenPolicy;
+  trackTabSwitches: boolean;
+  trackWindowBlur: boolean;
+  disableCopy: boolean;
+  disablePaste: boolean;
+  detectClipboard: boolean;
+  detectShortcuts: boolean;
+  violationThreshold: number;
+  strictness: MonitoringStrictness;
 }
 
 export interface MonitoringEvent {

@@ -169,6 +169,9 @@ export type ExamSummary = {
   fullscreenRequired: boolean;
   showResultImmediately: boolean;
   resumeApprovalRequired: boolean;
+  connectionLossPolicy?: 'AUTO_RESUME' | 'MANUAL_RESUME' | 'APPROVAL_REQUIRED' | 'END_SESSION' | 'MARK_REVIEW';
+  resumePolicy?: 'STUDENT' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL' | 'DISABLED';
+  retakePolicy?: 'DISABLED' | 'AUTO' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL';
   course?: { name: string; subject?: { name: string } };
   courses?: Array<{ id: string; course: Course }>;
   questionBank?: { id: string; name: string } | null;

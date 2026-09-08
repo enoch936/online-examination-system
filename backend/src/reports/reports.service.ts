@@ -1,11 +1,52 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
+import { RoleName } from '@prisma/client';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+
+const ADMIN_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN];
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private isAdmin(user: AuthenticatedUser): boolean {
+    return user.roles.some((role) => ADMIN_ROLES.some((admin) => admin === role));
+  }
+
+  /** Exam filter: admins see everything, instructors only their own/shared exams. */
+  private examAccessFilter(user: AuthenticatedUser): Record<string, unknown> {
+    if (this.isAdmin(user)) return {};
+    return {
+      OR: [
+        { createdById: user.sub },
+        { shares: { some: { instructorId: user.sub } } },
+      ],
+    };
+  }
+
+  async assertCanAccessStudent(studentId: string, user: AuthenticatedUser) {
+    if (this.isAdmin(user)) return;
+    const hasAccess = await this.prisma.examSession.count({
+      where: { studentId, exam: this.examAccessFilter(user) as never },
+      take: 1,
+    });
+    if (hasAccess === 0) {
+      throw new ForbiddenException('You do not have access to this student\'s reports');
+    }
+  }
+
+  async assertCanAccessSubject(subjectId: string, user: AuthenticatedUser) {
+    if (this.isAdmin(user)) return;
+    const hasAccess = await this.prisma.exam.count({
+      where: { course: { subjectId }, ...this.examAccessFilter(user) } as never,
+      take: 1,
+    });
+    if (hasAccess === 0) {
+      throw new ForbiddenException('You do not have access to reports for this subject');
+    }
+  }
 
   async examAnalytics(examId: string) {
     const exam = await this.prisma.exam.findUnique({ where: { id: examId }, include: { course: true } });
@@ -154,14 +195,40 @@ export class ReportsService {
     };
   }
 
-  async overview() {
+  async overview(user: AuthenticatedUser) {
+    const examWhere = this.examAccessFilter(user);
+    const scopedExams = await this.prisma.exam.findMany({
+      where: examWhere,
+      select: { id: true },
+    });
+    const scopedIds = scopedExams.map((e) => e.id);
+    const isScoped = !this.isAdmin(user);
+
+    const studentQuery = isScoped
+      ? await this.prisma.examSession.findMany({
+          where: { examId: { in: scopedIds } },
+          distinct: ['studentId'],
+          select: { studentId: true },
+        })
+      : null;
+    const scopedStudentIds = studentQuery?.map((s) => s.studentId) ?? [];
+
     const all: any[] = await Promise.all([
-      this.prisma.exam.count(),
-      this.prisma.user.count({ where: { roles: { some: { role: { name: 'STUDENT' } } } } }),
-      this.prisma.user.count({ where: { roles: { some: { role: { name: 'INSTRUCTOR' } } } } }),
-      this.prisma.submission.count(),
-      this.prisma.result.aggregate({ _avg: { percentage: true }, _count: true }),
+      this.prisma.exam.count({ where: examWhere }),
+      isScoped
+        ? Promise.resolve(scopedStudentIds.length)
+        : this.prisma.user.count({ where: { roles: { some: { role: { name: 'STUDENT' } } } } }),
+      isScoped
+        ? Promise.resolve(1)
+        : this.prisma.user.count({ where: { roles: { some: { role: { name: 'INSTRUCTOR' } } } } }),
+      this.prisma.submission.count({ where: isScoped ? { session: { examId: { in: scopedIds } } } : {} }),
+      this.prisma.result.aggregate({
+        _avg: { percentage: true },
+        _count: true,
+        where: isScoped ? { examId: { in: scopedIds } } : {},
+      }),
       this.prisma.result.findMany({
+        where: isScoped ? { examId: { in: scopedIds } } : {},
         orderBy: { createdAt: 'desc' },
         take: 10,
         include: { exam: true, submission: { include: { session: { include: { student: true } } } } },
@@ -171,6 +238,7 @@ export class ReportsService {
           courses: {
             include: {
               exams: {
+                where: isScoped ? { id: { in: scopedIds } } : {},
                 include: { results: true },
               },
             },
@@ -330,8 +398,8 @@ export class ReportsService {
     });
   }
 
-  async buildOverviewPdf(): Promise<Buffer> {
-    const report = await this.overview();
+  async buildOverviewPdf(user: AuthenticatedUser): Promise<Buffer> {
+    const report = await this.overview(user);
     const doc = new PDFDocument({ margin: 48 });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
@@ -487,8 +555,8 @@ export class ReportsService {
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
-  async buildOverviewWorkbook(): Promise<Buffer> {
-    const report = await this.overview();
+  async buildOverviewWorkbook(user: AuthenticatedUser): Promise<Buffer> {
+    const report = await this.overview(user);
     const workbook = new ExcelJS.Workbook();
 
     let sheet = workbook.addWorksheet('Overview');

@@ -21,6 +21,7 @@ import { apiErrorMessage } from '@/lib/api-error';
 import { formatDuration } from '@/lib/utils';
 import { examsService } from '@/services/exams.service';
 import { monitoringService } from '@/services/monitoring.service';
+import { requestsService } from '@/services/requests.service';
 import { useExamStore } from '@/store/exam.store';
 import type { ExamQuestion } from '@/types/api';
 import type { StudentRequirements } from '@/types/monitoring';
@@ -160,9 +161,27 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     retry: false,
   });
 
-  const resumeErrorCode = (
-    query.error as { response?: { data?: { error?: { code?: string } | undefined } } } | null
+const resumeErrorCode = (
+    query.error as { response?: { data?: { error?: { code?: string } | undefined } } | null }
   )?.response?.data?.error?.code;
+
+  const retakeMutation = useMutation({
+    mutationFn: () => requestsService.requestRetake({ examId: examId ?? '' }),
+    onSuccess: () => {
+      toast.success('Retake request sent to your instructor');
+      void query.refetch();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Failed to request a retake')),
+  });
+
+  const resumeRequestMutation = useMutation({
+    mutationFn: () => requestsService.requestResume({ sessionId: query.data?.id ?? sessionId ?? '' }),
+    onSuccess: () => {
+      toast.success('Resume request sent to your instructor');
+      void query.refetch();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, 'Failed to request a resume')),
+  });
 
   useEffect(() => {
     if (resumeErrorCode !== 'RESUME_PENDING') return;
@@ -293,7 +312,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     });
   }, [currentIndex, currentQuestion, query.data?.id, reportEvent]);
 
-  useProctoring({
+  const { status: proctorStatus, error: proctorError, retry: retryProctoring } = useProctoring({
     sessionId: query.data?.id ?? '',
     examId: query.data?.examId ?? examId ?? '',
     enabled: Boolean(
@@ -306,6 +325,33 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     mic: requirements?.micEnabled ?? false,
     ai: requirements?.aiDetectionEnabled ?? false,
   });
+
+  const proctoringBanner = useMemo(() => {
+    if (!requirements || !(requirements.webcamEnabled || requirements.micEnabled || requirements.aiDetectionEnabled)) return null;
+    if (proctorStatus === 'active') {
+      return {
+        tone: 'success' as const,
+        title: 'Proctoring active',
+        detail: requirements.webcamEnabled ? 'Camera feed is being shared with your proctor.' : 'Audio monitoring is active.',
+        action: null,
+      };
+    }
+    if (proctorStatus === 'starting') {
+      return { tone: 'muted' as const, title: 'Starting proctoring…', detail: 'Waiting for camera access.', action: null };
+    }
+    if (proctorStatus === 'denied' || proctorStatus === 'error') {
+      const denied = proctorStatus === 'denied';
+      return {
+        tone: (denied ? 'danger' : 'warning') as 'danger' | 'warning',
+        title: denied ? 'Camera access denied' : 'Camera unavailable',
+        detail: denied
+          ? 'Allow camera access in your browser to continue with proctoring. Your proctor has been notified.'
+          : `${proctorError ?? 'We could not connect to your camera'}. Your proctor has been notified.`,
+        action: { label: 'Retry', onClick: retryProctoring },
+      };
+    }
+    return null;
+  }, [requirements, proctorStatus, proctorError, retryProctoring]);
 
   const handleUpdateAnswer = useCallback(
     (question: ExamQuestion, update: { selectedOptionIds?: string[]; answerText?: string }) => {
@@ -371,6 +417,15 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
               <Loader2 className="h-4 w-4 animate-spin" />
               Checking for approval...
             </div>
+            <Button
+              className="mt-4"
+              variant="outline"
+              onClick={() => resumeRequestMutation.mutate()}
+              disabled={resumeRequestMutation.isPending}
+            >
+              {resumeRequestMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+              Request instructor approval now
+            </Button>
             <Button className="mt-4" variant="outline" onClick={() => router.push('/student/exams')}>
               Back to exams
             </Button>
@@ -393,11 +448,40 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
         </Card>
       );
     }
+    if (resumeErrorCode === 'RETAKE_PENDING' || resumeErrorCode === 'RETAKE_REQUIRED') {
+      return (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <ShieldAlert className="mx-auto h-8 w-8 text-warning" />
+            <h2 className="mt-3 text-lg font-semibold">
+              {resumeErrorCode === 'RETAKE_PENDING' ? 'Retake request pending' : 'Retake requires approval'}
+            </h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              {resumeErrorCode === 'RETAKE_PENDING'
+                ? 'Your retake request is awaiting instructor approval. You will be able to start a new attempt once it is approved.'
+                : 'You have already submitted this exam. Ask your instructor for permission to take it again.'}
+            </p>
+            {resumeErrorCode === 'RETAKE_REQUIRED' && (
+              <Button
+                className="mt-4"
+                disabled={retakeMutation.isPending}
+                onClick={() => retakeMutation.mutate()}
+              >
+                {retakeMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                Request a retake
+              </Button>
+            )}
+            <div className="mt-3 flex items-center justify-center gap-2">
+              <Button variant="outline" onClick={() => router.push('/student/exams')}>
+                Back to exams
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Exam session unavailable</CardTitle>
-        </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{apiErrorMessage(query.error, 'We could not open your exam session.')}</p>
           <Button onClick={() => router.push('/student/exams')}>Back to exams</Button>
@@ -464,9 +548,24 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
             {requirements.aiDetectionEnabled && (
               <li className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> AI analysis detects suspicious behavior.</li>
             )}
+            {requirements.fullscreenPolicy === 'REQUIRED' && (
+              <li className="flex items-center gap-2"><Maximize className="h-4 w-4" /> Fullscreen is required for the duration of the exam.</li>
+            )}
+            {requirements.strictness === 'STRICT' && (
+              <li className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Strict proctoring: tab/window switching is being tracked.</li>
+            )}
           </ul>
           <div className="flex gap-3">
-            <Button onClick={() => setConsentGiven(true)}>I consent</Button>
+            <Button
+              onClick={() => {
+                setConsentGiven(true);
+                if (requirements.fullscreenPolicy === 'REQUIRED' && document.documentElement.requestFullscreen) {
+                  void document.documentElement.requestFullscreen().catch(() => undefined);
+                }
+              }}
+            >
+              I consent
+            </Button>
             <Button
               variant="outline"
               onClick={() => {
@@ -485,6 +584,32 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
 
   return (
     <div className="relative space-y-5">
+      {proctoringBanner && (
+        <div
+          className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${
+            proctoringBanner.tone === 'danger'
+              ? 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-400'
+              : proctoringBanner.tone === 'warning'
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                : proctoringBanner.tone === 'success'
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  : 'border-muted bg-muted/40 text-muted-foreground'
+          }`}
+        >
+          <span className="flex items-center gap-2">
+            <Video className="h-4 w-4" />
+            <span>
+              <span className="font-medium">{proctoringBanner.title}</span>
+              <span className="ml-2">{proctoringBanner.detail}</span>
+            </span>
+          </span>
+          {proctoringBanner.action && (
+            <Button size="sm" variant="outline" onClick={proctoringBanner.action.onClick}>
+              {proctoringBanner.action.label}
+            </Button>
+          )}
+        </div>
+      )}
       {proctorBanner && (
         <div className="flex items-center justify-between gap-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
           <span className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> {proctorBanner}</span>

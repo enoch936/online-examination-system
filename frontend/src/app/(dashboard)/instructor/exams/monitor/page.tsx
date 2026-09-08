@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { examsService } from '@/services/exams.service';
 import { messagesService } from '@/services/messages.service';
 import { monitoringService } from '@/services/monitoring.service';
+import { requestsService } from '@/services/requests.service';
 import { getSocket } from '@/services/socket.service';
 import { getIceServers } from '@/services/webrtc';
 import { toast } from 'sonner';
@@ -303,7 +304,10 @@ function EventsFeed({ session, config }: { session: SessionSnapshot; config?: Mo
   );
 }
 
-type MonitorToggleKey = 'webcamEnabled' | 'micEnabled' | 'aiDetectionEnabled' | 'screenMonitoring' | 'recordingEnabled' | 'eventLoggingEnabled' | 'requireConsent';
+type MonitorToggleKey = 'webcamEnabled' | 'micEnabled' | 'aiDetectionEnabled' | 'screenMonitoring' | 'recordingEnabled' | 'eventLoggingEnabled' | 'requireConsent' | 'trackTabSwitches' | 'trackWindowBlur' | 'disableCopy' | 'disablePaste' | 'detectClipboard' | 'detectShortcuts';
+
+type MonitorModeKey = 'webcamMode' | 'micMode';
+type MonitorPolicyKey = 'fullscreenPolicy' | 'strictness';
 
 const MONITORING_TOGGLES: Array<{ key: MonitorToggleKey; label: string; icon: ReactNode; hint: string }> = [
   { key: 'webcamEnabled', label: 'Webcam monitoring', icon: <Video className="h-4 w-4" />, hint: 'Stream the candidate camera to this monitor.' },
@@ -313,7 +317,25 @@ const MONITORING_TOGGLES: Array<{ key: MonitorToggleKey; label: string; icon: Re
   { key: 'recordingEnabled', label: 'Recording', icon: <ListVideo className="h-4 w-4" />, hint: 'Enable session recording.' },
   { key: 'eventLoggingEnabled', label: 'Event logging', icon: <Activity className="h-4 w-4" />, hint: 'Record candidate activity events.' },
   { key: 'requireConsent', label: 'Require consent', icon: <ShieldAlert className="h-4 w-4" />, hint: 'Prompt candidates before proctoring starts.' },
+  { key: 'trackTabSwitches', label: 'Track tab switches', icon: <Monitor className="h-4 w-4" />, hint: 'Flag when candidates switch away from the exam tab.' },
+  { key: 'trackWindowBlur', label: 'Track window blur', icon: <Activity className="h-4 w-4" />, hint: 'Flag when the exam window loses focus.' },
+  { key: 'disableCopy', label: 'Disable copy', icon: <ListVideo className="h-4 w-4" />, hint: 'Block copying during the exam.' },
+  { key: 'disablePaste', label: 'Disable paste', icon: <ListVideo className="h-4 w-4" />, hint: 'Block pasting during the exam.' },
+  { key: 'detectClipboard', label: 'Detect clipboard', icon: <Activity className="h-4 w-4" />, hint: 'Log clipboard reads by the candidate.' },
+  { key: 'detectShortcuts', label: 'Detect shortcuts', icon: <ShieldAlert className="h-4 w-4" />, hint: 'Log shortcut key presses that bypass restrictions.' },
 ];
+
+const MODE_OPTIONS: Record<MonitorModeKey, string[]> = {
+  webcamMode: ['DISABLED', 'PROMPT', 'REQUIRED'],
+  micMode: ['DISABLED', 'PROMPT', 'REQUIRED'],
+};
+
+const POLICY_OPTIONS: Record<MonitorPolicyKey, string[]> = {
+  fullscreenPolicy: ['DISABLED', 'OPTIONAL', 'REQUIRED'],
+  strictness: ['RELAXED', 'STANDARD', 'STRICT'],
+};
+
+const INPUT_CLASS = 'h-9 rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring';
 
 function MonitoringSettings({ examId, config }: { examId: string; config?: MonitorConfig }) {
   const queryClient = useQueryClient();
@@ -331,6 +353,11 @@ function MonitoringSettings({ examId, config }: { examId: string; config?: Monit
     saveConfig.mutate({ [key]: !config[key] } as Partial<MonitorConfig>);
   };
 
+  const setValue = (key: string, value: string | number) => {
+    if (!config) return;
+    saveConfig.mutate({ [key]: value } as Partial<MonitorConfig>);
+  };
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -344,6 +371,49 @@ function MonitoringSettings({ examId, config }: { examId: string; config?: Monit
         </div>
       </CardHeader>
       <CardContent className="space-y-1">
+        <div className="grid gap-3 px-2 py-2 sm:grid-cols-2 lg:grid-cols-4">
+          {(['webcamMode', 'micMode'] as MonitorModeKey[]).map((key) => (
+            <label key={key} className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              {key === 'webcamMode' ? 'Webcam mode' : 'Microphone mode'}
+              <select
+                className={INPUT_CLASS}
+                value={config?.[key] ?? 'DISABLED'}
+                disabled={!config || saveConfig.isPending}
+                onChange={(e) => setValue(key, e.target.value)}
+              >
+                {MODE_OPTIONS[key].map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+          ))}
+          {(['fullscreenPolicy', 'strictness'] as MonitorPolicyKey[]).map((key) => (
+            <label key={key} className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              {key === 'fullscreenPolicy' ? 'Fullscreen policy' : 'Strictness'}
+              <select
+                className={INPUT_CLASS}
+                value={config?.[key] ?? (key === 'fullscreenPolicy' ? 'OPTIONAL' : 'STANDARD')}
+                disabled={!config || saveConfig.isPending}
+                onChange={(e) => setValue(key, e.target.value)}
+              >
+                {POLICY_OPTIONS[key].map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+          ))}
+          <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+            Violations before flag
+            <input
+              type="number"
+              min={1}
+              max={100}
+              className={INPUT_CLASS}
+              value={config?.violationThreshold ?? 3}
+              disabled={!config || saveConfig.isPending}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v) && v >= 1 && v <= 100) setValue('violationThreshold', v);
+              }}
+            />
+          </label>
+        </div>
         {MONITORING_TOGGLES.map(({ key, label, icon, hint }) => (
           <div
             key={key}
@@ -482,6 +552,105 @@ function AuditLogPanel({ examId }: { examId: string }) {
               ))}
             </div>
           )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function PendingRequestsPanel({ examId }: { examId: string }) {
+  const queryClient = useQueryClient();
+  const [reasonOpen, setReasonOpen] = useState<string | null>(null);
+
+  const { data: requests } = useQuery({
+    queryKey: ['exam-requests', examId],
+    queryFn: () => requestsService.listPending(examId),
+    refetchInterval: 15000,
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
+      requestsService.decide(id, action),
+    onSuccess: () => {
+      toast.success('Request updated');
+      void queryClient.invalidateQueries({ queryKey: ['exam-requests', examId] });
+      void queryClient.invalidateQueries({ queryKey: ['monitor-sessions', examId] });
+    },
+    onError: () => toast.error('Failed to update request'),
+  });
+
+  const pending = useMemo(() => {
+    const retake = (requests?.retake ?? []).map((r) => ({ kind: 'retake' as const, request: r }));
+    const resume = (requests?.resume ?? []).map((r) => ({ kind: 'resume' as const, request: r }));
+    return [...retake, ...resume].filter((r) => r.request.status === 'PENDING');
+  }, [requests]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Clock className="h-4 w-4" /> Pending requests
+          </CardTitle>
+          <Badge variant="warning">{pending.length}</Badge>
+        </div>
+      </CardHeader>
+      {pending.length === 0 ? (
+        <CardContent className="pt-0"><p className="text-sm text-muted-foreground">No pending retake or resume requests.</p></CardContent>
+      ) : (
+        <CardContent className="space-y-2 pt-0">
+          {pending.map((entry) => {
+            const r = entry.request;
+            const student = r.student;
+            const name = student ? `${student.firstName} ${student.lastName}` : (r.studentId ?? 'Student');
+            return (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {entry.kind === 'retake' ? 'Retake' : 'Resume'} — {name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(r.requestedAt).toLocaleString()}
+                    {r.reason ? ` · ${r.reason}` : ''}
+                  </p>
+                  {entry.kind === 'resume' && (
+                    <button
+                      className="mt-1 block text-xs text-primary underline"
+                      onClick={() => setReasonOpen(reasonOpen === r.id ? null : r.id)}
+                    >
+                      {reasonOpen === r.id ? 'Hide optional message' : 'Add an optional message'}
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {reasonOpen === r.id && (
+                    <input
+                      className="h-8 w-40 rounded-md border bg-background px-2 text-xs"
+                      placeholder="Message"
+                      defaultValue=""
+                      id={`request-reason-${r.id}`}
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={decideMutation.isPending}
+                    onClick={() => decideMutation.mutate({ id: r.id, action: 'approve' })}
+                  >
+                    <CheckCircle className="mr-1 h-3.5 w-3.5" /> Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={decideMutation.isPending}
+                    onClick={() => decideMutation.mutate({ id: r.id, action: 'reject' })}
+                  >
+                    <XCircle className="mr-1 h-3.5 w-3.5" /> Reject
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
         </CardContent>
       )}
     </Card>
@@ -743,6 +912,8 @@ function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitl
       <StatsCards stats={stats} />
 
       <LiveChatPanel examId={examId} messages={liveMessages} />
+
+      <PendingRequestsPanel examId={examId} />
 
       <MonitoringSettings examId={examId} config={config} />
 

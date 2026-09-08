@@ -82,6 +82,13 @@ enum NotificationType {
   EXAM_REMINDER
   RESULT_PUBLISHED
   SYSTEM
+  RETAKE_REQUEST
+  RETAKE_APPROVED
+  RETAKE_REJECTED
+  RESUME_REQUEST
+  RESUME_APPROVED
+  RESUME_REJECTED
+  SESSION_MESSAGE
 }
 
 enum ViolationType {
@@ -116,6 +123,60 @@ enum ExamPermissionLevel {
   CO_OWNER
 }
 
+enum ExamConnectionLossPolicy {
+  AUTO_RESUME
+  MANUAL_RESUME
+  APPROVAL_REQUIRED
+  END_SESSION
+  MARK_REVIEW
+}
+
+enum ExamResumePolicy {
+  STUDENT
+  INSTRUCTOR_APPROVAL
+  ADMIN_APPROVAL
+  DISABLED
+}
+
+enum ExamRetakePolicy {
+  DISABLED
+  AUTO
+  INSTRUCTOR_APPROVAL
+  ADMIN_APPROVAL
+}
+
+enum WebcamMode {
+  DISABLED
+  OPTIONAL
+  REQUIRED
+}
+
+enum MicMode {
+  DISABLED
+  OPTIONAL
+  REQUIRED
+}
+
+enum FullscreenPolicy {
+  DISABLED
+  OPTIONAL
+  REQUIRED
+}
+
+enum MonitoringStrictness {
+  RELAXED
+  STANDARD
+  STRICT
+}
+
+enum RetakeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
 enum ExamEventType {
   EXAM_STARTED
   EXAM_RESUMED
@@ -135,6 +196,8 @@ enum ExamEventType {
   SHORTCUT_ATTEMPT
   CAMERA_CONNECTED
   CAMERA_DISCONNECTED
+  CAMERA_PERMISSION_DENIED
+  CAMERA_UNAVAILABLE
   MIC_CONNECTED
   MIC_DISCONNECTED
   FACE_DETECTED
@@ -143,6 +206,8 @@ enum ExamEventType {
   MOTION_DETECTED
   AUDIO_ACTIVITY
   AI_SIGNAL
+  FOCUS_RESTORED
+  PROCTORING_CONSENT_DECLINED
   MANUAL_FLAG
   CONNECTION_LOST
   CONNECTION_RESTORED
@@ -152,40 +217,45 @@ enum ExamEventType {
   TIME_EXTENDED
   FORCE_SUBMITTED
   SESSION_DISCONNECTED
+  SESSION_TERMINATED
   WARNING_SENT
   NOTE_ADDED
 }
 
 model User {
-  id              String          @id @default(uuid()) 
-  tenantId        String?         
-  email           String          @unique
+  id              String     @id @default(uuid())
+  tenantId        String?
+  email           String     @unique
   passwordHash    String
   firstName       String
   lastName        String
   phone           String?
   avatarUrl       String?
-  status          UserStatus      @default(PENDING_VERIFICATION)
+  status          UserStatus @default(PENDING_VERIFICATION)
   emailVerifiedAt DateTime?
   lastLoginAt     DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
-  roles           UserRole[]
-  refreshTokens   RefreshToken[]
-  createdExams    Exam[]          @relation("ExamCreator")
-  createdQuestions Question[]     @relation("QuestionCreator")
-  createdQuestionBanks QuestionBank[] @relation("QuestionBankCreator")
-  sessions        ExamSession[]   @relation("StudentSessions")
-  examAssignments ExamAssignment[] @relation("ExamAssignments")
-  answers         StudentAnswer[] @relation("AnswerGrader")
-  notifications   Notification[]
-  activityLogs    ActivityLog[]   @relation("ActorActivity")
-  auditLogs        AuditLog[]      @relation("ActorAudit")
-  examEvents      ExamEvent[]     @relation("StudentEvents")
-  acknowledgedExamEvents ExamEvent[] @relation("ExamEventAcknowledger")
-  sharedExams     ExamShare[]     @relation("ExamSharedInstructor")
-  grantedExamShares ExamShare[]   @relation("ExamShareGranter")
+  roles                  UserRole[]
+  refreshTokens          RefreshToken[]
+  createdExams           Exam[]           @relation("ExamCreator")
+  createdQuestions       Question[]       @relation("QuestionCreator")
+  createdQuestionBanks   QuestionBank[]   @relation("QuestionBankCreator")
+  sessions               ExamSession[]    @relation("StudentSessions")
+  examAssignments        ExamAssignment[] @relation("ExamAssignments")
+  answers                StudentAnswer[]  @relation("AnswerGrader")
+  notifications          Notification[]
+  activityLogs           ActivityLog[]    @relation("ActorActivity")
+  auditLogs              AuditLog[]       @relation("ActorAudit")
+  examEvents             ExamEvent[]      @relation("StudentEvents")
+  acknowledgedExamEvents ExamEvent[]      @relation("ExamEventAcknowledger")
+  sharedExams            ExamShare[]      @relation("ExamSharedInstructor")
+  grantedExamShares      ExamShare[]      @relation("ExamShareGranter")
+  retakeRequests         RetakeRequest[]  @relation("StudentRetakeRequests")
+  reviewedRetakeRequests RetakeRequest[]  @relation("RetakeReviewer")
+  resumeRequests         ResumeRequest[]  @relation("StudentResumeRequests")
+  reviewedResumeRequests ResumeRequest[]  @relation("ResumeReviewer")
 
   @@index([tenantId])
   @@index([status])
@@ -194,11 +264,11 @@ model User {
 }
 
 model Role {
-  id              String           @id @default(uuid()) 
-  name            RoleName         @unique
-  description     String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id          String   @id @default(uuid())
+  name        RoleName @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   users           UserRole[]
   rolePermissions RolePermission[]
@@ -207,11 +277,11 @@ model Role {
 }
 
 model Permission {
-  id              String           @id @default(uuid()) 
-  key             String           @unique
-  label           String
-  module          String
-  createdAt       DateTime         @default(now())
+  id        String   @id @default(uuid())
+  key       String   @unique
+  label     String
+  module    String
+  createdAt DateTime @default(now())
 
   rolePermissions RolePermission[]
 
@@ -220,8 +290,8 @@ model Permission {
 }
 
 model RolePermission {
-  roleId       String     
-  permissionId String     
+  roleId       String
+  permissionId String
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
@@ -230,8 +300,8 @@ model RolePermission {
 }
 
 model UserRole {
-  userId String 
-  roleId String 
+  userId String
+  roleId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
@@ -240,16 +310,16 @@ model UserRole {
 }
 
 model Subject {
-  id          String     @id @default(uuid()) 
-  tenantId    String?    
+  id          String   @id @default(uuid())
+  tenantId    String?
   code        String
   name        String
   description String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  courses     Course[]
-  questions   Question[]
+  courses       Course[]
+  questions     Question[]
   questionBanks QuestionBank[]
 
   @@unique([tenantId, code])
@@ -258,16 +328,16 @@ model Subject {
 }
 
 model Course {
-  id          String   @id @default(uuid()) 
-  tenantId    String?  
-  subjectId   String   
+  id          String   @id @default(uuid())
+  tenantId    String?
+  subjectId   String
   code        String
   name        String
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  subject       Subject  @relation(fields: [subjectId], references: [id])
+  subject       Subject        @relation(fields: [subjectId], references: [id])
   exams         Exam[]
   questionBanks QuestionBank[]
   examCourses   ExamCourse[]
@@ -278,43 +348,48 @@ model Course {
 }
 
 model Exam {
-  id                  String          @id @default(uuid()) 
-  tenantId            String?         
-  courseId            String          
-  questionBankId      String?
-  createdById         String          
-  title               String
-  slug                String          @unique
-  description         String?
-  instructions        String?
-  durationMinutes     Int
-  totalMarks          Decimal
-  passingMarks        Decimal
-  negativeMarkingRate Decimal         @default(0)
-  attemptsAllowed     Int             @default(1)
-  randomizeQuestions  Boolean         @default(true)
-  randomizeOptions    Boolean         @default(true)
-  fullscreenRequired  Boolean         @default(true)
-  showResultImmediately Boolean       @default(false)
-  resumeApprovalRequired Boolean      @default(false)
-  startsAt            DateTime
-  endsAt              DateTime
-  status              ExamStatus      @default(DRAFT)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  id                     String                   @id @default(uuid())
+  tenantId               String?
+  courseId               String
+  questionBankId         String?
+  createdById            String
+  title                  String
+  slug                   String                   @unique
+  description            String?
+  instructions           String?
+  durationMinutes        Int
+  totalMarks             Decimal
+  passingMarks           Decimal
+  negativeMarkingRate    Decimal                  @default(0)
+  attemptsAllowed        Int                      @default(1)
+  randomizeQuestions     Boolean                  @default(true)
+  randomizeOptions       Boolean                  @default(true)
+  fullscreenRequired     Boolean                  @default(true)
+  showResultImmediately  Boolean                  @default(false)
+  resumeApprovalRequired Boolean                  @default(false)
+  connectionLossPolicy   ExamConnectionLossPolicy @default(AUTO_RESUME)
+  resumePolicy           ExamResumePolicy         @default(STUDENT)
+  retakePolicy           ExamRetakePolicy         @default(DISABLED)
+  startsAt               DateTime
+  endsAt                 DateTime
+  status                 ExamStatus               @default(DRAFT)
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
 
-  course              Course          @relation(fields: [courseId], references: [id])
-  questionBank        QuestionBank?   @relation(fields: [questionBankId], references: [id])
-  createdBy           User            @relation("ExamCreator", fields: [createdById], references: [id])
-  questions           ExamQuestion[]
-  sessions            ExamSession[]
-  assignments         ExamAssignment[]
-  results             Result[]
-  courses             ExamCourse[]
-  questionBanks       ExamQuestionBank[]
-  events              ExamEvent[]
-  monitoringConfig    ExamMonitoringConfig?
-  shares              ExamShare[]
+  course           Course                @relation(fields: [courseId], references: [id])
+  questionBank     QuestionBank?         @relation(fields: [questionBankId], references: [id])
+  createdBy        User                  @relation("ExamCreator", fields: [createdById], references: [id])
+  questions        ExamQuestion[]
+  sessions         ExamSession[]
+  assignments      ExamAssignment[]
+  results          Result[]
+  courses          ExamCourse[]
+  questionBanks    ExamQuestionBank[]
+  events           ExamEvent[]
+  monitoringConfig ExamMonitoringConfig?
+  shares           ExamShare[]
+  retakeRequests   RetakeRequest[]
+  resumeRequests   ResumeRequest[]
 
   @@index([tenantId])
   @@index([courseId])
@@ -324,12 +399,12 @@ model Exam {
 }
 
 model ExamShare {
-  id              String             @id @default(uuid())
+  id              String              @id @default(uuid())
   examId          String
   instructorId    String
   permissionLevel ExamPermissionLevel @default(VIEWER)
   grantedById     String
-  createdAt       DateTime           @default(now())
+  createdAt       DateTime            @default(now())
 
   exam       Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
   instructor User @relation("ExamSharedInstructor", fields: [instructorId], references: [id], onDelete: Cascade)
@@ -341,31 +416,31 @@ model ExamShare {
 }
 
 model Question {
-  id             String           @id @default(uuid()) 
-  tenantId       String?          
-  subjectId      String           
+  id             String       @id @default(uuid())
+  tenantId       String?
+  subjectId      String
   questionBankId String?
-  createdById    String           
+  createdById    String
   type           QuestionType
-  difficulty     Difficulty       @default(MEDIUM)
+  difficulty     Difficulty   @default(MEDIUM)
   prompt         String
   explanation    String?
-  points         Decimal          @default(1)
-  negativePoints Decimal          @default(0)
+  points         Decimal      @default(1)
+  negativePoints Decimal      @default(0)
   tags           String
   topic          String?
   imageUrl       String?
-  sortOrder      Int              @default(0)
-  isActive       Boolean          @default(true)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  sortOrder      Int          @default(0)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
-  subject        Subject          @relation(fields: [subjectId], references: [id])
-  questionBank   QuestionBank?    @relation(fields: [questionBankId], references: [id])
-  createdBy      User             @relation("QuestionCreator", fields: [createdById], references: [id])
-  options        QuestionOption[]
-  exams          ExamQuestion[]
-  answers        StudentAnswer[]
+  subject      Subject          @relation(fields: [subjectId], references: [id])
+  questionBank QuestionBank?    @relation(fields: [questionBankId], references: [id])
+  createdBy    User             @relation("QuestionCreator", fields: [createdById], references: [id])
+  options      QuestionOption[]
+  exams        ExamQuestion[]
+  answers      StudentAnswer[]
 
   @@index([tenantId])
   @@index([subjectId, type, difficulty])
@@ -377,11 +452,11 @@ model Question {
 }
 
 model QuestionBank {
-  id          String             @id @default(uuid()) 
-  tenantId    String?            
-  courseId    String             
-  categoryId  String             
-  createdById String             
+  id          String             @id @default(uuid())
+  tenantId    String?
+  courseId    String
+  categoryId  String
+  createdById String
   name        String
   description String?
   difficulty  Difficulty?
@@ -389,12 +464,12 @@ model QuestionBank {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  course      Course             @relation(fields: [courseId], references: [id])
-  category    Subject            @relation(fields: [categoryId], references: [id])
-  createdBy   User               @relation("QuestionBankCreator", fields: [createdById], references: [id])
-  questions   Question[]
-  exams       Exam[]
-  examBanks   ExamQuestionBank[]
+  course    Course             @relation(fields: [courseId], references: [id])
+  category  Subject            @relation(fields: [categoryId], references: [id])
+  createdBy User               @relation("QuestionBankCreator", fields: [createdById], references: [id])
+  questions Question[]
+  exams     Exam[]
+  examBanks ExamQuestionBank[]
 
   @@index([tenantId])
   @@index([courseId])
@@ -404,15 +479,15 @@ model QuestionBank {
 }
 
 model QuestionOption {
-  id         String   @id @default(uuid()) 
-  questionId String   
+  id         String   @id @default(uuid())
+  questionId String
   label      String
   text       String
   isCorrect  Boolean  @default(false)
   sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
 
-  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
   @@unique([questionId, label])
   @@index([questionId])
@@ -420,14 +495,14 @@ model QuestionOption {
 }
 
 model ExamQuestion {
-  id         String   @id @default(uuid()) 
-  examId     String   
-  questionId String   
+  id         String  @id @default(uuid())
+  examId     String
+  questionId String
   points     Decimal
-  sortOrder  Int      @default(0)
+  sortOrder  Int     @default(0)
 
-  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  question   Question @relation(fields: [questionId], references: [id])
+  exam     Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
 
   @@unique([examId, questionId])
   @@index([questionId])
@@ -435,12 +510,12 @@ model ExamQuestion {
 }
 
 model ExamCourse {
-  id       String @id @default(uuid()) 
+  id       String @id @default(uuid())
   examId   String
   courseId String
 
-  exam     Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
-  course   Course  @relation(fields: [courseId], references: [id])
+  exam   Exam   @relation(fields: [examId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id])
 
   @@unique([examId, courseId])
   @@index([courseId])
@@ -448,12 +523,12 @@ model ExamCourse {
 }
 
 model ExamQuestionBank {
-  id             String        @id @default(uuid()) 
+  id             String @id @default(uuid())
   examId         String
   questionBankId String
 
-  exam           Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
-  questionBank   QuestionBank  @relation(fields: [questionBankId], references: [id])
+  exam         Exam         @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questionBank QuestionBank @relation(fields: [questionBankId], references: [id])
 
   @@unique([examId, questionBankId])
   @@index([questionBankId])
@@ -461,13 +536,13 @@ model ExamQuestionBank {
 }
 
 model ExamAssignment {
-  id        String   @id @default(uuid()) 
-  examId    String   
-  studentId String   
+  id         String   @id @default(uuid())
+  examId     String
+  studentId  String
   assignedAt DateTime @default(now())
 
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  student   User     @relation("ExamAssignments", fields: [studentId], references: [id])
+  exam    Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student User @relation("ExamAssignments", fields: [studentId], references: [id])
 
   @@unique([examId, studentId])
   @@index([studentId])
@@ -476,40 +551,42 @@ model ExamAssignment {
 }
 
 model ExamSession {
-  id               String           @id @default(uuid()) 
-  examId           String           
-  studentId        String           
-  attemptNumber    Int              @default(1)
-  status           SessionStatus    @default(NOT_STARTED)
-  startedAt        DateTime?
-  expiresAt        DateTime?
-  submittedAt      DateTime?
-  remainingSeconds Int?
-  currentQuestionId String?         
+  id                   String          @id @default(uuid())
+  examId               String
+  studentId            String
+  attemptNumber        Int             @default(1)
+  status               SessionStatus   @default(NOT_STARTED)
+  startedAt            DateTime?
+  expiresAt            DateTime?
+  submittedAt          DateTime?
+  remainingSeconds     Int?
+  currentQuestionId    String?
   currentQuestionIndex Int?
-  questionOrder String?
-  optionOrder String?
-  metadata String?
-  connectionState  ConnectionState  @default(CONNECTED)
-  lastHeartbeatAt  DateTime?
-  heartbeatCount   Int              @default(0)
-  disconnectCount  Int              @default(0)
-  lastActivityAt   DateTime?
-  riskScore        Int              @default(0)
-  riskLevel        RiskLevel        @default(LOW)
-  retakePermitted  Boolean          @default(false)
-  resumeApprovedAt DateTime?
-  resumeDeniedAt   DateTime?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  questionOrder        String?
+  optionOrder          String?
+  metadata             String?
+  connectionState      ConnectionState @default(CONNECTED)
+  lastHeartbeatAt      DateTime?
+  heartbeatCount       Int             @default(0)
+  disconnectCount      Int             @default(0)
+  lastActivityAt       DateTime?
+  riskScore            Int             @default(0)
+  riskLevel            RiskLevel       @default(LOW)
+  retakePermitted      Boolean         @default(false)
+  resumeApprovedAt     DateTime?
+  resumeDeniedAt       DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  exam             Exam             @relation(fields: [examId], references: [id])
-  student          User             @relation("StudentSessions", fields: [studentId], references: [id])
-  answers          StudentAnswer[]
-  violations       ExamViolation[]
-  activityLogs     ActivityLog[]
-  submission       Submission?
-  events           ExamEvent[]
+  exam           Exam            @relation(fields: [examId], references: [id])
+  student        User            @relation("StudentSessions", fields: [studentId], references: [id])
+  answers        StudentAnswer[]
+  violations     ExamViolation[]
+  activityLogs   ActivityLog[]
+  submission     Submission?
+  events         ExamEvent[]
+  retakeRequests RetakeRequest[]
+  resumeRequests ResumeRequest[]
 
   @@unique([examId, studentId, attemptNumber])
   @@index([studentId, status])
@@ -521,22 +598,22 @@ model ExamSession {
 }
 
 model StudentAnswer {
-  id               String      @id @default(uuid()) 
-  sessionId        String      
-  questionId       String      
+  id                String   @id @default(uuid())
+  sessionId         String
+  questionId        String
   selectedOptionIds String
-  answerText       String?
-  answerJson       String?
-  isBookmarked     Boolean     @default(false)
-  isMarkedForReview Boolean    @default(false)
-  savedAt          DateTime    @default(now())
-  score            Decimal?
-  graderId         String?     
-  feedback         String?
+  answerText        String?
+  answerJson        String?
+  isBookmarked      Boolean  @default(false)
+  isMarkedForReview Boolean  @default(false)
+  savedAt           DateTime @default(now())
+  score             Decimal?
+  graderId          String?
+  feedback          String?
 
-  session          ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  question         Question    @relation(fields: [questionId], references: [id])
-  grader           User?       @relation("AnswerGrader", fields: [graderId], references: [id])
+  session  ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id])
+  grader   User?       @relation("AnswerGrader", fields: [graderId], references: [id])
 
   @@unique([sessionId, questionId])
   @@index([questionId])
@@ -544,8 +621,8 @@ model StudentAnswer {
 }
 
 model Submission {
-  id                 String           @id @default(uuid()) 
-  sessionId          String           @unique 
+  id                 String           @id @default(uuid())
+  sessionId          String           @unique
   status             SubmissionStatus @default(SUBMITTED)
   submittedAt        DateTime         @default(now())
   autoSubmitted      Boolean          @default(false)
@@ -555,8 +632,8 @@ model Submission {
   isPassed           Boolean          @default(false)
   gradingCompletedAt DateTime?
 
-  session            ExamSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  result             Result?
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  result  Result?
 
   @@index([status, submittedAt])
   @@index([sessionId])
@@ -564,10 +641,10 @@ model Submission {
 }
 
 model Result {
-  id           String       @id @default(uuid()) 
-  submissionId String       @unique 
-  examId       String       
-  studentId    String       
+  id           String    @id @default(uuid())
+  submissionId String    @unique
+  examId       String
+  studentId    String
   score        Decimal
   maxScore     Decimal
   percentage   Decimal
@@ -575,11 +652,11 @@ model Result {
   passed       Boolean
   feedback     String?
   publishedAt  DateTime?
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime  @default(now())
 
-  submission   Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  exam         Exam         @relation(fields: [examId], references: [id])
-  certificate  Certificate?
+  submission  Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  exam        Exam         @relation(fields: [examId], references: [id])
+  certificate Certificate?
 
   @@index([examId])
   @@index([studentId])
@@ -589,30 +666,30 @@ model Result {
 }
 
 model Certificate {
-  id               String   @id @default(uuid()) 
-  resultId         String   @unique 
-  certificateNo    String   @unique
-  verificationCode String   @unique
+  id               String    @id @default(uuid())
+  resultId         String    @unique
+  certificateNo    String    @unique
+  verificationCode String    @unique
   fileUrl          String?
-  issuedAt         DateTime @default(now())
+  issuedAt         DateTime  @default(now())
   expiresAt        DateTime?
 
-  result           Result   @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  result Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
 
   @@map("certificates")
 }
 
 model Notification {
-  id        String           @id @default(uuid()) 
-  userId    String           
+  id        String           @id @default(uuid())
+  userId    String
   type      NotificationType @default(INFO)
   title     String
   message   String
   readAt    DateTime?
-  metadata String?
+  metadata  String?
   createdAt DateTime         @default(now())
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
@@ -620,17 +697,17 @@ model Notification {
 }
 
 model ActivityLog {
-  id            String       @id @default(uuid()) 
-  actorId       String?      
-  examSessionId String?      
+  id            String   @id @default(uuid())
+  actorId       String?
+  examSessionId String?
   action        String
   ipAddress     String?
   userAgent     String?
-  metadata String?
-  createdAt     DateTime     @default(now())
+  metadata      String?
+  createdAt     DateTime @default(now())
 
-  actor         User?        @relation("ActorActivity", fields: [actorId], references: [id])
-  examSession   ExamSession? @relation(fields: [examSessionId], references: [id])
+  actor       User?        @relation("ActorActivity", fields: [actorId], references: [id])
+  examSession ExamSession? @relation(fields: [examSessionId], references: [id])
 
   @@index([actorId, createdAt])
   @@index([examSessionId, createdAt])
@@ -638,18 +715,18 @@ model ActivityLog {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid()) 
-  actorId   String?  
+  id        String   @id @default(uuid())
+  actorId   String?
   action    String
   entity    String
   entityId  String?
-  before String?
-  after String?
+  before    String?
+  after     String?
   ipAddress String?
   userAgent String?
   createdAt DateTime @default(now())
 
-  actor     User?    @relation("ActorAudit", fields: [actorId], references: [id])
+  actor User? @relation("ActorAudit", fields: [actorId], references: [id])
 
   @@index([actorId, createdAt])
   @@index([entity, entityId])
@@ -657,19 +734,19 @@ model AuditLog {
 }
 
 model RefreshToken {
-  id        String    @id @default(uuid()) 
-  userId    String    
+  id        String    @id @default(uuid())
+  userId    String
   tokenHash String
   jti       String    @unique
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
-  userAgent String?
-  ipAddress String?
+  userAgent  String?
+  ipAddress  String?
   lastUsedAt DateTime?
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt])
   @@index([userId, jti])
@@ -679,13 +756,13 @@ model RefreshToken {
 }
 
 model ContactMessage {
-  id        String    @id @default(uuid())
+  id        String   @id @default(uuid())
   name      String
   email     String
   message   String
-  status    String    @default("NEW")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  status    String   @default("NEW")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([createdAt])
@@ -693,23 +770,23 @@ model ContactMessage {
 }
 
 model PlatformSetting {
-  key       String    @id
+  key       String   @id
   value     String
-  isPublic  Boolean   @default(false)
-  updatedAt DateTime  @updatedAt
+  isPublic  Boolean  @default(false)
+  updatedAt DateTime @updatedAt
 
   @@map("platform_settings")
 }
 
 model ExamViolation {
-  id        String        @id @default(uuid()) 
-  sessionId String        
-  type      ViolationType
-  severity  Int           @default(1)
-  details String?
-  occurredAt DateTime     @default(now())
+  id         String        @id @default(uuid())
+  sessionId  String
+  type       ViolationType
+  severity   Int           @default(1)
+  details    String?
+  occurredAt DateTime      @default(now())
 
-  session   ExamSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, occurredAt])
   @@index([occurredAt])
@@ -717,24 +794,24 @@ model ExamViolation {
 }
 
 model ExamEvent {
-  id              String        @id @default(uuid())
-  examId          String
-  sessionId       String
-  studentId       String
-  type            ExamEventType
-  timestamp       DateTime      @default(now())
-  metadata        String?
-  riskScore       Int           @default(0)
-  severity        RiskLevel     @default(LOW)
-  acknowledgedAt  DateTime?
-  acknowledgedBy  String?
-  note            String?
-  createdAt       DateTime      @default(now())
+  id             String        @id @default(uuid())
+  examId         String
+  sessionId      String
+  studentId      String
+  type           ExamEventType
+  timestamp      DateTime      @default(now())
+  metadata       String?
+  riskScore      Int           @default(0)
+  severity       RiskLevel     @default(LOW)
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  note           String?
+  createdAt      DateTime      @default(now())
 
-  exam            Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
-  session         ExamSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  student         User          @relation("StudentEvents", fields: [studentId], references: [id])
-  acknowledgedByUser User?      @relation("ExamEventAcknowledger", fields: [acknowledgedBy], references: [id])
+  exam               Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  session            ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student            User        @relation("StudentEvents", fields: [studentId], references: [id])
+  acknowledgedByUser User?       @relation("ExamEventAcknowledger", fields: [acknowledgedBy], references: [id])
 
   @@index([examId, timestamp])
   @@index([sessionId, timestamp])
@@ -745,26 +822,81 @@ model ExamEvent {
 }
 
 model ExamMonitoringConfig {
-  id                  String   @id @default(uuid())
-  examId              String   @unique
-  webcamEnabled       Boolean  @default(false)
-  micEnabled          Boolean  @default(false)
-  screenMonitoring    Boolean  @default(false)
-  recordingEnabled    Boolean  @default(false)
-  aiDetectionEnabled  Boolean  @default(false)
-  eventLoggingEnabled Boolean  @default(true)
-  requireConsent      Boolean  @default(true)
-  weights             String   @default("{}")
-  thresholds          String   @default("{}")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                  String               @id @default(uuid())
+  examId              String               @unique
+  webcamEnabled       Boolean              @default(false)
+  micEnabled          Boolean              @default(false)
+  screenMonitoring    Boolean              @default(false)
+  recordingEnabled    Boolean              @default(false)
+  aiDetectionEnabled  Boolean              @default(false)
+  eventLoggingEnabled Boolean              @default(true)
+  requireConsent      Boolean              @default(true)
+  webcamMode          WebcamMode           @default(DISABLED)
+  micMode             MicMode              @default(DISABLED)
+  fullscreenPolicy    FullscreenPolicy     @default(OPTIONAL)
+  trackTabSwitches    Boolean              @default(true)
+  trackWindowBlur     Boolean              @default(true)
+  disableCopy         Boolean              @default(false)
+  disablePaste        Boolean              @default(false)
+  detectClipboard     Boolean              @default(false)
+  detectShortcuts     Boolean              @default(false)
+  violationThreshold  Int                  @default(3)
+  strictness          MonitoringStrictness @default(STANDARD)
+  weights             String               @default("{}")
+  thresholds          String               @default("{}")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
-  exam                Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  exam Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
 
   @@map("exam_monitoring_configs")
 }
 
+model RetakeRequest {
+  id            String              @id @default(uuid())
+  studentId     String
+  examId        String
+  sessionId     String
+  attemptNumber Int                 @default(1)
+  reason        String?
+  status        RetakeRequestStatus @default(PENDING)
+  reviewedById  String?
+  reviewNote    String?
+  requestedAt   DateTime            @default(now())
+  decisionAt    DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
+  student    User        @relation("StudentRetakeRequests", fields: [studentId], references: [id], onDelete: Cascade)
+  exam       Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  session    ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reviewedBy User?       @relation("RetakeReviewer", fields: [reviewedById], references: [id])
 
+  @@index([studentId, status])
+  @@index([examId, status])
+  @@map("retake_requests")
+}
 
+model ResumeRequest {
+  id           String              @id @default(uuid())
+  studentId    String
+  examId       String
+  sessionId    String
+  reason       String?
+  status       RetakeRequestStatus @default(PENDING)
+  reviewedById String?
+  reviewNote   String?
+  requestedAt  DateTime            @default(now())
+  decisionAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
+  student    User        @relation("StudentResumeRequests", fields: [studentId], references: [id], onDelete: Cascade)
+  exam       Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  session    ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reviewedBy User?       @relation("ResumeReviewer", fields: [reviewedById], references: [id])
+
+  @@index([studentId, status])
+  @@index([examId, status])
+  @@map("resume_requests")
+}

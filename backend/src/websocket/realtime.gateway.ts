@@ -188,6 +188,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     return !!user && MONITOR_ROLES.some((role) => user.roles.includes(role));
   }
 
+  private isMonitorRole(roles: RoleName[]): boolean {
+    return MONITOR_ROLES.some((role) => roles.includes(role));
+  }
+
   @SubscribeMessage('notifications:subscribe')
   subscribeNotifications(@MessageBody() body: { userId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
@@ -198,11 +202,20 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   @SubscribeMessage('exam:join')
   async joinExam(@MessageBody() body: { sessionId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
-    // Authorization: only the session owner (or monitoring staff) may join a
-    // session room — joining previously also flipped connection state, so an
+    // Authorization: only the session owner (or staff who can monitor the exam)
+    // may join a session room — joining also flips connection state, so an
     // unauthorized join would corrupt another student's live status.
-    if (!user || !isValidId(body?.sessionId) || !(await this.monitoring.assertSessionAccess(body.sessionId, user.sub, user.roles))) {
-      return { denied: true };
+    if (!user || !isValidId(body?.sessionId)) return { denied: true };
+    const access = await this.monitoring.assertSessionAccess(body.sessionId, user.sub, user.roles);
+    if (!access) return { denied: true };
+    if (await this.isMonitorRole(user.roles)) {
+      const canMonitor = await this.monitoring.assertCanMonitorExam(access.examId, {
+        sub: user.sub,
+        roles: user.roles,
+        permissions: [],
+        email: user.email,
+      });
+      if (!canMonitor) return { denied: true };
     }
     client.join(`session:${body.sessionId}`);
     const sessions = this.socketSessions.get(client.id) ?? new Set<string>();
@@ -213,9 +226,17 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   @SubscribeMessage('monitor:join')
-  joinMonitor(@MessageBody() body: { examId: string }, @ConnectedSocket() client: Socket) {
+  async joinMonitor(@MessageBody() body: { examId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
     if (!this.isMonitor(user) || !isValidId(body?.examId)) return { denied: true };
+    // Authorization: monitors may only join exam rooms they can actually monitor.
+    const canMonitor = await this.monitoring.assertCanMonitorExam(body.examId, {
+      sub: user!.sub,
+      roles: user!.roles,
+      permissions: [],
+      email: user!.email,
+    });
+    if (!canMonitor) return { denied: true };
     client.join(`monitor:${body.examId}`);
     return { joined: body.examId };
   }

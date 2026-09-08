@@ -1,16 +1,18 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Max,
   Min,
-  ArrayMinSize,
 } from 'class-validator';
+import { ExamConnectionLossPolicy, ExamResumePolicy, ExamRetakePolicy } from '@prisma/client';
 
 export class UpdateExamDto {
   @ApiPropertyOptional()
@@ -81,6 +83,21 @@ export class UpdateExamDto {
   @IsOptional()
   @IsBoolean()
   resumeApprovalRequired?: boolean;
+
+  @ApiPropertyOptional({ enum: ExamConnectionLossPolicy })
+  @IsOptional()
+  @IsEnum(ExamConnectionLossPolicy)
+  connectionLossPolicy?: ExamConnectionLossPolicy;
+
+  @ApiPropertyOptional({ enum: ExamResumePolicy })
+  @IsOptional()
+  @IsEnum(ExamResumePolicy)
+  resumePolicy?: ExamResumePolicy;
+
+  @ApiPropertyOptional({ enum: ExamRetakePolicy })
+  @IsOptional()
+  @IsEnum(ExamRetakePolicy)
+  retakePolicy?: ExamRetakePolicy;
 
   @ApiPropertyOptional()
   @IsOptional()

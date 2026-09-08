@@ -54,6 +54,9 @@ export default function CreateExamPage() {
   const [fullscreenRequired, setFullscreenRequired] = useState(true);
   const [showResultImmediately, setShowResultImmediately] = useState(false);
   const [resumeApprovalRequired, setResumeApprovalRequired] = useState(false);
+  const [connectionLossPolicy, setConnectionLossPolicy] = useState('AUTO_RESUME');
+  const [resumePolicy, setResumePolicy] = useState('STUDENT');
+  const [retakePolicy, setRetakePolicy] = useState('DISABLED');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [expandedBankIds, setExpandedBankIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,6 +157,9 @@ export default function CreateExamPage() {
       fullscreenRequired,
       showResultImmediately,
       resumeApprovalRequired,
+      connectionLossPolicy: connectionLossPolicy as 'AUTO_RESUME',
+      resumePolicy: resumePolicy as 'STUDENT',
+      retakePolicy: retakePolicy as 'DISABLED',
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       questionIds: selectedQuestionIds,
@@ -430,6 +436,52 @@ export default function CreateExamPage() {
                     </p>
                   </div>
                 </label>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="connectionLossPolicy">On connection loss</Label>
+                    <select
+                      id="connectionLossPolicy"
+                      className="h-9 w-full rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={connectionLossPolicy}
+                      onChange={(e) => setConnectionLossPolicy(e.target.value)}
+                    >
+                      <option value="AUTO_RESUME">Auto-resume session</option>
+                      <option value="MANUAL_RESUME">Student resumes manually</option>
+                      <option value="APPROVAL_REQUIRED">Require instructor approval</option>
+                      <option value="MARK_REVIEW">Pause and flag for review</option>
+                      <option value="END_SESSION">End the session</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="resumePolicy">Resume approval</Label>
+                    <select
+                      id="resumePolicy"
+                      className="h-9 w-full rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={resumePolicy}
+                      onChange={(e) => setResumePolicy(e.target.value)}
+                    >
+                      <option value="STUDENT">Student can resume</option>
+                      <option value="INSTRUCTOR_APPROVAL">Instructor approves</option>
+                      <option value="ADMIN_APPROVAL">Admin approves</option>
+                      <option value="DISABLED">Resume disabled</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="retakePolicy">Retake policy</Label>
+                    <select
+                      id="retakePolicy"
+                      className="h-9 w-full rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      value={retakePolicy}
+                      onChange={(e) => setRetakePolicy(e.target.value)}
+                    >
+                      <option value="DISABLED">No retakes</option>
+                      <option value="AUTO">Auto-allow retake</option>
+                      <option value="INSTRUCTOR_APPROVAL">Instructor approves retake</option>
+                      <option value="ADMIN_APPROVAL">Admin approves retake</option>
+                    </select>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

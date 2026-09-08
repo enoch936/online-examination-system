@@ -6,14 +6,19 @@ import { PrismaService } from '../prisma/prisma.service';
 export class RolesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findMany() {
-    return this.prisma.role.findMany({
+  async findMany() {
+    const roles = await this.prisma.role.findMany({
       include: {
         rolePermissions: { include: { permission: true } },
         _count: { select: { users: true } },
       },
       orderBy: { name: 'asc' },
     });
+
+    return roles.map((role) => ({
+      ...role,
+      rolePermissions: role.rolePermissions.filter((rp) => rp.permission !== null),
+    }));
   }
 
   async assignPermission(roleName: RoleName, permissionKey: string) {

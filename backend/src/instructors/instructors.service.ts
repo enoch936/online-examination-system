@@ -235,11 +235,11 @@ export class InstructorsService {
         sessions: e._count.sessions,
         assignments: e._count.assignments,
         isLive: e.status === 'LIVE' || e.status === 'PUBLISHED',
-        shares: e.shares.map((s) => ({
-          id: s.instructor.id,
-          firstName: s.instructor.firstName,
-          lastName: s.instructor.lastName,
-          email: s.instructor.email,
+        shares: e.shares.filter((s) => s.instructor !== null).map((s) => ({
+          id: s.instructor!.id,
+          firstName: s.instructor!.firstName,
+          lastName: s.instructor!.lastName,
+          email: s.instructor!.email,
           permissionLevel: s.permissionLevel,
         })),
       })),
@@ -314,9 +314,17 @@ export class InstructorsService {
     if (query.entity) where.entity = query.entity;
 
     if (query.from || query.to) {
+      const from = query.from ? new Date(query.from) : undefined;
+      const to = query.to ? new Date(`${query.to}T23:59:59.999Z`) : undefined;
+      if (query.from && Number.isNaN(from!.getTime())) {
+        throw new BadRequestException('from must be a valid ISO date');
+      }
+      if (query.to && Number.isNaN(to!.getTime())) {
+        throw new BadRequestException('to must be a valid date');
+      }
       where.createdAt = {
-        ...(query.from ? { gte: new Date(query.from) } : {}),
-        ...(query.to ? { lte: new Date(`${query.to}T23:59:59.999Z`) } : {}),
+        ...(from && !Number.isNaN(from.getTime()) ? { gte: from } : {}),
+        ...(to && !Number.isNaN(to.getTime()) ? { lte: to } : {}),
       };
     }
 

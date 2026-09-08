@@ -6,6 +6,8 @@ import { getIceServers } from '@/services/webrtc';
 
 type ProctoringStatus = 'idle' | 'starting' | 'active' | 'denied' | 'error';
 
+export type { ProctoringStatus };
+
 function waitForSocketConnect(timeoutMs = 5000): Promise<void> {
   const socket = getSocket();
   if (socket.connected) return Promise.resolve();
@@ -43,6 +45,7 @@ export function useProctoring(input: {
 
   const [status, setStatus] = useState<ProctoringStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const peerSocketIdRef = useRef<string | null>(null);
@@ -188,6 +191,12 @@ export function useProctoring(input: {
     },
     [examId, sessionId],
   );
+
+  const retry = useCallback(() => {
+    setError(null);
+    setStatus('idle');
+    setRetryNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     if (!enabled || !sessionId) {
@@ -349,7 +358,7 @@ export function useProctoring(input: {
       cleanupRef.current?.();
       cleanupRef.current = null;
     };
-  }, [enabled, mic, webcam, ai, sessionId, emitSignal, report, setupWebRTC, stopAll]);
+  }, [enabled, mic, webcam, ai, sessionId, emitSignal, report, setupWebRTC, stopAll, retryNonce]);
 
-  return { status, error };
+  return { status, error, retry };
 }

@@ -1,10 +1,26 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
-import { ExamEventType, ExamStatus, NotificationType, RiskLevel, RoleName, SessionStatus, ViolationType } from '@prisma/client';
+import {
+  ExamConnectionLossPolicy,
+  ExamEventType,
+  ExamResumePolicy,
+  ExamStatus,
+  FullscreenPolicy,
+  MicMode,
+  MonitoringStrictness,
+  NotificationType,
+  RiskLevel,
+  RoleName,
+  SessionStatus,
+  ViolationType,
+  WebcamMode,
+} from '@prisma/client';
 import { AuditService } from '../common/audit.service';
+import { ExamAccessService } from '../common/exam-access.service';
 import { CacheService } from '../cache/cache.service';
 import { EventQueueService } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RiskEngine } from './risk.engine';
 
@@ -34,6 +50,10 @@ export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
   ExamEventType.SHORTCUT_ATTEMPT,
   ExamEventType.CAMERA_CONNECTED,
   ExamEventType.CAMERA_DISCONNECTED,
+  ExamEventType.CAMERA_PERMISSION_DENIED,
+  ExamEventType.CAMERA_UNAVAILABLE,
+  ExamEventType.PROCTORING_CONSENT_DECLINED,
+  ExamEventType.FOCUS_RESTORED,
   ExamEventType.MIC_CONNECTED,
   ExamEventType.MIC_DISCONNECTED,
   ExamEventType.FACE_DETECTED,
@@ -59,6 +79,7 @@ export class MonitoringService {
     private readonly audit: AuditService,
     private readonly cache: CacheService,
     private readonly eventQueue: EventQueueService,
+    private readonly access: ExamAccessService,
     @Inject(forwardRef(() => RealtimeGateway)) private readonly gateway: RealtimeGateway,
   ) {}
 
@@ -85,6 +106,14 @@ export class MonitoringService {
     return isMonitor ? { examId: session.examId, studentId: session.studentId } : null;
   }
 
+  /**
+   * Whether a monitor user may view/monitor the given exam (owner, shared, or admin).
+   */
+  async assertCanMonitorExam(examId: string, user: AuthenticatedUser): Promise<boolean> {
+    if (!user) return false;
+    return this.access.canMonitor(examId, user as never);
+  }
+
   async getConfig(examId: string) {
     const cacheKey = `monitoring-config:${examId}`;
     const cached = await this.cache.get<ReturnType<typeof this.mergeConfig>>(cacheKey);
@@ -109,6 +138,17 @@ export class MonitoringService {
       aiDetectionEnabled: config.aiDetectionEnabled,
       eventLoggingEnabled: config.eventLoggingEnabled,
       requireConsent: config.requireConsent,
+      webcamMode: config.webcamMode,
+      micMode: config.micMode,
+      fullscreenPolicy: config.fullscreenPolicy,
+      trackTabSwitches: config.trackTabSwitches,
+      trackWindowBlur: config.trackWindowBlur,
+      disableCopy: config.disableCopy,
+      disablePaste: config.disablePaste,
+      detectClipboard: config.detectClipboard,
+      detectShortcuts: config.detectShortcuts,
+      violationThreshold: config.violationThreshold,
+      strictness: config.strictness,
     };
   }
 
@@ -121,14 +161,39 @@ export class MonitoringService {
     const nextWeights = { ...merged.weights, ...(dto.weights as Record<string, number> | undefined) };
     const nextThresholds = { ...merged.thresholds, ...(dto.thresholds as Record<string, number> | undefined) };
 
+    const webcamEnabled =
+      (dto.webcamMode as string | undefined) !== undefined
+        ? (dto.webcamMode as string) !== 'DISABLED'
+        : (dto.webcamEnabled as boolean | undefined) ?? stored?.webcamEnabled ?? false;
+    const micEnabled =
+      (dto.micMode as string | undefined) !== undefined
+        ? (dto.micMode as string) !== 'DISABLED'
+        : (dto.micEnabled as boolean | undefined) ?? stored?.micEnabled ?? false;
+
+    const webcamMode = (dto.webcamMode as WebcamMode | undefined) ?? (webcamEnabled ? WebcamMode.REQUIRED : WebcamMode.DISABLED);
+    const micMode = (dto.micMode as MicMode | undefined) ?? (micEnabled ? MicMode.REQUIRED : MicMode.DISABLED);
+    const fullscreenPolicy = (dto.fullscreenPolicy as FullscreenPolicy | undefined) ?? (stored?.fullscreenPolicy as FullscreenPolicy | undefined) ?? FullscreenPolicy.OPTIONAL;
+    const strictness = (dto.strictness as MonitoringStrictness | undefined) ?? (stored?.strictness as MonitoringStrictness | undefined) ?? MonitoringStrictness.STANDARD;
+
     const data = {
-      webcamEnabled: (dto.webcamEnabled as boolean | undefined) ?? stored?.webcamEnabled ?? false,
-      micEnabled: (dto.micEnabled as boolean | undefined) ?? stored?.micEnabled ?? false,
+      webcamEnabled,
+      micEnabled,
       screenMonitoring: (dto.screenMonitoring as boolean | undefined) ?? stored?.screenMonitoring ?? false,
       recordingEnabled: (dto.recordingEnabled as boolean | undefined) ?? stored?.recordingEnabled ?? false,
       aiDetectionEnabled: (dto.aiDetectionEnabled as boolean | undefined) ?? stored?.aiDetectionEnabled ?? false,
       eventLoggingEnabled: (dto.eventLoggingEnabled as boolean | undefined) ?? stored?.eventLoggingEnabled ?? true,
       requireConsent: (dto.requireConsent as boolean | undefined) ?? stored?.requireConsent ?? true,
+      webcamMode,
+      micMode,
+      fullscreenPolicy,
+      trackTabSwitches: (dto.trackTabSwitches as boolean | undefined) ?? stored?.trackTabSwitches ?? true,
+      trackWindowBlur: (dto.trackWindowBlur as boolean | undefined) ?? stored?.trackWindowBlur ?? true,
+      disableCopy: (dto.disableCopy as boolean | undefined) ?? stored?.disableCopy ?? false,
+      disablePaste: (dto.disablePaste as boolean | undefined) ?? stored?.disablePaste ?? false,
+      detectClipboard: (dto.detectClipboard as boolean | undefined) ?? stored?.detectClipboard ?? false,
+      detectShortcuts: (dto.detectShortcuts as boolean | undefined) ?? stored?.detectShortcuts ?? false,
+      violationThreshold: (dto.violationThreshold as number | undefined) ?? stored?.violationThreshold ?? 3,
+      strictness,
       weights: JSON.stringify(nextWeights),
       thresholds: JSON.stringify(nextThresholds),
     };
@@ -152,6 +217,17 @@ export class MonitoringService {
     aiDetectionEnabled: boolean;
     eventLoggingEnabled: boolean;
     requireConsent: boolean;
+    webcamMode: string;
+    micMode: string;
+    fullscreenPolicy: string;
+    trackTabSwitches: boolean;
+    trackWindowBlur: boolean;
+    disableCopy: boolean;
+    disablePaste: boolean;
+    detectClipboard: boolean;
+    detectShortcuts: boolean;
+    violationThreshold: number;
+    strictness: string;
     weights: string;
     thresholds: string;
   } | null) {
@@ -163,6 +239,17 @@ export class MonitoringService {
       aiDetectionEnabled: stored?.aiDetectionEnabled ?? false,
       eventLoggingEnabled: stored?.eventLoggingEnabled ?? true,
       requireConsent: stored?.requireConsent ?? true,
+      webcamMode: stored?.webcamMode ?? 'DISABLED',
+      micMode: stored?.micMode ?? 'DISABLED',
+      fullscreenPolicy: stored?.fullscreenPolicy ?? 'OPTIONAL',
+      trackTabSwitches: stored?.trackTabSwitches ?? true,
+      trackWindowBlur: stored?.trackWindowBlur ?? true,
+      disableCopy: stored?.disableCopy ?? false,
+      disablePaste: stored?.disablePaste ?? false,
+      detectClipboard: stored?.detectClipboard ?? false,
+      detectShortcuts: stored?.detectShortcuts ?? false,
+      violationThreshold: stored?.violationThreshold ?? 3,
+      strictness: stored?.strictness ?? 'STANDARD',
       weights: this.risk.weights(stored?.weights),
       thresholds: this.risk.thresholds(stored?.thresholds),
     };
@@ -310,7 +397,15 @@ export class MonitoringService {
       where: { id: sessionId },
       include: {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
-        exam: { select: { id: true, status: true, resumeApprovalRequired: true } },
+        exam: {
+          select: {
+            id: true,
+            status: true,
+            resumeApprovalRequired: true,
+            resumePolicy: true,
+            connectionLossPolicy: true,
+          },
+        },
       },
     });
     if (!session) return null;
@@ -328,7 +423,36 @@ export class MonitoringService {
     });
 
     if (state === 'DISCONNECTED' && wasConnected) {
-      if (session.exam.status === ExamStatus.LIVE && session.status === SessionStatus.IN_PROGRESS && session.exam.resumeApprovalRequired) {
+      if (session.exam.connectionLossPolicy === ExamConnectionLossPolicy.END_SESSION) {
+        await this.prisma.examSession.update({
+          where: { id: sessionId },
+          data: { status: SessionStatus.SUBMITTED, submittedAt: new Date() },
+        });
+        const event = await this.prisma.examEvent.create({
+          data: {
+            examId: session.examId,
+            sessionId,
+            studentId: session.studentId,
+            type: ExamEventType.SESSION_TERMINATED,
+            riskScore: 0,
+            severity: RiskLevel.HIGH,
+            metadata: JSON.stringify({ reason: 'connection lost', policy: 'END_SESSION' }),
+          },
+        });
+        this.gateway.emitToExam(session.examId, 'monitor:event', { ...event, student: session.student });
+        this.gateway.emitToSession(sessionId, 'exam:control', { type: 'session-ended', reason: 'connection lost' });
+        this.emitAlert(session.examId, session.student, 'SESSION_ENDED', 'CRITICAL', `${session.student.firstName} ${session.student.lastName} lost connection; their session was ended.`);
+        this.broadcastStatsThrottled(session.examId);
+        return this.snapshot(sessionId);
+      }
+
+      const needsApproval =
+        session.exam.resumeApprovalRequired ||
+        session.exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
+        session.exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL ||
+        session.exam.connectionLossPolicy === ExamConnectionLossPolicy.MARK_REVIEW;
+
+      if (session.exam.status === ExamStatus.LIVE && session.status === SessionStatus.IN_PROGRESS && needsApproval) {
         await this.prisma.examSession.update({
           where: { id: sessionId },
           data: { status: SessionStatus.PAUSED, resumeApprovedAt: null, resumeDeniedAt: null },
@@ -341,7 +465,11 @@ export class MonitoringService {
             type: ExamEventType.PAUSED,
             riskScore: 0,
             severity: RiskLevel.LOW,
-            metadata: JSON.stringify({ reason: 'connection lost', pendingApproval: true }),
+            metadata: JSON.stringify({
+              reason: 'connection lost',
+              pendingApproval: true,
+              policy: session.exam.connectionLossPolicy,
+            }),
           },
         });
         this.gateway.emitToExam(session.examId, 'monitor:event', { ...event, student: session.student });

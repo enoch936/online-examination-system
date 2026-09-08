@@ -1,5 +1,12 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { ExamPermissionLevel, ExamStatus, RoleName } from '@prisma/client';
+import {
+  ExamConnectionLossPolicy,
+  ExamPermissionLevel,
+  ExamResumePolicy,
+  ExamRetakePolicy,
+  ExamStatus,
+  RoleName,
+} from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
@@ -430,6 +437,7 @@ export class ExamsService {
     }
     this.assertScoringBounds(dto.totalMarks, dto.passingMarks, dto.negativeMarkingRate ?? 0);
     const points = distributePoints(dto.totalMarks, questionIds.length);
+    const policies = this.resolveCreatePolicies(dto);
 
     return this.prisma.exam.create({
       data: {
@@ -449,6 +457,9 @@ export class ExamsService {
         fullscreenRequired: dto.fullscreenRequired ?? true,
         showResultImmediately: dto.showResultImmediately ?? false,
         resumeApprovalRequired: dto.resumeApprovalRequired ?? false,
+        connectionLossPolicy: policies.connectionLossPolicy,
+        resumePolicy: policies.resumePolicy,
+        retakePolicy: policies.retakePolicy,
         startsAt: new Date(dto.startsAt),
         endsAt: new Date(dto.endsAt),
         status: ExamStatus.SCHEDULED,
@@ -576,6 +587,21 @@ export class ExamsService {
     }
   }
 
+  private resolveCreatePolicies(dto: CreateExamDto): {
+    connectionLossPolicy: ExamConnectionLossPolicy;
+    resumePolicy: ExamResumePolicy;
+    retakePolicy: ExamRetakePolicy;
+  } {
+    const resumePolicy =
+      dto.resumePolicy ??
+      (dto.resumeApprovalRequired ? ExamResumePolicy.INSTRUCTOR_APPROVAL : ExamResumePolicy.STUDENT);
+    return {
+      connectionLossPolicy: dto.connectionLossPolicy ?? ExamConnectionLossPolicy.AUTO_RESUME,
+      resumePolicy,
+      retakePolicy: dto.retakePolicy ?? ExamRetakePolicy.DISABLED,
+    };
+  }
+
   private assertScoringBounds(totalMarks: number, passingMarks: number, negativeMarkingRate: number) {
     if (!(totalMarks >= 1)) {
       throw new BadRequestException('Total marks must be at least 1');
@@ -623,6 +649,9 @@ export class ExamsService {
     if (dto.fullscreenRequired !== undefined) data.fullscreenRequired = dto.fullscreenRequired;
     if (dto.showResultImmediately !== undefined) data.showResultImmediately = dto.showResultImmediately;
     if (dto.resumeApprovalRequired !== undefined) data.resumeApprovalRequired = dto.resumeApprovalRequired;
+    if (dto.connectionLossPolicy !== undefined) data.connectionLossPolicy = dto.connectionLossPolicy;
+    if (dto.resumePolicy !== undefined) data.resumePolicy = dto.resumePolicy;
+    if (dto.retakePolicy !== undefined) data.retakePolicy = dto.retakePolicy;
     if (dto.negativeMarkingRate !== undefined) data.negativeMarkingRate = dto.negativeMarkingRate;
     if (dto.startsAt !== undefined) data.startsAt = new Date(dto.startsAt);
     if (dto.endsAt !== undefined) data.endsAt = new Date(dto.endsAt);
@@ -775,6 +804,10 @@ export class ExamsService {
           randomizeOptions: old.randomizeOptions,
           fullscreenRequired: old.fullscreenRequired,
           showResultImmediately: old.showResultImmediately,
+          resumeApprovalRequired: old.resumeApprovalRequired,
+          connectionLossPolicy: old.connectionLossPolicy,
+          resumePolicy: old.resumePolicy,
+          retakePolicy: old.retakePolicy,
           startsAt: now,
           endsAt: new Date(now.getTime() + old.durationMinutes * 60 * 1000),
           status: ExamStatus.PUBLISHED,

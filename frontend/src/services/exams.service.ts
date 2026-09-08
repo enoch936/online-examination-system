@@ -16,6 +16,9 @@ export type CreateExamData = {
   fullscreenRequired?: boolean;
   showResultImmediately?: boolean;
   resumeApprovalRequired?: boolean;
+  connectionLossPolicy?: 'AUTO_RESUME' | 'MANUAL_RESUME' | 'APPROVAL_REQUIRED' | 'END_SESSION' | 'MARK_REVIEW';
+  resumePolicy?: 'STUDENT' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL' | 'DISABLED';
+  retakePolicy?: 'DISABLED' | 'AUTO' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL';
   negativeMarkingRate?: number;
   startsAt: string;
   endsAt: string;

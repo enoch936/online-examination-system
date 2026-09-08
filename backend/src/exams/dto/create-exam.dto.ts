@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,6 +12,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { ExamConnectionLossPolicy, ExamResumePolicy, ExamRetakePolicy } from '@prisma/client';
 
 export class CreateExamDto {
   @ApiProperty()
@@ -76,6 +78,30 @@ export class CreateExamDto {
   @IsOptional()
   @IsBoolean()
   resumeApprovalRequired?: boolean;
+
+  @ApiPropertyOptional({
+    enum: ExamConnectionLossPolicy,
+    description: 'What happens when a student loses connection mid-exam',
+  })
+  @IsOptional()
+  @IsEnum(ExamConnectionLossPolicy)
+  connectionLossPolicy?: ExamConnectionLossPolicy;
+
+  @ApiPropertyOptional({
+    enum: ExamResumePolicy,
+    description: 'How a student may resume an interrupted session',
+  })
+  @IsOptional()
+  @IsEnum(ExamResumePolicy)
+  resumePolicy?: ExamResumePolicy;
+
+  @ApiPropertyOptional({
+    enum: ExamRetakePolicy,
+    description: 'How/if a student can retake the exam after submitting',
+  })
+  @IsOptional()
+  @IsEnum(ExamRetakePolicy)
+  retakePolicy?: ExamRetakePolicy;
 
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()

@@ -1,5 +1,13 @@
 import { ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
-import { ExamStatus, ExamEventType, SessionStatus } from '@prisma/client';
+import {
+  ExamConnectionLossPolicy,
+  ExamEventType,
+  ExamResumePolicy,
+  ExamRetakePolicy,
+  ExamStatus,
+  RetakeRequestStatus,
+  SessionStatus,
+} from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogViolationDto } from './dto/log-violation.dto';
@@ -22,8 +30,16 @@ export class ExamSessionsService {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
         submission: { select: { submittedAt: true, status: true } },
         answers: { select: { selectedOptionIds: true, answerText: true, answerJson: true, isMarkedForReview: true } },
-        exam: { select: { resumeApprovalRequired: true, _count: { select: { questions: true } } } },
-        _count: { select: { violations: true } },
+        exam: {
+          select: {
+            resumeApprovalRequired: true,
+            resumePolicy: true,
+            connectionLossPolicy: true,
+            retakePolicy: true,
+            _count: { select: { questions: true } },
+          },
+        },
+        _count: { select: { violations: true, retakeRequests: true, resumeRequests: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -31,6 +47,10 @@ export class ExamSessionsService {
     return sessions.map((s) => {
       const totalQuestions = s.exam._count.questions;
       const answeredCount = s.answers.filter((a) => this.isAnswered(a)).length;
+      const resumeApprovalRequired =
+        s.exam.resumeApprovalRequired ||
+        s.exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
+        s.exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL;
       return {
         id: s.id,
         examId: s.examId,
@@ -38,10 +58,15 @@ export class ExamSessionsService {
         student: s.student,
         attemptNumber: s.attemptNumber,
         status: s.status,
-        resumeApprovalRequired: s.exam.resumeApprovalRequired,
+        resumeApprovalRequired,
+        resumePolicy: s.exam.resumePolicy,
+        connectionLossPolicy: s.exam.connectionLossPolicy,
+        retakePolicy: s.exam.retakePolicy,
         resumeApprovedAt: s.resumeApprovedAt,
         resumeDeniedAt: s.resumeDeniedAt,
-        resumePending: s.exam.resumeApprovalRequired && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
+        resumeRequested: s._count.resumeRequests > 0,
+        retakeRequested: s._count.retakeRequests > 0,
+        resumePending: resumeApprovalRequired && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
         submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,
         violationsCount: s._count.violations,
         remainingSeconds: s.remainingSeconds,
@@ -108,9 +133,40 @@ export class ExamSessionsService {
         studentId,
         status: { in: [SessionStatus.SUBMITTED, SessionStatus.AUTO_SUBMITTED] },
       },
+      orderBy: { attemptNumber: 'desc' },
+      include: {
+        retakeRequests: { where: { studentId, status: { in: [RetakeRequestStatus.PENDING, RetakeRequestStatus.APPROVED] } } },
+      },
     });
-    if (submittedSession && !submittedSession.retakePermitted) {
-      throw new ForbiddenException('You have already submitted this exam. Contact your instructor to retake.');
+    if (submittedSession) {
+      const hasApprovedRetake = submittedSession.retakeRequests.some(
+        (r) => r.status === RetakeRequestStatus.APPROVED,
+      );
+      const approved = exam.retakePolicy !== ExamRetakePolicy.DISABLED && (submittedSession.retakePermitted || hasApprovedRetake);
+      if (!approved) {
+        if (exam.retakePolicy === ExamRetakePolicy.AUTO) {
+          const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
+          if (attemptsUsed >= exam.attemptsAllowed) {
+            throw new HttpException(
+              { code: 'RETAKE_REQUIRED', message: 'No retake attempts remaining' },
+              HttpStatus.LOCKED,
+            );
+          }
+        } else {
+          const hasPending = submittedSession.retakeRequests.some(
+            (r) => r.status === RetakeRequestStatus.PENDING,
+          );
+          throw new HttpException(
+            {
+              code: hasPending ? 'RETAKE_PENDING' : 'RETAKE_REQUIRED',
+              message: hasPending
+                ? 'Your retake request is pending approval. Contact your instructor if this takes too long.'
+                : 'You have already submitted this exam. Contact your instructor to retake.',
+            },
+            HttpStatus.LOCKED,
+          );
+        }
+      }
     }
 
     const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
@@ -181,22 +237,44 @@ export class ExamSessionsService {
   }
 
   /**
-   * When the exam has resume-approval protection enabled, a student whose
-   * session was paused (e.g. dropped connection) must wait for an instructor
-   * to approve before they can continue. Approving flips the session back to
-   * IN_PROGRESS server-side; denying leaves it PAUSED.
+   * When the exam has resume protection enabled, a student whose session was
+   * paused (e.g. dropped connection) must wait for an instructor to approve
+   * before they can continue. Approving flips the session back to IN_PROGRESS
+   * server-side; denying leaves it PAUSED.
    */
   private async assertResumeAllowed(session: {
     status: SessionStatus;
-    exam: { resumeApprovalRequired: boolean };
+    exam: {
+      resumeApprovalRequired: boolean;
+      resumePolicy: ExamResumePolicy;
+      connectionLossPolicy: ExamConnectionLossPolicy;
+    };
     resumeApprovedAt: Date | null;
     resumeDeniedAt: Date | null;
   }) {
-    if (
-      session.status !== SessionStatus.PAUSED ||
-      !session.exam.resumeApprovalRequired ||
-      session.resumeApprovedAt
-    ) {
+    if (session.exam.resumePolicy === ExamResumePolicy.DISABLED) {
+      throw new HttpException(
+        {
+          code: 'RESUME_DISABLED',
+          message: 'Resuming interrupted sessions is disabled for this exam. Contact your instructor for help.',
+        },
+        HttpStatus.LOCKED,
+      );
+    }
+    if (session.exam.connectionLossPolicy === ExamConnectionLossPolicy.END_SESSION) {
+      throw new HttpException(
+        {
+          code: 'SESSION_ENDED',
+          message: 'Your session was ended after a connection loss. Contact your instructor for help.',
+        },
+        HttpStatus.LOCKED,
+      );
+    }
+    if (session.status !== SessionStatus.PAUSED) {
+      return;
+    }
+
+    if (!this.resumeApprovalRequiredFor(session.exam) || session.resumeApprovedAt) {
       return;
     }
     if (session.resumeDeniedAt) {
@@ -217,10 +295,23 @@ export class ExamSessionsService {
     );
   }
 
+  private resumeApprovalRequiredFor(exam: {
+    resumeApprovalRequired: boolean;
+    resumePolicy: ExamResumePolicy;
+  }) {
+    return (
+      exam.resumeApprovalRequired ||
+      exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
+      exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL
+    );
+  }
+
   async saveAnswer(sessionId: string, studentId: string, dto: SaveAnswerDto) {
     const session = await this.prisma.examSession.findFirst({
       where: { id: sessionId, studentId },
-      include: { exam: { select: { resumeApprovalRequired: true } } },
+      include: {
+        exam: { select: { resumeApprovalRequired: true, resumePolicy: true, connectionLossPolicy: true } },
+      },
     });
     if (!session || !([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
       throw new ForbiddenException('Session is not active');
@@ -293,6 +384,15 @@ export class ExamSessionsService {
       where: { id: sessionId },
       data: { retakePermitted: false },
     });
+  }
+
+  async getExamIdForSession(sessionId: string): Promise<string> {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      select: { examId: true },
+    });
+    if (!session) throw new NotFoundException('Exam session not found');
+    return session.examId;
   }
 
   private sessionInclude() {

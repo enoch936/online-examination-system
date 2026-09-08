@@ -116,6 +116,9 @@ export default function ManageExamPage() {
     fullscreenRequired: true,
     showResultImmediately: false,
     resumeApprovalRequired: false,
+    connectionLossPolicy: 'AUTO_RESUME',
+    resumePolicy: 'STUDENT',
+    retakePolicy: 'DISABLED',
     negativeMarkingRate: '0',
   });
 
@@ -309,6 +312,9 @@ export default function ManageExamPage() {
       fullscreenRequired: exam.fullscreenRequired,
       showResultImmediately: exam.showResultImmediately,
       resumeApprovalRequired: exam.resumeApprovalRequired,
+      connectionLossPolicy: exam.connectionLossPolicy ?? 'AUTO_RESUME',
+      resumePolicy: exam.resumePolicy ?? (exam.resumeApprovalRequired ? 'INSTRUCTOR_APPROVAL' : 'STUDENT'),
+      retakePolicy: exam.retakePolicy ?? 'DISABLED',
       negativeMarkingRate: String(exam.negativeMarkingRate),
     });
     setEditingId(exam.id);
@@ -336,6 +342,9 @@ export default function ManageExamPage() {
     data.fullscreenRequired = editForm.fullscreenRequired;
     data.showResultImmediately = editForm.showResultImmediately;
     data.resumeApprovalRequired = editForm.resumeApprovalRequired;
+    data.connectionLossPolicy = editForm.connectionLossPolicy;
+    data.resumePolicy = editForm.resumePolicy;
+    data.retakePolicy = editForm.retakePolicy;
     data.negativeMarkingRate = Number(editForm.negativeMarkingRate) || 0;
     updateMutation.mutate({ id: editingId, data });
   }
@@ -514,6 +523,36 @@ export default function ManageExamPage() {
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.fullscreenRequired} onChange={(e) => setEditForm({ ...editForm, fullscreenRequired: e.target.checked })} /> Fullscreen required</label>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.showResultImmediately} onChange={(e) => setEditForm({ ...editForm, showResultImmediately: e.target.checked })} /> Show result immediately</label>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4" checked={editForm.resumeApprovalRequired} onChange={(e) => setEditForm({ ...editForm, resumeApprovalRequired: e.target.checked })} /> Require instructor approval to resume interrupted sessions</label>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">On connection loss</label>
+                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={editForm.connectionLossPolicy} onChange={(e) => setEditForm({ ...editForm, connectionLossPolicy: e.target.value as 'AUTO_RESUME' })}>
+                  <option value="AUTO_RESUME">Auto-resume session</option>
+                  <option value="MANUAL_RESUME">Student resumes manually</option>
+                  <option value="APPROVAL_REQUIRED">Require instructor approval</option>
+                  <option value="MARK_REVIEW">Pause and flag for review</option>
+                  <option value="END_SESSION">End the session</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Resume approval</label>
+                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={editForm.resumePolicy} onChange={(e) => setEditForm({ ...editForm, resumePolicy: e.target.value as 'STUDENT' })}>
+                  <option value="STUDENT">Student can resume</option>
+                  <option value="INSTRUCTOR_APPROVAL">Instructor approves</option>
+                  <option value="ADMIN_APPROVAL">Admin approves</option>
+                  <option value="DISABLED">Resume disabled</option>
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">Retake policy</label>
+                <select className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={editForm.retakePolicy} onChange={(e) => setEditForm({ ...editForm, retakePolicy: e.target.value as 'DISABLED' })}>
+                  <option value="DISABLED">No retakes</option>
+                  <option value="AUTO">Auto-allow retake</option>
+                  <option value="INSTRUCTOR_APPROVAL">Instructor approves retake</option>
+                  <option value="ADMIN_APPROVAL">Admin approves retake</option>
+                </select>
+              </div>
             </div>
             <div className="flex gap-3 pt-4">
               <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} className="flex-1">
