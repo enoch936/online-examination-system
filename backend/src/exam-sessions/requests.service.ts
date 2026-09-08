@@ -50,19 +50,21 @@ export class RequestsService {
       throw new BadRequestException('You have no submitted session for this exam');
     }
 
-    const existing = await this.prisma.retakeRequest.findFirst({
-      where: {
-        sessionId: session.id,
-        studentId,
-        status: { in: [RetakeRequestStatus.PENDING, RetakeRequestStatus.APPROVED] },
-      },
+    const approved = await this.prisma.retakeRequest.findFirst({
+      where: { sessionId: session.id, studentId, status: RetakeRequestStatus.APPROVED },
     });
-    if (existing) {
-      if (existing.status === RetakeRequestStatus.APPROVED) {
-        throw new ForbiddenException('Your retake request was already approved — you can start a new attempt now');
-      }
-      return existing;
+    if (approved) {
+      throw new ForbiddenException('Your retake request was already approved — you can start a new attempt now');
     }
+
+    // Students may keep requesting (e.g. after a rejection, or to ping their
+    // instructor again). Supersede any older pending request for this session;
+    // every request still requires instructor/admin approval before a retake
+    // can start.
+    await this.prisma.retakeRequest.updateMany({
+      where: { sessionId: session.id, studentId, status: RetakeRequestStatus.PENDING },
+      data: { status: RetakeRequestStatus.EXPIRED },
+    });
 
     const request = await this.prisma.retakeRequest.create({
       data: {
@@ -103,19 +105,19 @@ export class RequestsService {
       throw new ForbiddenException('Resuming sessions is not supported for this exam');
     }
 
-    const existing = await this.prisma.resumeRequest.findFirst({
-      where: {
-        sessionId,
-        studentId,
-        status: { in: [RetakeRequestStatus.PENDING, RetakeRequestStatus.APPROVED] },
-      },
+    const approvedResume = await this.prisma.resumeRequest.findFirst({
+      where: { sessionId, studentId, status: RetakeRequestStatus.APPROVED },
     });
-    if (existing) {
-      if (existing.status === RetakeRequestStatus.APPROVED) {
-        throw new ForbiddenException('Your resume request was already approved — you can resume now');
-      }
-      return existing;
+    if (approvedResume) {
+      throw new ForbiddenException('Your resume request was already approved — you can resume now');
     }
+
+    // Unlimited requests are allowed (e.g. re-pinging after a rejection); each
+    // new request supersedes previous pending ones and still needs approval.
+    await this.prisma.resumeRequest.updateMany({
+      where: { sessionId, studentId, status: RetakeRequestStatus.PENDING },
+      data: { status: RetakeRequestStatus.EXPIRED },
+    });
 
     const request = await this.prisma.resumeRequest.create({
       data: { studentId, examId: session.exam.id, sessionId, reason },
