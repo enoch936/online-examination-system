@@ -8,6 +8,18 @@ type ProctoringStatus = 'idle' | 'starting' | 'active' | 'denied' | 'error';
 
 export type { ProctoringStatus };
 
+function resolveProctoringBase(): { url: string; configured: boolean } {
+  const raw = process.env.NEXT_PUBLIC_PROCTORING_URL;
+  const value = raw?.trim().replace(/\/$/, '') ?? '';
+  return { url: value || 'http://127.0.0.1:8000', configured: value.length > 0 };
+}
+
+function isLoopbackHost(): boolean {
+  if (typeof window === 'undefined') return true;
+  const { hostname } = window.location;
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
 function waitForSocketConnect(timeoutMs = 5000): Promise<void> {
   const socket = getSocket();
   if (socket.connected) return Promise.resolve();
@@ -203,6 +215,13 @@ export function useProctoring(input: {
       stopAll();
       return;
     }
+    const { url: proctoringBase, configured: proctoringConfigured } = resolveProctoringBase();
+    if (!proctoringConfigured && !isLoopbackHost()) {
+      stopAll();
+      setStatus('error');
+      setError('Proctoring service is not configured for this environment (set NEXT_PUBLIC_PROCTORING_URL)');
+      return;
+    }
     let cancelled = false;
 
     const start = async () => {
@@ -265,7 +284,7 @@ export function useProctoring(input: {
               const fd = new FormData();
               fd.append('file', blob, 'frame.jpg');
               const res = await fetch(
-                `${process.env.NEXT_PUBLIC_PROCTORING_URL ?? 'http://127.0.0.1:8000'}/analyze?session_id=${encodeURIComponent(sessionId)}`,
+                `${proctoringBase}/analyze?session_id=${encodeURIComponent(sessionId)}`,
                 { method: 'POST', body: fd },
               );
               if (!res.ok) return;
@@ -305,7 +324,7 @@ export function useProctoring(input: {
           const rms = sum / data.length;
           try {
             const res = await fetch(
-              `${process.env.NEXT_PUBLIC_PROCTORING_URL ?? 'http://127.0.0.1:8000'}/audio`,
+              `${proctoringBase}/audio`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
