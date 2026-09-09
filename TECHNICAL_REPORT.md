@@ -31,7 +31,7 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 
 - **New enums**: `ExamConnectionLossPolicy` (`AUTO_RESUME`, `MANUAL_RESUME`, `APPROVAL_REQUIRED`, `END_SESSION`, `MARK_REVIEW`), `ExamResumePolicy` (`STUDENT`, `INSTRUCTOR_APPROVAL`, `ADMIN_APPROVAL`, `DISABLED`), `ExamRetakePolicy` (`DISABLED`, `AUTO`, `INSTRUCTOR_APPROVAL`, `ADMIN_APPROVAL`), `WebcamMode`, `MicMode`, `FullscreenPolicy` (each `DISABLED`/`OPTIONAL`/`REQUIRED`), `MonitoringStrictness` (`RELAXED`/`STANDARD`/`STRICT`), `RetakeRequestStatus` (`PENDING`/`APPROVED`/`REJECTED`/`EXPIRED`/`CANCELLED`).
 - **`exams`**: `connectionLossPolicy` (default `APPROVAL_REQUIRED`), `resumePolicy` (default `INSTRUCTOR_APPROVAL`), `retakePolicy` (default `INSTRUCTOR_APPROVAL`). Existing exams were backfilled to these strict values so every student is blocked until instructor/admin approval after any interruption or submission/retake.
-- **`exam_monitoring_configs`**: `webcamMode`, `micMode`, `fullscreenPolicy` (default `OPTIONAL`), `strictness` (default `STANDARD`), `violationThreshold` (default 3), `trackTabSwitches` (true), `trackWindowBlur` (true), `detectClipboard`, `detectShortcuts`, `disableCopy`, `disablePaste` (false).
+- **`exam_monitoring_configs`**: `webcamMode`, `micMode`, `fullscreenPolicy` (default `OPTIONAL`), `strictness` (default `STANDARD`), `violationThreshold` (default 3), `trackTabSwitches` (true), `trackWindowBlur` (true), `detectClipboard`, `detectShortcuts`, `disableCopy` (true), `disablePaste` (true) — copy/paste are **blocked by default** (migration `20260908130000_strict_copy_paste_defaults` backfills existing exams).
 - **New tables**: `retake_requests`, `resume_requests` (student/exam/session FKs cascade, `reviewed_by` set-null, PENDING/APPROVED dedupe indexes on `(studentId,status)` and `(examId,status)`).
 - **Extended enums**: `ExamEventType` (+`CAMERA_PERMISSION_DENIED`, `CAMERA_UNAVAILABLE`, `FOCUS_RESTORED`, `PROCTORING_CONSENT_DECLINED`, `SESSION_TERMINATED`), `NotificationType` (+`RETAKE_REQUEST`, `RETAKE_APPROVED`, `RETAKE_REJECTED`, `RESUME_REQUEST`, `RESUME_APPROVED`, `RESUME_REJECTED`, `SESSION_MESSAGE`).
 
@@ -71,8 +71,8 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `services/exams.service.ts` | Policy-aware create/update payloads |
 | `services/requests.service.ts` (new) | `requestRetake`, `requestResume`, `listPending`, `listForExam`, `decide` against `/requests/*` |
 | `hooks/use-proctoring.ts` | Exports `ProctoringStatus`; adds `retry()` + `retryNonce` to recover from transient start failures |
-| `features/exams/exam-taking-client.tsx` | Proctoring status banner (starting / active / denied / unavailable + Retry); consent card shows enforced policy (`fullscreen REQUIRED`, strictness) and auto-requests fullscreen on consent; retake UI on `RETAKE_REQUIRED`/`RETAKE_PENDING`; "Request instructor approval now" button on `RESUME_PENDING` and on the auto-pause overlay (`exam:control` pause with `approval:true`) |
-| `hooks/use-exam-monitoring.ts` | `ProctorControl` pause carries `approval`/`reason`/`message` so the client can distinguish an approval-gated block |
+| `features/exams/exam-taking-client.tsx` | Proctoring status banner (starting / active / denied / unavailable + Retry); consent card shows enforced policy (`fullscreen REQUIRED`, strictness) and auto-requests fullscreen on consent; retake UI on `RETAKE_REQUIRED`/`RETAKE_PENDING`; "Request instructor approval now" button on `RESUME_PENDING` and on the auto-pause overlay (`exam:control` pause with `approval:true`); passes monitoring `requirements` (copy/paste restrictions) to the monitoring hook |
+| `hooks/use-exam-monitoring.ts` | `ProctorControl` pause carries `approval`/`reason`/`message`; **blocks copy/cut when `disableCopy`, paste when `disablePaste`** (`preventDefault` on clipboard events + Ctrl+C/V/X), logging attempts |
 | `app/(dashboard)/instructor/exams/create/page.tsx` | `connectionLossPolicy` / `resumePolicy` / `retakePolicy` selects default to strict (`APPROVAL_REQUIRED` / `INSTRUCTOR_APPROVAL` / `INSTRUCTOR_APPROVAL`) |
 | `app/(dashboard)/instructor/exams/manage/page.tsx` | Same policy selects wired into edit payload (defaults to strict) |
 | `app/(dashboard)/instructor/exams/monitor/page.tsx` | Monitoring settings: mode/policy selects, `violationThreshold`, tracking toggles; `PendingRequestsPanel` (list + approve/reject) |
@@ -126,6 +126,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | RBAC / object-level ownership on reports, sessions, monitoring, websocket, requests | PASS (static + code review) |
 | Retake/resume request lifecycle (submit → notify → decide → approve → resume/retakePermitted → socket control) | PASS (code review; no local e2e) |
 | Student blocked on interruption (blur/tab-switch/fullscreen-exit auto-pause + approval) | PASS (code review; enforced now that `connectionLossPolicy: APPROVAL_REQUIRED` is default & backfilled) |
+| Copy/paste blocked in the exam browser (disableCopy/disablePaste) + attempts still logged | PASS (code review + bundle marker) |
 | Webcam proctoring in production | DEPENDS on §7.1 env config |
 | Production migration + strict-policy backfill applied + verified via direct DB read | PASS |
 | Production smoke (deployed routes) | PENDING — manual after deploy |

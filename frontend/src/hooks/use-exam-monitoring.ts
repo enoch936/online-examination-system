@@ -17,12 +17,15 @@ export function useExamMonitoring(input: {
   sessionId: string;
   remainingSeconds: number;
   onControl?: (control: ProctorControl) => void;
+  restrictions?: { disableCopy?: boolean; disablePaste?: boolean } | null;
 }) {
-  const { examId, sessionId, remainingSeconds, onControl } = input;
+  const { examId, sessionId, remainingSeconds, onControl, restrictions } = input;
   const onControlRef = useRef(onControl);
   onControlRef.current = onControl;
   const remainingRef = useRef(remainingSeconds);
   remainingRef.current = remainingSeconds;
+  const restrictionsRef = useRef(restrictions);
+  restrictionsRef.current = restrictions;
 
   const reportViolation = useCallback(
     (type: string, severity = 1) => {
@@ -70,10 +73,17 @@ export function useExamMonitoring(input: {
       if (!document.fullscreenElement) reportViolation('FULLSCREEN_EXIT', 2);
     };
     const onCopy = (e: ClipboardEvent) => {
+      if (restrictionsRef.current?.disableCopy) e.preventDefault();
       reportEvent('COPY_ATTEMPT', { length: e.clipboardData?.getData('text/plain')?.length ?? 0 });
     };
-    const onPaste = () => reportEvent('PASTE_ATTEMPT', {});
-    const onCut = () => reportEvent('CUT_ATTEMPT', {});
+    const onCut = (e: ClipboardEvent) => {
+      if (restrictionsRef.current?.disableCopy) e.preventDefault();
+      reportEvent('CUT_ATTEMPT', {});
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      if (restrictionsRef.current?.disablePaste) e.preventDefault();
+      reportEvent('PASTE_ATTEMPT', {});
+    };
     const onContextMenu = () => reportEvent('CONTEXT_MENU_ATTEMPT', {});
     const onBeforePrint = () => reportEvent('PRINT_ATTEMPT', {});
     const onKeyDown = (e: KeyboardEvent) => {
@@ -81,8 +91,13 @@ export function useExamMonitoring(input: {
         reportEvent('SHORTCUT_ATTEMPT', { key: e.key });
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'p', 's', 'u', 'a'].includes(e.key.toLowerCase())) {
-        reportEvent('SHORTCUT_ATTEMPT', { key: e.key.toLowerCase() });
+      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x'].includes(e.key.toLowerCase())) {
+        const key = e.key.toLowerCase();
+        const blocked =
+          (key === 'v' && restrictionsRef.current?.disablePaste) ||
+          ((key === 'c' || key === 'x') && restrictionsRef.current?.disableCopy);
+        if (blocked) e.preventDefault();
+        reportEvent('SHORTCUT_ATTEMPT', { key });
       }
     };
 

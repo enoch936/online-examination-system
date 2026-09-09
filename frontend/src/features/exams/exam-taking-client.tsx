@@ -301,6 +301,7 @@ const resumeErrorPolicy = (
     sessionId: query.data?.id ?? '',
     remainingSeconds,
     onControl: handleProctorControl,
+    restrictions: requirements,
   });
 
   useEffect(() => {
