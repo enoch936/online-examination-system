@@ -54,9 +54,9 @@ export default function CreateExamPage() {
   const [fullscreenRequired, setFullscreenRequired] = useState(true);
   const [showResultImmediately, setShowResultImmediately] = useState(false);
   const [resumeApprovalRequired, setResumeApprovalRequired] = useState(false);
-  const [connectionLossPolicy, setConnectionLossPolicy] = useState('AUTO_RESUME');
-  const [resumePolicy, setResumePolicy] = useState('STUDENT');
-  const [retakePolicy, setRetakePolicy] = useState('DISABLED');
+  const [connectionLossPolicy, setConnectionLossPolicy] = useState('APPROVAL_REQUIRED');
+  const [resumePolicy, setResumePolicy] = useState('INSTRUCTOR_APPROVAL');
+  const [retakePolicy, setRetakePolicy] = useState('INSTRUCTOR_APPROVAL');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [expandedBankIds, setExpandedBankIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -157,9 +157,9 @@ export default function CreateExamPage() {
       fullscreenRequired,
       showResultImmediately,
       resumeApprovalRequired,
-      connectionLossPolicy: connectionLossPolicy as 'AUTO_RESUME',
-      resumePolicy: resumePolicy as 'STUDENT',
-      retakePolicy: retakePolicy as 'DISABLED',
+      connectionLossPolicy: connectionLossPolicy as 'APPROVAL_REQUIRED',
+      resumePolicy: resumePolicy as 'INSTRUCTOR_APPROVAL',
+      retakePolicy: retakePolicy as 'INSTRUCTOR_APPROVAL',
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       questionIds: selectedQuestionIds,

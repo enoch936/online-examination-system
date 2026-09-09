@@ -116,9 +116,9 @@ export default function ManageExamPage() {
     fullscreenRequired: true,
     showResultImmediately: false,
     resumeApprovalRequired: false,
-    connectionLossPolicy: 'AUTO_RESUME',
-    resumePolicy: 'STUDENT',
-    retakePolicy: 'DISABLED',
+    connectionLossPolicy: 'APPROVAL_REQUIRED',
+    resumePolicy: 'INSTRUCTOR_APPROVAL',
+    retakePolicy: 'INSTRUCTOR_APPROVAL',
     negativeMarkingRate: '0',
   });
 
@@ -312,9 +312,9 @@ export default function ManageExamPage() {
       fullscreenRequired: exam.fullscreenRequired,
       showResultImmediately: exam.showResultImmediately,
       resumeApprovalRequired: exam.resumeApprovalRequired,
-      connectionLossPolicy: exam.connectionLossPolicy ?? 'AUTO_RESUME',
-      resumePolicy: exam.resumePolicy ?? (exam.resumeApprovalRequired ? 'INSTRUCTOR_APPROVAL' : 'STUDENT'),
-      retakePolicy: exam.retakePolicy ?? 'DISABLED',
+      connectionLossPolicy: exam.connectionLossPolicy ?? 'APPROVAL_REQUIRED',
+      resumePolicy: exam.resumePolicy ?? 'INSTRUCTOR_APPROVAL',
+      retakePolicy: exam.retakePolicy ?? 'INSTRUCTOR_APPROVAL',
       negativeMarkingRate: String(exam.negativeMarkingRate),
     });
     setEditingId(exam.id);

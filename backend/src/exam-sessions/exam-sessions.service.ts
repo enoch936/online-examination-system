@@ -50,7 +50,9 @@ export class ExamSessionsService {
       const resumeApprovalRequired =
         s.exam.resumeApprovalRequired ||
         s.exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
-        s.exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL;
+        s.exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL ||
+        s.exam.connectionLossPolicy === ExamConnectionLossPolicy.APPROVAL_REQUIRED ||
+        s.exam.connectionLossPolicy === ExamConnectionLossPolicy.MARK_REVIEW;
       return {
         id: s.id,
         examId: s.examId,
@@ -302,11 +304,14 @@ export class ExamSessionsService {
   private resumeApprovalRequiredFor(exam: {
     resumeApprovalRequired: boolean;
     resumePolicy: ExamResumePolicy;
+    connectionLossPolicy: ExamConnectionLossPolicy;
   }) {
     return (
       exam.resumeApprovalRequired ||
       exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
-      exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL
+      exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL ||
+      exam.connectionLossPolicy === ExamConnectionLossPolicy.APPROVAL_REQUIRED ||
+      exam.connectionLossPolicy === ExamConnectionLossPolicy.MARK_REVIEW
     );
   }
 

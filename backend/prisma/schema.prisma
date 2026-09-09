@@ -256,6 +256,8 @@ model User {
   reviewedRetakeRequests RetakeRequest[]  @relation("RetakeReviewer")
   resumeRequests         ResumeRequest[]  @relation("StudentResumeRequests")
   reviewedResumeRequests ResumeRequest[]  @relation("ResumeReviewer")
+  classesTaught          Class[]          @relation("ClassInstructor")
+  classEnrollments       ClassEnrollment[] @relation("ClassStudents")
 
   @@index([tenantId])
   @@index([status])
@@ -341,6 +343,7 @@ model Course {
   exams         Exam[]
   questionBanks QuestionBank[]
   examCourses   ExamCourse[]
+  classes       Class[]
 
   @@unique([tenantId, code])
   @@index([subjectId])
@@ -367,9 +370,9 @@ model Exam {
   fullscreenRequired     Boolean                  @default(true)
   showResultImmediately  Boolean                  @default(false)
   resumeApprovalRequired Boolean                  @default(false)
-  connectionLossPolicy   ExamConnectionLossPolicy @default(AUTO_RESUME)
-  resumePolicy           ExamResumePolicy         @default(STUDENT)
-  retakePolicy           ExamRetakePolicy         @default(DISABLED)
+  connectionLossPolicy   ExamConnectionLossPolicy @default(APPROVAL_REQUIRED)
+  resumePolicy           ExamResumePolicy         @default(INSTRUCTOR_APPROVAL)
+  retakePolicy           ExamRetakePolicy         @default(INSTRUCTOR_APPROVAL)
   startsAt               DateTime
   endsAt                 DateTime
   status                 ExamStatus               @default(DRAFT)
@@ -382,6 +385,7 @@ model Exam {
   questions        ExamQuestion[]
   sessions         ExamSession[]
   assignments      ExamAssignment[]
+  classAssignments ExamClassAssignment[]
   results          Result[]
   courses          ExamCourse[]
   questionBanks    ExamQuestionBank[]

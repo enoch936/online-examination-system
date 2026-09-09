@@ -65,6 +65,14 @@ export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
   ExamEventType.MANUAL_FLAG,
 ]);
 
+/** Event types that take the student away from the exam and trigger an
+ * immediate auto-pause so the session is blocked until a proctor approves. */
+const AUTO_PAUSE_EVENTS = new Set<ExamEventType>([
+  ExamEventType.TAB_SWITCHED,
+  ExamEventType.WINDOW_BLURRED,
+  ExamEventType.FULLSCREEN_EXITED,
+]);
+
 /** Minimum interval between monitor:candidate-update broadcasts triggered by heartbeats. */
 const SNAPSHOT_MIN_INTERVAL_MS = 15_000;
 const BATCH_SNAPSHOT_SIZE = 50;
@@ -255,6 +263,63 @@ export class MonitoringService {
     };
   }
 
+  /** True when the exam requires instructor/admin approval before a paused session can resume. */
+  private approvalRequiredFor(exam: {
+    resumeApprovalRequired: boolean;
+    resumePolicy: ExamResumePolicy;
+    connectionLossPolicy: ExamConnectionLossPolicy;
+  }) {
+    return (
+      exam.resumeApprovalRequired ||
+      exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
+      exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL ||
+      exam.connectionLossPolicy === ExamConnectionLossPolicy.APPROVAL_REQUIRED ||
+      exam.connectionLossPolicy === ExamConnectionLossPolicy.MARK_REVIEW
+    );
+  }
+
+  /** Block a live session until a proctor approves a resume. */
+  private async autoPause(
+    session: {
+      id: string;
+      examId: string;
+      studentId: string;
+      student: { id: string; firstName: string; lastName: string; email: string };
+    },
+    reason: string,
+  ) {
+    await this.prisma.examSession.update({
+      where: { id: session.id },
+      data: { status: SessionStatus.PAUSED, resumeApprovedAt: null, resumeDeniedAt: null },
+    });
+    const event = await this.prisma.examEvent.create({
+      data: {
+        examId: session.examId,
+        sessionId: session.id,
+        studentId: session.studentId,
+        type: ExamEventType.PAUSED,
+        riskScore: 0,
+        severity: RiskLevel.LOW,
+        metadata: JSON.stringify({ reason, pendingApproval: true }),
+      },
+    });
+    this.gateway.emitToExam(session.examId, 'monitor:event', { ...event, student: session.student });
+    this.gateway.emitToSession(session.id, 'exam:control', {
+      type: 'pause',
+      approval: true,
+      reason,
+      message: 'Your exam was paused because an interruption was detected. Ask your instructor to approve you to resume.',
+    });
+    this.emitAlert(
+      session.examId,
+      session.student,
+      'RESUME_APPROVAL_PENDING',
+      'WARNING',
+      `${session.student.firstName} ${session.student.lastName} was paused after ${reason} and needs approval to resume.`,
+    );
+    this.broadcastStatsThrottled(session.examId);
+  }
+
   async recordEvent(input: {
     examId?: string;
     sessionId: string;
@@ -266,7 +331,18 @@ export class MonitoringService {
   }) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: input.sessionId },
-      include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, email: true } },
+        exam: {
+          select: {
+            id: true,
+            status: true,
+            resumeApprovalRequired: true,
+            resumePolicy: true,
+            connectionLossPolicy: true,
+          },
+        },
+      },
     });
     if (!session) throw new NotFoundException('Exam session not found');
     if (input.studentId && session.studentId !== input.studentId) {
@@ -297,6 +373,25 @@ export class MonitoringService {
 
     await this.eventQueue.addRiskScoring({ sessionId: session.id, incremental: true }).catch(() => {});
 
+    if (
+      input.asStudent &&
+      session.status === SessionStatus.IN_PROGRESS &&
+      session.exam.status === ExamStatus.LIVE &&
+      AUTO_PAUSE_EVENTS.has(input.type) &&
+      this.approvalRequiredFor(session.exam) &&
+      (!session.startedAt || Date.now() - session.startedAt.getTime() > 15_000)
+    ) {
+      await this.autoPause(
+        {
+          id: session.id,
+          examId: session.examId,
+          studentId: session.studentId,
+          student: session.student,
+        },
+        'interruption detected',
+      );
+    }
+
     return event;
   }
 
@@ -308,7 +403,18 @@ export class MonitoringService {
   ) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
-      include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } },
+      include: {
+        student: { select: { id: true, firstName: true, lastName: true, email: true } },
+        exam: {
+          select: {
+            id: true,
+            status: true,
+            resumeApprovalRequired: true,
+            resumePolicy: true,
+            connectionLossPolicy: true,
+          },
+        },
+      },
     });
     if (!session) throw new NotFoundException('Exam session not found');
     if (session.studentId !== studentId) throw new BadRequestException('Session does not belong to this user');
@@ -346,6 +452,25 @@ export class MonitoringService {
     await this.recomputeSessionRisk(session.id, config);
     this.emitEvent(session.examId, session.id, session.student, eventType, event, points, severity, config);
     this.broadcastStatsThrottled(session.examId);
+
+    if (
+      session.status === SessionStatus.IN_PROGRESS &&
+      session.exam.status === ExamStatus.LIVE &&
+      AUTO_PAUSE_EVENTS.has(eventType) &&
+      this.approvalRequiredFor(session.exam) &&
+      (!session.startedAt || Date.now() - session.startedAt.getTime() > 15_000)
+    ) {
+      await this.autoPause(
+        {
+          id: session.id,
+          examId: session.examId,
+          studentId: session.studentId,
+          student: session.student,
+        },
+        'interruption detected',
+      );
+    }
+
     return { violation, event };
   }
 
@@ -446,11 +571,7 @@ export class MonitoringService {
         return this.snapshot(sessionId);
       }
 
-      const needsApproval =
-        session.exam.resumeApprovalRequired ||
-        session.exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
-        session.exam.resumePolicy === ExamResumePolicy.ADMIN_APPROVAL ||
-        session.exam.connectionLossPolicy === ExamConnectionLossPolicy.MARK_REVIEW;
+      const needsApproval = this.approvalRequiredFor(session.exam);
 
       if (session.exam.status === ExamStatus.LIVE && session.status === SessionStatus.IN_PROGRESS && needsApproval) {
         await this.prisma.examSession.update({
@@ -617,7 +738,15 @@ export class MonitoringService {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
         answers: { select: { questionId: true, selectedOptionIds: true, answerText: true, answerJson: true, isMarkedForReview: true } },
         submission: { select: { submittedAt: true, status: true } },
-        exam: { select: { id: true, _count: { select: { questions: true } }, resumeApprovalRequired: true } },
+        exam: {
+          select: {
+            id: true,
+            _count: { select: { questions: true } },
+            resumeApprovalRequired: true,
+            resumePolicy: true,
+            connectionLossPolicy: true,
+          },
+        },
         _count: { select: { violations: true } },
       },
     });
@@ -636,10 +765,10 @@ export class MonitoringService {
       studentId: s.student.id,
       student: s.student,
       status: s.status,
-      resumeApprovalRequired: s.exam.resumeApprovalRequired,
+      resumeApprovalRequired: this.approvalRequiredFor(s.exam),
       resumeApprovedAt: s.resumeApprovedAt,
       resumeDeniedAt: s.resumeDeniedAt,
-      resumePending: s.exam.resumeApprovalRequired && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
+      resumePending: this.approvalRequiredFor(s.exam) && s.status === SessionStatus.PAUSED && !s.resumeApprovedAt,
       connectionState: s.connectionState,
       startedAt: s.startedAt,
       submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,

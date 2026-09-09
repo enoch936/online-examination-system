@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getSocket } from '@/services/socket.service';
 
 export type ProctorControl =
-  | { type: 'pause' }
+  | { type: 'pause'; approval?: boolean; reason?: string; message?: string }
   | { type: 'resume' }
   | { type: 'extend'; minutes: number; remainingSeconds: number }
   | { type: 'force-submit' }

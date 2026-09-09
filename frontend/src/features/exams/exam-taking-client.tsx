@@ -145,6 +145,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const submittedRef = useRef(false);
   const [showAll, setShowAll] = useState(false);
   const [proctorPaused, setProctorPaused] = useState(false);
+  const [pauseApprovalRequired, setPauseApprovalRequired] = useState(false);
   const [proctorBanner, setProctorBanner] = useState<string | null>(null);
   const [disconnectMsg, setDisconnectMsg] = useState<string | null>(null);
   const [requirements, setRequirements] = useState<StudentRequirements | null>(null);
@@ -255,8 +256,10 @@ const resumeErrorPolicy = (
     (control: ProctorControl) => {
       if (control.type === 'pause') {
         setProctorPaused(true);
+        setPauseApprovalRequired(Boolean((control as { approval?: boolean }).approval));
       } else if (control.type === 'resume') {
         setProctorPaused(false);
+        setPauseApprovalRequired(false);
         void query.refetch();
       } else if (control.type === 'extend') {
         toast.success(`Time extended by ${control.minutes} minute(s)`);
@@ -634,8 +637,25 @@ const resumeErrorPolicy = (
         <div className="absolute inset-0 z-50 flex items-center justify-center rounded-lg bg-background/95 backdrop-blur-sm">
           <div className="text-center">
             <ShieldAlert className="mx-auto h-10 w-10 text-warning" />
-            <h2 className="mt-3 text-lg font-semibold">Exam paused by proctor</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Time is frozen. Wait for the proctor to resume.</p>
+            <h2 className="mt-3 text-lg font-semibold">
+              {pauseApprovalRequired ? 'Exam paused — approval required' : 'Exam paused by proctor'}
+            </h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+              {pauseApprovalRequired
+                ? 'An interruption was detected, so your session was paused. Your instructor has been notified — once they approve, you will continue automatically.'
+                : 'Time is frozen. Wait for the proctor to resume.'}
+            </p>
+            {pauseApprovalRequired && (
+              <Button
+                className="mt-4"
+                variant="outline"
+                onClick={() => resumeRequestMutation.mutate()}
+                disabled={resumeRequestMutation.isPending}
+              >
+                {resumeRequestMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Send className="mr-1 h-4 w-4" />}
+                Request instructor approval now
+              </Button>
+            )}
           </div>
         </div>
       )}
