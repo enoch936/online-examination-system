@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, Grid3X3,
-  LayoutList, ListChecks, Loader2, Maximize, Mic, Send, ShieldAlert, Type, Video,
+  LayoutList, ListChecks, Loader2, Maximize, Mic, Minimize, Send, ShieldAlert, Type, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -143,6 +143,8 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const toggleBookmark = useExamStore((state) => state.toggleBookmark);
   const resetStore = useExamStore((state) => state.reset);
   const submittedRef = useRef(false);
+  const fullscreenRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [proctorPaused, setProctorPaused] = useState(false);
   const [pauseApprovalRequired, setPauseApprovalRequired] = useState(false);
@@ -198,6 +200,7 @@ const resumeErrorPolicy = (
     onSuccess: (data) => {
       toast.success('Exam submitted successfully');
       submittedRef.current = true;
+      exitFullscreen();
       const resultId = (data as { result?: { id: string } })?.result?.id;
       if (resultId) {
         router.push(`/student/results?id=${resultId}`);
@@ -209,6 +212,49 @@ const resumeErrorPolicy = (
       toast.error(apiErrorMessage(err, 'Failed to submit exam'));
     },
   });
+
+  const enterFullscreen = useCallback(() => {
+    const el = fullscreenRef.current;
+    if (document.fullscreenElement) return;
+    if (el && el.requestFullscreen && document.fullscreenEnabled) {
+      void el.requestFullscreen().catch(() => undefined);
+    } else if (document.documentElement.requestFullscreen) {
+      void document.documentElement.requestFullscreen().catch(() => undefined);
+    }
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      void document.exitFullscreen().catch(() => undefined);
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) exitFullscreen();
+    else enterFullscreen();
+  }, [enterFullscreen, exitFullscreen]);
+
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+
+  useEffect(() => {
+    if (!requirements || requirements.fullscreenPolicy !== 'REQUIRED') return;
+    const needsConsent =
+      (requirements.webcamEnabled || requirements.micEnabled || requirements.aiDetectionEnabled) &&
+      !consentGiven &&
+      !consentDeclined;
+    if (needsConsent) return;
+    if (!query.data || submittedRef.current || disconnectMsg) return;
+    enterFullscreen();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requirements, consentGiven, consentDeclined, query.data, disconnectMsg]);
+
+  useEffect(() => {
+    if (submittedRef.current || disconnectMsg) exitFullscreen();
+  }, [disconnectMsg, exitFullscreen, submitMutation.isSuccess]);
 
   const remainingSeconds = useCountdown(
     query.data?.remainingSeconds ?? (query.data?.exam.durationMinutes ?? 0) * 60,
@@ -577,9 +623,7 @@ const resumeErrorPolicy = (
             <Button
               onClick={() => {
                 setConsentGiven(true);
-                if (requirements.fullscreenPolicy === 'REQUIRED' && document.documentElement.requestFullscreen) {
-                  void document.documentElement.requestFullscreen().catch(() => undefined);
-                }
+                if (requirements.fullscreenPolicy === 'REQUIRED') enterFullscreen();
               }}
             >
               I consent
@@ -601,7 +645,7 @@ const resumeErrorPolicy = (
   }
 
   return (
-    <div className="relative space-y-5">
+    <div ref={fullscreenRef} className="relative flex min-h-full w-full flex-col gap-5 overflow-y-auto bg-background">
       {proctoringBanner && (
         <div
           className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${
@@ -672,8 +716,8 @@ const resumeErrorPolicy = (
           <Badge variant={remainingSeconds < 60 ? 'warning' : remainingSeconds < 300 ? 'warning' : 'secondary'} className="text-sm tabular-nums">
             {formatDuration(remainingSeconds)}
           </Badge>
-          <Button type="button" variant="outline" size="icon" title="Enter fullscreen" onClick={() => void document.documentElement.requestFullscreen()}>
-            <Maximize className="h-4 w-4" />
+          <Button type="button" variant="outline" size="icon" title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={toggleFullscreen}>
+            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>
           <Button
             type="button"
