@@ -103,6 +103,44 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `hooks/use-inbox.ts` (new) | Staff live-inbox hook: connects the singleton socket, emits `staff:subscribe`, listens `message:new` → invalidates `['messages']` queries + toast; used by the instructor Messages page, which also keeps its 15s poll as fallback |
 | `components/layout/dashboard-shell.tsx` | Global `RefreshButton` (Refresh icon) in the header: `queryClient.invalidateQueries()` for all active queries with a spinner while in-flight — manual refresh no longer needs a page reload |
 
+### 4.1 Browser compatibility
+
+The frontend targets evergreen browsers. `frontend/package.json` pins a
+`browserslist` of `last 2 versions`, `Firefox ESR`, `> 0.2%`, `not dead`.
+Tailwind v4 compiles through Lightning CSS, which reads that target and emits
+compatibility output automatically — verified in the production bundle:
+
+- Opacity utilities (`bg-primary/10`, `text-foreground/80`, etc.) are double-compiled:
+  a computed hex/rgb value first, then the `color-mix(...)` declaration inside
+  `@supports (color: color-mix(in lab, red, red))`. Browsers without `color-mix`
+  (pre-Chrome 111 / pre-Safari 16.2 / pre-Firefox 113) render the fallback.
+- `@property` registrations (the Tailwind v4 transform/color tokens) are emitted
+  as-is; older browsers treat them as ordinary custom properties and degrade to
+  non-animated states — no layout breakage.
+- Vendor prefixes (`-webkit-backdrop-filter`, `-webkit-mask-image`,
+  `-webkit-user-select`, `text-decoration-line`) are added as required.
+
+Practical matrix:
+
+| Feature | Chrome/Edge | Firefox | Safari/iOS Safari |
+|---|---|---|---|
+| Layout & all styling | ✓ evergreen | ✓ / ESR | ✓ 16.4+ (16+ largely OK) |
+| Web Push (browser notifications) | ✓ desktop | ✓ desktop | only when installed as PWA (iOS 16.4+) |
+| Backdrop-filter glass | ✓ | ✓ (103+) | ✓ (via `-webkit-`) |
+| `color-mix` opacity | ✓ (111+) w/ fallback below | ✓ (113+) w/ fallback | ✓ (16.2+) w/ fallback |
+
+Cross-browser rendering notes for the landing page:
+
+- `-webkit-font-smoothing` is intentionally **not** forced on `body`. On Windows
+  Chromium it disables subpixel antialiasing and makes text look thin/blurry,
+  while Firefox ignores it — the source of the "crisp in Firefox, fuzzy in
+  Chrome/Edge" mismatch. Removing it lets each engine use its native text AA.
+- Decorative glow orbs are capped at `blur-3xl` (64px); blur filters beyond that
+  smear contrast over translucent panels in Blink and hurt mobile GPUs.
+- Section/scroll reveals run on `transform`/`opacity` only and respect
+  `prefers-reduced-motion` (global class in `src/styles/globals.css` + per-hook
+  `useReducedMotion()`), so motion is safe and non-clumsy on all engines.
+
 ---
 
 ## 5. API Surface (summary)

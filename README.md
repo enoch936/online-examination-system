@@ -22,6 +22,22 @@ This monorepo provides the core building blocks needed to run modern digital exa
 - Backend: NestJS, Prisma, PostgreSQL, JWT, Swagger, class validation
 - Infrastructure: Docker, Docker Compose, Nginx, GitHub Actions
 
+## Browser Support
+
+Target is evergreen browsers (the CSS build pins `last 2 versions` + `Firefox ESR`
+via `browserslist` in `frontend/package.json`; the compiler emits graceful fallbacks,
+e.g. opaque colors under `@supports color-mix`, `-webkit-` prefixes):
+
+| Browser | Minimum | Notes |
+|---|---|---|
+| Chrome / Microsoft Edge | latest 2 | Full experience incl. Web Push |
+| Firefox | latest 2 / ESR | Full experience incl. Web Push |
+| Safari / iOS Safari | 16.4+ | Web Push only when installed as a PWA (iOS 16.4+); in-app + live notifications still work |
+
+Older browsers still render and remain functional, but lose the newest CSS
+(`color-mix` opacity, `@property`-accelerated animations) and Web Push. The UI
+degrades to solid colors and falls back to in-app notifications automatically.
+
 ## Repository Layout
 
 ```text
