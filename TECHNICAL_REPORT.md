@@ -34,6 +34,7 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 - **`exam_monitoring_configs`**: `webcamMode`, `micMode`, `fullscreenPolicy` (default `OPTIONAL`), `strictness` (default `STANDARD`), `violationThreshold` (default 3), `trackTabSwitches` (true), `trackWindowBlur` (true), `detectClipboard`, `detectShortcuts`, `disableCopy` (true), `disablePaste` (true) — copy/paste are **blocked by default** (migration `20260908130000_strict_copy_paste_defaults` backfills existing exams).
 - **New tables**: `retake_requests`, `resume_requests` (student/exam/session FKs cascade, `reviewed_by` set-null, PENDING/APPROVED dedupe indexes on `(studentId,status)` and `(examId,status)`).
 - **Class tables** (user feature, integrated): `classes`, `class_enrollments`, `exam_class_assignments`. A `class` is a **course-agnostic container of students** owned by an instructor. `classes.courseId` was added in `20260910000000_add_classes` and **dropped** in `20260910000100_classes_detach_from_courses` (verified applied on prod); uniqueness is now `[tenantId, code]` and `[tenantId, name]`. Exams push to whole classes via `exam_class_assignments`; availability is enforced server-side (`assertStudentAuthorized`).
+- **New table**: `push_subscriptions` (Web Push) — per-user browser subscriptions; unique `endpoint` (upsert), `userId` FK cascade; migration `20260910000200_add_push_subscriptions` applied to production.
 - **Extended enums**: `ExamEventType` (+`CAMERA_PERMISSION_DENIED`, `CAMERA_UNAVAILABLE`, `FOCUS_RESTORED`, `PROCTORING_CONSENT_DECLINED`, `SESSION_TERMINATED`), `NotificationType` (+`RETAKE_REQUEST`, `RETAKE_APPROVED`, `RETAKE_REJECTED`, `RESUME_REQUEST`, `RESUME_APPROVED`, `RESUME_REJECTED`, `SESSION_MESSAGE`).
 
 ---
@@ -63,6 +64,10 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 | `prisma/seed.ts` + `prisma/schema.prisma` | `classes.manage` permission for SUPER_ADMIN/ADMIN/INSTRUCTOR; seeded demo classes no longer reference a course |
 | `notifications/notifications.service.ts`, `notifications.controller.ts`, `notifications.module.ts` | Notification system made real: every create/`notifyMany` persists (with JSON `metadata`, carrying a frontend `link`) **and** emits `notification:new` to the recipient's `user:{id}` room via `RealtimeGateway` (module now imports `RealtimeModule`); added `GET /notifications/unread-count` and `PATCH /notifications/read-all` beside `GET /` and `PATCH :id/read` |
 | `exams/exams.service.ts` (assignment) | `assignStudents` / `assignClasses` notify each newly affected student ("New exam assigned/available", type INFO, `link: /student/exams`); class assignment only notifies students of **newly** assigned classes |
+| `push-notifications/` (module, `push.service.ts`, `push.controller.ts`, DTO) | Web Push (VAPID). `GET /push/vapid-key` is `@Public` and returns the public key (or `null` when unconfigured); `POST /push/subscriptions` / `DELETE /push/subscriptions` upsert/remove rows in `push_subscriptions`; `sendToUser` sends via `web-push` fire-and-forget (non-blocking) and self-heals by deleting subscriptions the push service reports as gone (404/410). No-op when `VAPID_*` env is absent |
+| `notifications/notifications.service.ts` + `notifications.module.ts` | After socket emit, `create`/`notifyMany` also fire `void push.sendToUser(...)` (module now imports both `RealtimeModule` and `PushModule`) |
+| `exam-sessions/requests.service.ts` + `exam-sessions.module.ts` | `notifyExamStaff`/`notifyStudent` now route through `NotificationsService.create` (persist + socket + push in one place); module imports `NotificationsModule` |
+| `config/app.config.ts` | Optional `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` env |
 
 Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/assertCanMonitor/assertCanPerformAction`, `RealtimeGateway.emitNotification/emitToSession`, `AuditService`.
 
@@ -89,6 +94,11 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `app/(dashboard)/notifications/page.tsx` (new) | Shared notifications route for **all roles** under the dashboard layout |
 | `app/(dashboard)/student/notifications/page.tsx` | Now renders the shared `NotificationsPage` (route preserved) |
 | `types/api.ts`, `services/notifications.service.ts` | `Notification.metadata`; client `markAllRead`/`unreadCount` |
+| `public/sw.js` (new) | Service worker: shows a browser notification on `push` (title/body/metadata from the encrypted payload) and opens `metadata.link` (default `/notifications`) on click |
+| `services/push.service.ts` (new) | VAPID key fetch; subscribe/unsubscribe endpoints; base64url helpers for `p256dh`/`auth` and the application server key |
+| `hooks/use-push-notifications.ts` (new) | `enable()` requests permission, registers `/sw.js`, subscribes via `pushManager` using the server VAPID key, and syncs the endpoint to the backend; `disable()` unsubscribes locally + deletes server-side; detects existing subscriptions on mount |
+| `features/notifications/push-preferences.tsx` (new) | "Browser notifications" card on the shared notifications page (Enable/Disable; warns when permission is blocked) |
+| `middleware.ts` | `/sw.js` added to the public bypass so the service worker registers regardless of auth state |
 
 ---
 
@@ -101,6 +111,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 - `POST /requests/:id/approve|reject` → CO_OWNER/admin vs PROCTOR rules; approves retake → sets `retakePermitted`; approves resume → transitions session to `IN_PROGRESS` + emits socket control.
 - LOCKED error codes surfaced to the client: `RETAKE_REQUIRED`, `RETAKE_PENDING`, `RESUME_PENDING`, `RESUME_DENIED`.
 - Notifications: `GET /notifications` (own, latest 100), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` — all scoped to the authenticated user; new notifications also arrive live on `notification:new` (Socket.IO room `user:{userId}`).
+- Web Push: `GET /push/vapid-key` (public), `POST /push/subscriptions`, `DELETE /push/subscriptions` — the latter two scoped to `user.sub`. Requires `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` (`VAPID_SUBJECT`) on the backend; without them subscribe endpoints still work but push is skipped.
 
 ---
 
@@ -124,6 +135,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 2. Backend `DATABASE_URL` (pooled) + `DIRECT_DATABASE_URL` (Prisma Migrate) as already configured. Deploy the migrations before starting the new backend build. `20260908120000_default_strict_policies` changes defaults AND backfills existing exams to strict approval policies — apply it once, it is idempotent by policy (only non-strict rows are updated).
 3. Apply `pnpm prisma migrate deploy` in the backend deployment, then start the API (health checks on `GET /monitoring/health` and `GET /monitoring/health/ready` are public).
 4. No secrets are in the repo; env values come from deployment variables.
+5. **Web Push (optional)**: add `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` to the backend deployment env (Render dashboard). Keys were generated with `web-push.generateVAPIDKeys()` and are already in local `deployment/.env.production` for migrations/tests. Until set, the app is unaffected (subscriptions skipped, `GET /push/vapid-key` returns `null`).
 
 ## 8. Test Matrix
 
@@ -143,6 +155,9 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | Copy/paste blocked in the exam browser (disableCopy/disablePaste) + attempts still logged | PASS (code review + bundle marker) |
 | Exam room is fullscreen-only (no sidebar/topbar visible) during take/resume | PASS (code review + live RSC payload marker) |
 | Classes load for staff (`classes.manage` permission + class is a course-agnostic container; `classes.courseId` dropped on prod) | PASS (prod DB permission + migration verified) |
+| Notifications live in-app (persist + socket `notification:new` + unread badge + read-all + shared `/notifications` for all roles) | PASS (prod endpoints 401/200 + deployed chunk marker) |
+| Web Push endpoints (`GET /push/vapid-key` public, `POST /push/subscriptions` auth) + `/sw.js` served | PASS (prod: vapid-key 200 `{publicKey:null}`, subscriptions 401, sw.js 200) |
+| Web Push end-to-end delivery | DEPENDS on §7.5 env config (VAPID keys on the backend) |
 | Webcam proctoring in production | DEPENDS on §7.1 env config |
 | Production migration + strict-policy backfill applied + verified via direct DB read | PASS |
 | Production smoke (deployed routes) | PENDING — manual after deploy |

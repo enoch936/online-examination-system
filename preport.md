@@ -396,6 +396,21 @@ Indexes: `@@index([userId, readAt])`, `@@index([userId, createdAt])`.
 
 Endpoints (all scoped to the authenticated user): `GET /notifications` (latest 100), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all`. `metadata` (JSON) can carry a `link` used by the frontend for click-through. Every persisted notification is also emitted live as `notification:new` to the recipient's Socket.IO room `user:{id}`; triggers include retake/resume request decisions and exam assignment to students/classes.
 
+### 3.34 push_subscriptions (Web Push)
+
+Physical table: `push_subscriptions`
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `id` | String | **PK** |
+| `userId` | String | **FK → users.id** (Cascade) |
+| `endpoint` | String | **unique** (one per browser; upsert by endpoint) |
+| `p256dh` | String | subscription public key |
+| `auth` | String | subscription auth secret |
+| `userAgent` | String? | |
+| `createdAt` | DateTime | default now() |
+
+Indexes: `@@index([userId])`.
+
 ### 3.23 activity_logs
 Physical table: `activity_logs`
 | Field | Type | Constraints |
@@ -689,6 +704,7 @@ All migrations live under `backend/prisma/migrations/`, in chronological order:
 | `20260908130000_strict_copy_paste_defaults` | `disableCopy`/`disablePaste` default true |
 | `20260910000000_add_classes` | Add `classes`, `class_enrollments`, `exam_class_assignments` |
 | `20260910000100_classes_detach_from_courses` | Drop `classes.courseId` — classes are plain student containers |
+| `20260910000200_add_push_subscriptions` | Add Web Push `push_subscriptions` (unique `endpoint`, FK cascade to users) |
 
 Also present: `migration_lock.toml` (locks provider to PostgreSQL).
 
@@ -700,7 +716,7 @@ Also present: `migration_lock.toml` (locks provider to PostgreSQL).
 - **Content hierarchy**: `subjects` → `courses` → `exams`; `subjects` → `questions`; `question_banks` optionally group questions and are linked to exams (via both `exams.questionBankId` and the `exam_question_banks` join).
 - **Exam delivery**: `exams` → `exam_assignments`/`exam_sessions` → `student_answers` → `submissions` → `results` → `certificates`. Attempts are bounded by unique `[examId, studentId, attemptNumber]`.
 - **Class delivery**: `classes` are course-agnostic student containers owned by an instructor; students join via `class_enrollments`, and exams are pushed to whole classes via `exam_class_assignments`. An exam with no direct/class assignments is open to all students; otherwise only directly-assigned students or members of an assigned class may start it.
-- **Notifications**: persisted in `notifications` (JSON `metadata` can carry a `link`); every create/batch also emits a `notification:new` socket event to the recipient's `user:{id}` room, so the dashboard bell (unread badge, read-all) and the shared `/notifications` page update live. Triggers: retake/resume request decisions and exam assignment to students or classes.
+- **Notifications**: persisted in `notifications` (JSON `metadata` can carry a `link`); every create/batch also emits a `notification:new` socket event to the recipient's `user:{id}` room, so the dashboard bell (unread badge, read-all) and the shared `/notifications` page update live. Triggers: retake/resume request decisions and exam assignment to students or classes. Optional **Web Push** tier (VAPID): subscriptions per user in `push_subscriptions`; when `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` are set, the same notification flow also sends a browser notification via the service worker (works with the tab closed). If unset, pushes are skipped and the app keeps working.
 - **Proctoring/monitoring**: `exam_monitoring_configs`, `exam_events`, `exam_violations` attach to `exam_sessions`; risk (`riskScore`, `riskLevel`) lives on the session.
 - **Collaboration**: `exam_shares` lets one instructor share an exam with another under a permission level.
 - **Auditability**: `activity_logs` and `audit_logs` record actor/action/entity, indexed by actor and time.
