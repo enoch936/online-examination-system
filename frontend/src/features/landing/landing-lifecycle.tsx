@@ -14,7 +14,7 @@ import {
   Check,
   CheckCircle2,
 } from 'lucide-react';
-import { SectionHeader, Reveal, WrapUpText, Parallax } from './landing-primitives';
+import { SectionHeader, Reveal, WrapUpText, Parallax, SectionReveal } from './landing-primitives';
 import { Smartboard } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -56,8 +56,9 @@ export function LifecycleSection() {
   const progress = reduce ? 1 : active / (stages.length - 1);
 
   return (
-    <section
+    <SectionReveal
       id="lifecycle"
+      mode="rise-impact"
       className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
@@ -75,7 +76,7 @@ export function LifecycleSection() {
           sub="A connected pipeline that carries every exam from creation through monitoring to results."
         />
 
-        <div className="mt-14 grid gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
+        <div className="mt-14 grid gap-10 lg:-mt-8 lg:grid-cols-[1fr_1.05fr] lg:gap-8 lg:items-center">
           {/* Pipeline */}
           <div className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
             {/* Progress rail */}
@@ -305,6 +306,6 @@ export function LifecycleSection() {
           </Reveal>
         </div>
       </div>
-    </section>
+    </SectionReveal>
   );
 }

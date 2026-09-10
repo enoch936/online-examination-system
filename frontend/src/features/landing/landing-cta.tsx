@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { motion, useReducedMotion, useInView } from 'framer-motion';
 import { useRef } from 'react';
 import { ShieldCheck, Radio, Cpu, Layers, ArrowRight, Lock, BadgeCheck, Video, ScrollText, KeyRound } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard, Parallax } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal } from './landing-primitives';
+import { AuroraBand } from './landing-art';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -47,7 +48,11 @@ const states = [
 
 export function SecuritySection() {
   return (
-    <section id="security" className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28">
+    <SectionReveal
+      id="security"
+      mode="rise-impact"
+      className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
+    >
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={120} className="absolute -right-28 top-16 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
         <Parallax speed={60} className="absolute -left-28 bottom-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
@@ -88,7 +93,7 @@ export function SecuritySection() {
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {principles.map((p, i) => {
             const Icon = p.icon;
-            const secStyle = (['zoom-up', 'flip-in', 'pop', 'blur'] as const)[i % 4];
+            const secStyle = (['tumble-in', 'swing', 'rise-rotate', 'clip-up'] as const)[i % 4];
             return (
               <Reveal key={p.key} style={secStyle} delay={i * 0.07}>
                 <TiltCard spotlight max={5} className="h-full">
@@ -110,7 +115,7 @@ export function SecuritySection() {
           })}
         </div>
       </div>
-    </section>
+    </SectionReveal>
   );
 }
 
@@ -123,8 +128,9 @@ export function CTASection() {
   const inView = useInView(ref, { once: false, margin: '-20%' });
 
   return (
-    <section className="relative overflow-hidden py-24 md:py-32">
+    <SectionReveal mode="expand-in" className="relative overflow-hidden py-24 md:py-32">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <AuroraBand />
         <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-[140px]" />
         <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-[120px]" />
         <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
@@ -199,6 +205,6 @@ export function CTASection() {
           </div>
         </div>
       </div>
-    </section>
+    </SectionReveal>
   );
 }

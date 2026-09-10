@@ -11,7 +11,7 @@ import {
   useTransform,
   type TargetAndTransition,
 } from 'framer-motion';
-import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type MouseEvent, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 import { api } from '@/services/api';
 
@@ -39,6 +39,11 @@ type RevealStyle =
   | 'perspective-in'
   | 'expand-out'
   | 'contract-in'
+  | 'rise-rotate'
+  | 'tumble-in'
+  | 'swing'
+  | 'clip-up'
+  | 'blur-scale'
   | 'spiral'
   | 'none';
 
@@ -83,6 +88,11 @@ const STYLES: Record<RevealStyle, { initial: TargetAndTransition }> = {
   'perspective-in': { initial: { opacity: 0, scale: 0.9, z: -60, perspective: 900 } },
   'expand-out': { initial: { opacity: 0, clipPath: 'inset(0 0 100% 0)' } },
   'contract-in': { initial: { opacity: 0, clipPath: 'inset(0 100% 0 0)' } },
+  'rise-rotate': { initial: { opacity: 0, y: 56, rotate: 4 } },
+  'tumble-in': { initial: { opacity: 0, rotate: -8, y: 36, scale: 0.9 } },
+  swing: { initial: { opacity: 0, x: 84, y: -32, rotate: -5 } },
+  'clip-up': { initial: { opacity: 0, clipPath: 'inset(45% 0 45% 0)', y: 18 } },
+  'blur-scale': { initial: { opacity: 0, filter: 'blur(8px)', scale: 1.08 } },
   spiral: { initial: { opacity: 0, x: 60, y: -60, rotate: 720, scale: 0.6 } },
   none: { initial: { opacity: 0 } },
 };
@@ -616,6 +626,58 @@ export function Parallax({
     <motion.div ref={ref} className={className} style={{ y }}>
       {children}
     </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* SectionReveal — a deliberate entrance for each major section.      */
+/* Each section wipes/lifts/expands into place as it scrolls in,      */
+/* creating a visible transition between sections instead of a flat   */
+/* stack. Reduced-motion renders the section plainly.                */
+/* ------------------------------------------------------------------ */
+export type SectionMode = 'wipe-up' | 'wipe-left' | 'expand-in' | 'rise-impact' | 'fade-scale';
+
+export function SectionReveal({
+  children,
+  id,
+  className,
+  mode = 'wipe-up',
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  children: ReactNode;
+  id?: string;
+  className?: string;
+  mode?: SectionMode;
+  onMouseEnter?: HTMLAttributes<HTMLElement>['onMouseEnter'];
+  onMouseLeave?: HTMLAttributes<HTMLElement>['onMouseLeave'];
+}) {
+  const reduce = useReducedMotion() ?? false;
+
+  const initial: TargetAndTransition =
+    mode === 'wipe-left'
+      ? { clipPath: 'inset(0 100% 0 0)' }
+      : mode === 'expand-in'
+        ? { clipPath: 'inset(42% 42% 42% 42%)', scale: 0.985 }
+        : mode === 'rise-impact'
+          ? { opacity: 0, y: 52, scale: 0.99 }
+          : mode === 'fade-scale'
+            ? { opacity: 0.35, scale: 0.985 }
+            : { clipPath: 'inset(0 0 100% 0)' };
+
+  return (
+    <motion.section
+      id={id}
+      className={className}
+      initial={reduce ? false : initial}
+      whileInView={{ opacity: 1, y: 0, scale: 1, clipPath: 'inset(0 0 0 0)' }}
+      viewport={{ once: true, amount: 0.15, margin: '-40px' }}
+      transition={{ duration: 0.7, ease: EASE }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
+      {children}
+    </motion.section>
   );
 }
 

@@ -1,8 +1,9 @@
 'use client';
 
 import { useReducedMotion } from 'framer-motion';
-import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock } from 'lucide-react';
-import { Parallax, Reveal, SectionHeader, TiltCard } from './landing-primitives';
+import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock, CheckCircle2 } from 'lucide-react';
+import { Reveal, SectionHeader, SectionReveal, TiltCard, Parallax } from './landing-primitives';
+import { NetworkOrb } from './landing-art';
 
 /* ------------------------------------------------------------------ */
 /* Capability strip — product capabilities (no fabricated figures)    */
@@ -18,7 +19,7 @@ const capabilities = [
 
 export function CapabilitiesStrip() {
   return (
-    <section className="relative border-y border-border/60 bg-card/20">
+    <SectionReveal mode="wipe-up" className="relative border-y border-border/60 bg-card/20">
       <div className="mx-auto max-w-6xl px-5 py-10 sm:px-6 md:py-12">
         <div className="flex items-center gap-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           <span className="eyebrow-dot-gold" />
@@ -43,7 +44,7 @@ export function CapabilitiesStrip() {
           })}
         </div>
       </div>
-    </section>
+    </SectionReveal>
   );
 }
 
@@ -79,10 +80,11 @@ function MiniBars() {
 
 export function BentoSection() {
   return (
-    <section id="product" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="product" mode="expand-in" className="relative isolate py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={150} className="absolute -right-24 top-16 h-80 w-80 rounded-full bg-primary/15 blur-3xl" />
         <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
+        <NetworkOrb className="absolute right-10 top-32 hidden h-40 w-44 text-primary/35 md:block" />
       </div>
 
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
@@ -101,7 +103,11 @@ export function BentoSection() {
               spotlight
               className="h-full"
             >
-            <div className="flex h-full flex-col justify-between rounded-2xl border border-border/60 bg-card/50 p-6 backdrop-blur-xl transition-colors hover:border-border">
+            <div className="relative flex h-full flex-col justify-between rounded-2xl border border-border/60 bg-card/50 p-6 backdrop-blur-xl transition-colors hover:border-border">
+              <span className="float-soft absolute -right-3 -top-3 z-10 flex items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wide text-gold-strong shadow-sm">
+                <CheckCircle2 className="h-3 w-3" />
+                Auto-scored
+              </span>
               <div>
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12 text-primary">
                   <FilePen className="h-5 w-5" />
@@ -210,6 +216,6 @@ export function BentoSection() {
           </Reveal>
         </div>
       </div>
-    </section>
+    </SectionReveal>
   );
 }

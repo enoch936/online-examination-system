@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { motion, useScroll, useMotionValueEvent, useReducedMotion } from 'framer-motion';
 import { BadgeCheck, ShieldCheck, Activity } from 'lucide-react';
 import { Reveal, WrapUpText, Parallax } from './landing-primitives';
+import { ScanRings } from './landing-art';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -144,6 +145,9 @@ export function NarrativeSection() {
             <div className="order-1 lg:order-1">
               <div className="relative">
                 <div className="pointer-events-none absolute -inset-8 -z-10 rounded-[2.5rem] bg-primary/10 blur-3xl" />
+                <div className="pointer-events-none absolute -inset-4 -z-10 flex items-center justify-center opacity-60">
+                  <ScanRings className="h-80 w-80" />
+                </div>
                 <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
                   <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
                     <p className="font-mono text-[0.65rem] text-muted-foreground">oes · proctor console</p>

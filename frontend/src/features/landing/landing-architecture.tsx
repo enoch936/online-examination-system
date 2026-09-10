@@ -1,7 +1,7 @@
 'use client';
 
 import { Network, Video, Zap, Database, KeyRound, Eye } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard, Parallax } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal } from './landing-primitives';
 import { cn } from '@/lib/utils';
 
 const layers = [
@@ -47,7 +47,7 @@ const pipeline = ['Client', 'WebSocket', 'Redis', 'PostgreSQL', 'Workers'];
 
 export function ArchitectureSection() {
   return (
-    <section id="architecture" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="architecture" mode="wipe-left" className="relative isolate py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={140} className="absolute -left-32 top-24 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
       </div>
@@ -65,7 +65,7 @@ export function ArchitectureSection() {
           {layers.map((l, i) => {
             const Icon = l.icon;
             return (
-              <Reveal key={l.title} style={(['zoom-up', 'flip-in', 'blur'] as const)[i % 3]} delay={i * 0.06}>
+              <Reveal key={l.title} style={(['rise-rotate', 'tumble-in', 'swing', 'blur-scale', 'clip-up', 'zoom-up'] as const)[i % 6]} delay={i * 0.06}>
                 <TiltCard spotlight max={5} className="h-full">
                   <div
                     className={cn(
@@ -117,6 +117,6 @@ export function ArchitectureSection() {
           </div>
         </Reveal>
       </div>
-    </section>
+    </SectionReveal>
   );
 }
