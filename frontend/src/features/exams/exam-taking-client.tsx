@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, GraduationCap, Grid3X3,
-  LayoutList, ListChecks, Loader2, Maximize, Mic, Minimize, RefreshCw, Send, ShieldAlert, Type, Video,
+  LayoutList, ListChecks, Loader2, LogOut, Maximize, Mic, Minimize, RefreshCw, Send, ShieldAlert, Type, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,10 @@ import { useExamMonitoring, type ProctorControl } from '@/hooks/use-exam-monitor
 import { useProctoring } from '@/hooks/use-proctoring';
 import { useNotifications } from '@/hooks/use-notifications';
 import { NotificationsBell } from '@/features/notifications/notifications-bell';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
+import { authService } from '@/services/auth.service';
+import { disconnectSocket } from '@/services/socket.service';
+import { useAuthStore } from '@/store/auth.store';
 import { apiErrorMessage } from '@/lib/api-error';
 import { formatDuration } from '@/lib/utils';
 import { examsService } from '@/services/exams.service';
@@ -168,6 +172,17 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     } finally {
       window.setTimeout(() => setRefreshing(false), 600);
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+    } catch {
+      // ignore backend errors
+    }
+    disconnectSocket();
+    useAuthStore.getState().clearSession();
+    router.push('/login');
   };
 
   const query = useQuery({
@@ -669,11 +684,15 @@ const resumeErrorPolicy = (
             <p className="truncate text-[11px] text-muted-foreground">Secure examination in progress</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ThemeToggle />
           <Button variant="ghost" size="icon" aria-label="Refresh data" onClick={() => void handleRefresh()}>
             <RefreshCw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
           </Button>
           <NotificationsBell />
+          <Button variant="ghost" size="icon" aria-label="Log out" title="End session" onClick={() => void handleLogout()}>
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </header>
       {proctoringBanner && (
