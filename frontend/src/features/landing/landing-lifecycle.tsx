@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, useReducedMotion, AnimatePresence } from 'framer-motion';
 import {
   FilePlus2,
@@ -11,6 +11,8 @@ import {
   SendHorizonal,
   Cpu,
   Trophy,
+  Check,
+  CheckCircle2,
 } from 'lucide-react';
 import { SectionHeader, Reveal, WrapUpText } from './landing-primitives';
 import { Smartboard } from './landing-objects';
@@ -40,11 +42,26 @@ const detail: Record<string, { title: string; note: string }> = {
 
 export function LifecycleSection() {
   const [active, setActive] = useState(0);
+  const [paused, setPaused] = useState(false);
   const reduce = useReducedMotion() ?? false;
   const activeStage = stages[active];
 
+  // Auto-advance the pipeline (pauses while the user explores)
+  useEffect(() => {
+    if (reduce || paused) return;
+    const id = setInterval(() => setActive((a) => (a + 1) % stages.length), 3200);
+    return () => clearInterval(id);
+  }, [reduce, paused]);
+
+  const progress = reduce ? 1 : active / (stages.length - 1);
+
   return (
-    <section id="lifecycle" className="relative border-y border-border/60 bg-card/20 py-20 md:py-28">
+    <section
+      id="lifecycle"
+      className="relative border-y border-border/60 bg-card/20 py-20 md:py-28"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
           eyebrow="Exam lifecycle"
@@ -53,40 +70,49 @@ export function LifecycleSection() {
         />
 
         <div className="mt-14 grid gap-10 lg:grid-cols-[1fr_1fr] lg:items-center">
-          {/* Timeline list */}
-          <div className="relative">
-            <div className="absolute bottom-4 left-[1.15rem] top-4 hidden w-px bg-gradient-to-b from-border to-border/30 sm:block" />
-            <div className="flex flex-col gap-1">
+          {/* Pipeline */}
+          <div className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+            {/* Progress rail */}
+            <div className="absolute bottom-6 left-[1.15rem] top-6 hidden w-px bg-border/40 sm:block">
+              <motion.div
+                className="absolute inset-y-0 left-0 w-full origin-top bg-gradient-to-b from-gold via-primary to-primary"
+                animate={{ scaleY: progress }}
+                transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
               {stages.map((s, i) => {
                 const Icon = s.icon;
+                const done = i < active;
                 const isActive = i === active;
-                const stageStyle = (['right', 'left', 'zoom-in', 'pop', 'drop-in', 'blur', 'flip-in', 'circling'] as const)[i % 8];
                 return (
-                  <Reveal key={s.id} style={stageStyle} delay={i * 0.04}>
+                  <Reveal key={s.id} style="none" delay={i * 0.03}>
                     <button
                       onMouseEnter={() => setActive(i)}
                       onFocus={() => setActive(i)}
                       onClick={() => setActive(i)}
                       className={cn(
                         'group relative flex w-full items-center gap-3 rounded-xl px-1 py-2 text-left transition-all sm:pl-3',
-                        isActive ? 'sm:-translate-x-1' : 'opacity-70 hover:opacity-100',
+                        isActive ? 'sm:-translate-x-1' : 'opacity-75 hover:opacity-100',
                       )}
                     >
                       <span
                         className={cn(
-                          'relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-sm transition-all',
-                          isActive
-                            ? 'border-primary/50 bg-primary text-primary-foreground shadow-md shadow-primary/25'
-                            : 'border-border/70 bg-card/60 text-muted-foreground',
+                          'relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-sm transition-all duration-300',
+                          done && 'border-gold/50 bg-gold/10 text-gold-strong',
+                          isActive &&
+                            'border-primary/50 bg-primary text-primary-foreground shadow-md shadow-primary/25',
+                          !done && !isActive && 'border-border/70 bg-card/60 text-muted-foreground',
                         )}
                       >
-                        <Icon className="h-4 w-4" />
+                        {done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                       </span>
                       <span className="min-w-0">
                         <span
                           className={cn(
                             'block text-[0.95rem] font-medium transition-colors',
-                            isActive ? 'text-foreground' : 'text-muted-foreground',
+                            isActive || done ? 'text-foreground' : 'text-muted-foreground',
                           )}
                         >
                           {s.label}
@@ -98,7 +124,7 @@ export function LifecycleSection() {
                       <span
                         className={cn(
                           'ml-auto hidden text-xs font-semibold tabular-nums sm:block',
-                          isActive ? 'text-foreground' : 'text-muted-foreground',
+                          isActive || done ? 'text-foreground' : 'text-muted-foreground',
                         )}
                       >
                         0{i + 1}
@@ -112,29 +138,33 @@ export function LifecycleSection() {
 
           {/* Preview panel */}
           <Reveal style="zoom-in" delay={0.1}>
-            <motion.div
-              layout
-              className="glass-panel glass-edge overflow-hidden rounded-2xl"
-            >
+            <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
               <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeStage.id}
-                    initial={reduce ? false : { opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={reduce ? undefined : { opacity: 0, y: -8 }}
-                    transition={{ duration: 0.25 }}
-                  >
-                    <h3 className="text-base font-semibold tracking-tight text-foreground">
-                      {detail[activeStage.id].title}
-                    </h3>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      Stage {activeStage.n} of {stages.length}
-                    </p>
-                  </motion.div>
-                </AnimatePresence>
-                <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                <div className="min-w-0">
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activeStage.id}
+                      initial={reduce ? false : { opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={reduce ? undefined : { opacity: 0, y: -8 }}
+                      transition={{ duration: 0.25 }}
+                    >
+                      <h3 className="text-base font-semibold tracking-tight text-foreground">
+                        {detail[activeStage.id].title}
+                      </h3>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        Stage {activeStage.n} of {stages.length}
+                      </p>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+                <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                  <span className="relative flex h-1.5 w-1.5">
+                    {!reduce && (
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                    )}
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  </span>
                   Live
                 </span>
               </div>
@@ -148,8 +178,8 @@ export function LifecycleSection() {
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                   <motion.div
                     layout
-                    className="h-full rounded-full bg-primary"
-                    animate={{ width: `${(activeStage.n / stages.length) * 100}%` }}
+                    className="h-full rounded-full bg-gradient-to-r from-primary via-primary to-gold"
+                    animate={{ width: `${((active + 1) / stages.length) * 100}%` }}
                     transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
                   />
                 </div>
@@ -203,14 +233,23 @@ export function LifecycleSection() {
                     )}
 
                     {activeStage.id === 'results' && (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Average score</p>
-                          <p className="text-3xl font-semibold tracking-tight text-foreground">87%</p>
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <span className="glow-gold flex h-11 w-11 items-center justify-center rounded-xl border border-gold/40 bg-gold/10 text-gold-strong">
+                            <Trophy className="h-5 w-5" />
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">Results released</p>
+                            <p className="text-xs text-muted-foreground">Scorecards are synced to candidates</p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-xs text-muted-foreground">Pass rate</p>
-                          <p className="text-3xl font-semibold tracking-tight text-emerald-500">88.8%</p>
+                        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                          {['Scorecards', 'Certificates', 'Analytics'].map((k) => (
+                            <div key={k} className="rounded-lg border border-border/50 bg-background/60 px-2 py-2">
+                              <CheckCircle2 className="mx-auto mb-1.5 h-4 w-4 text-gold-strong" />
+                              <p className="text-[0.6rem] uppercase tracking-wide text-muted-foreground">{k}</p>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
@@ -218,7 +257,14 @@ export function LifecycleSection() {
                     {activeStage.id !== 'monitor' && activeStage.id !== 'results' && (
                       <>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                          <span
+                            className={cn(
+                              'flex h-7 w-7 items-center justify-center rounded-lg',
+                              activeStage.id === 'create' || activeStage.id === 'publish'
+                                ? 'bg-gold/10 text-gold-strong'
+                                : 'bg-primary/10 text-primary',
+                            )}
+                          >
                             {(() => {
                               const I = activeStage.icon;
                               return <I className="h-3.5 w-3.5" />;
@@ -249,7 +295,7 @@ export function LifecycleSection() {
                   </motion.div>
                 </AnimatePresence>
               </div>
-            </motion.div>
+            </div>
           </Reveal>
         </div>
       </div>

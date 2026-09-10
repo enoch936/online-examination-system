@@ -1,9 +1,10 @@
 import { LandingNav } from './landing-nav';
 import { LandingHero } from './landing-hero';
-import { StatsStrip, BentoSection } from './landing-bento';
+import { CapabilitiesStrip, BentoSection } from './landing-bento';
 import { LifecycleSection } from './landing-lifecycle';
 import { NarrativeSection } from './landing-narrative';
 import { RolesSection } from './landing-roles';
+import { ArchitectureSection } from './landing-architecture';
 import { SecuritySection } from './landing-cta';
 import { CTASection } from './landing-cta';
 import { LandingFooter } from './landing-footer';
@@ -14,11 +15,12 @@ export function LandingPage() {
       <LandingNav />
       <main>
         <LandingHero />
-        <StatsStrip />
+        <CapabilitiesStrip />
         <BentoSection />
         <LifecycleSection />
-        <NarrativeSection />
         <RolesSection />
+        <ArchitectureSection />
+        <NarrativeSection />
         <SecuritySection />
         <CTASection />
       </main>

@@ -1,37 +1,47 @@
 'use client';
 
 import { useReducedMotion } from 'framer-motion';
-import { FilePen, BarChart3, ShieldCheck, Radar } from 'lucide-react';
-import { Reveal, SectionHeader, Counter, TiltCard, useLandingStats } from './landing-primitives';
+import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock } from 'lucide-react';
+import { Reveal, SectionHeader, TiltCard } from './landing-primitives';
 
 /* ------------------------------------------------------------------ */
-/* Real stat strip (fetched from backend; falls back to zeros)        */
+/* Capability strip — product capabilities (no fabricated figures)    */
 /* ------------------------------------------------------------------ */
-export function StatsStrip() {
-  const stats = useLandingStats();
+const capabilities = [
+  { icon: Radio, label: 'Real-time monitoring', desc: 'WebSocket-synced exam state' },
+  { icon: Video, label: 'Webcam proctoring', desc: 'Identity checks & live flags' },
+  { icon: Cpu, label: 'Auto-grading', desc: 'Instant scoring, rubric support' },
+  { icon: ShieldCheck, label: 'Role-based access', desc: 'RBAC across every workspace' },
+  { icon: Activity, label: 'Live exam state', desc: 'Submissions & results sync' },
+  { icon: Lock, label: 'Secure sessions', desc: 'Encrypted, scoped, audited' },
+];
 
-  const items = [
-    { label: 'Active students', value: stats.students, suffix: '+' },
-    { label: 'Exams conducted', value: stats.exams, suffix: '+' },
-    { label: 'Instructors', value: stats.instructors, suffix: '+' },
-    { label: 'Questions in bank', value: stats.questions, suffix: '+' },
-  ];
-
+export function CapabilitiesStrip() {
   return (
-    <section className="border-y border-border/60 bg-card/30 backdrop-blur-sm">
-      <div className="mx-auto grid max-w-6xl grid-cols-2 gap-px px-5 sm:px-6 md:grid-cols-4">
-        {items.map((s, i) => (
-          <Reveal key={s.label} style="none" delay={i * 0.06}>
-            <div className="flex flex-col gap-1 py-8 text-center">
-              <span className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-                <Counter value={s.value} suffix={s.suffix} />
-              </span>
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {s.label}
-              </span>
-            </div>
-          </Reveal>
-        ))}
+    <section className="relative border-y border-border/60 bg-card/20">
+      <div className="mx-auto max-w-6xl px-5 py-10 sm:px-6 md:py-12">
+        <div className="flex items-center gap-2.5 text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <span className="eyebrow-dot-gold" />
+          Capabilities
+        </div>
+        <div className="mt-7 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border/60 bg-border/60 md:grid-cols-3 lg:grid-cols-6">
+          {capabilities.map((c, i) => {
+            const Icon = c.icon;
+            return (
+              <Reveal key={c.label} style="none" delay={i * 0.05}>
+                <div className="group flex h-full flex-col gap-3.5 bg-background/60 p-5 transition-colors duration-300 hover:bg-card">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/60 bg-card text-primary transition-colors duration-300 group-hover:border-gold/50 group-hover:text-gold">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <p className="text-[0.82rem] font-semibold tracking-tight text-foreground">{c.label}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{c.desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
@@ -141,8 +151,8 @@ export function BentoSection() {
               </div>
               <div className="mt-6 w-full md:mt-0 md:flex-1">
                 <div className="mb-3 flex items-end justify-between">
-                  <span className="text-2xl font-semibold tracking-tight text-foreground">88.8%</span>
-                  <span className="text-xs font-medium text-emerald-400">pass rate</span>
+                  <span className="text-sm font-semibold tracking-tight text-foreground">Score distribution</span>
+                  <span className="text-xs font-medium text-muted-foreground">item × response</span>
                 </div>
                 <MiniBars />
               </div>

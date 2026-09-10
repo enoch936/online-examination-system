@@ -420,7 +420,20 @@ Staff (SUPER_ADMIN/ADMIN/INSTRUCTOR) sockets emit `staff:subscribe` to join the 
 
 The frontend hook (`hooks/use-inbox.ts`) listens for `message:new`, invalidates the `['messages']` query and toasts. An extra header `RefreshButton` in `components/layout/dashboard-shell.tsx` calls `queryClient.invalidateQueries()` for a manual/extra refresh without reloading the page.
 
-### 3.23 activity_logs
+### 3.36 premium public landing page (redesign + motion)
+
+The landing page (`frontend/src/features/landing/`) was upgraded to a premium SaaS aesthetic while preserving all existing copy and content — no fabricated traction figures.
+
+- **Design tokens** (`src/styles/globals.css`): additive gold tokens (`--color-gold`, `--color-gold-strong`, `--color-gold-foreground` → `text-gold`, `bg-gold`, `border-gold`, `from-gold` gradient utilities) and a deepened **midnight-navy dark theme** (`227 46% 5%` background). Additive utilities: `.text-gold-gradient`, `.glow-gold`, `.glow-gold-soft`, `.card-lift`, `.hairline-top`, `.btn-shine`, `.eyebrow-dot-gold`, `.spotlight-gold`, `@keyframes shine/float-soft/ping-soft`. Global body aura swapped from teal to blue+gold.
+- **Capabilities strip** replaces the old `StatsStrip` counters — the fabricated `0+ Active students / 0+ Exams` metrics are gone. Six non-numeric capability tiles: real-time monitoring, webcam proctoring, auto-grading, role-based access, live exam state, secure sessions (`.landing-bento.tsx` → `CapabilitiesStrip`).
+- **Nav** (`landing-nav.tsx`): fixed buggy `tsdat` placeholder → `Contact`; shrinks on scroll, scrollspy underline for active section, gold scroll-progress hairline, mobile drawer gains FAQ/Contact.
+- **Hero** (`landing-hero.tsx`): masked-line headline + gold-gradient `TypingText`, magnetic CTAs, and a fully **live ticking exam window** — real countdown, candidate counter, auto-answering question, cycling proctoring log, latency chip, animated progress dots, gold Submit; layered midnight aurora + masked grid background.
+- **Lifecycle** (`landing-lifecycle.tsx`): auto-advancing 8-stage pipeline with a growing progress rail, gold completed-state ticks, pause-on-hover.
+- **Roles** (`landing-roles.tsx`): now interactive tabs for STUDENT | INSTRUCTOR | ADMIN | PROCTOR | ANALYTICS with animated panel swaps and "Demo" chips on mock surfaces.
+- **Narrative → live-monitoring signature** (`landing-narrative.tsx`): sticky-scroll proctor console — identity checks, fullscreen enforcement, anomaly flags, sync, delivery, with a scanning webcam panel.
+- **Architecture section** (new, `landing-architecture.tsx`): WebSocket / WebRTC / Redis / PostgreSQL / RBAC / Proctoring tiles + a data-flow pipeline strip.
+- **Security + CTA + Footer** (`landing-cta.tsx`, `landing-footer.tsx`): security state chips (Secure session · Identity verified · Webcam active · Audit trail · Role verified); CTA copy now `Run your next exam with confidence.` with `Get started` (gold, animated border) + `Explore the platform`; footer grouped Product / Platform / Security / Resources / Company / Legal with only real routes (`/about`, `/contact`, `/faq`) and anchors.
+- Reduced-motion safe throughout (`useReducedMotion`), desktop-only cursor effects honor `@media (hover: none)/(pointer: coarse)`.
 Physical table: `activity_logs`
 | Field | Type | Constraints |
 |-------|------|-------------|

@@ -1,12 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import {
-  motion,
-  useScroll,
-  useMotionValueEvent,
-  useReducedMotion,
-} from 'framer-motion';
+import { motion, useScroll, useMotionValueEvent, useReducedMotion } from 'framer-motion';
 import { Reveal, WrapUpText } from './landing-primitives';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
@@ -14,157 +9,93 @@ import { cn } from '@/lib/utils';
 const EASE = [0.16, 1, 0.3, 1] as const;
 
 /* ------------------------------------------------------------------ */
-/* Sticky scroll narrative — pivots through each role's interface.     */
-/* Blur -> transform -> sharp as scroll progress advances a step.     */
+/* Sticky scroll narrative — pivots through live-monitoring states.    */
+/* Blur -> transform -> sharp as scroll progress advances a step.      */
 /* ------------------------------------------------------------------ */
 
-type Step = { id: string; title: string; body: string; ui: React.ReactNode };
-
-function StudentPanel() {
-  return (
-    <div className="space-y-3 p-5">
-      <div className="flex items-center justify-between">
-        <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[0.65rem] font-semibold text-primary">
-          CS302 · Data Systems
-        </span>
-        <span className="flex items-center gap-1 font-mono text-xs text-amber-500">24:18</span>
-      </div>
-      <p className="text-sm font-medium text-foreground">“Which constraint ensures column values are unique?”</p>
-      <div className="grid grid-cols-2 gap-2">
-        {['PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY', 'CHECK'].map((o, i) => (
-          <div
-            key={o}
-            className={cn(
-              'rounded-lg border px-3 py-2 text-xs font-medium',
-              i === 1 ? 'border-primary/40 bg-primary/10 text-foreground' : 'border-border/50 bg-card/40 text-muted-foreground',
-            )}
-          >
-            {o}
-          </div>
-        ))}
-      </div>
-      <div className="flex gap-1.5 pt-1">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <span key={i} className={cn('h-1.5 flex-1 rounded-full', i < 4 ? 'bg-primary' : 'bg-border/70')} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function InstructorPanel() {
-  const rows = [
-    { q: 'PostgreSQL default port', tag: '1 pt', c: 'text-emerald-500' },
-    { q: 'Explain 3NF requirements', tag: '4 pts', c: 'text-amber-500' },
-    { q: 'Write a nested join query', tag: '5 pts', c: 'text-rose-500' },
-  ];
-  return (
-    <div className="space-y-3 p-5">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-foreground">Question bank</span>
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[0.65rem] font-medium text-primary">32 items</span>
-      </div>
-      <div className="space-y-2">
-        {rows.map((r) => (
-          <div key={r.q} className="flex items-center justify-between rounded-lg border border-border/50 bg-card/40 px-3 py-2 text-xs">
-            <span className="text-muted-foreground">{r.q}</span>
-            <span className={cn('font-medium', r.c)}>{r.tag}</span>
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-center">
-        <div className="rounded-lg bg-background/50 px-2 py-2">
-          <p className="text-base font-semibold text-foreground">18</p>
-          <p className="text-[0.6rem] uppercase tracking-wide text-muted-foreground">Published</p>
-        </div>
-        <div className="rounded-lg bg-background/50 px-2 py-2">
-          <p className="text-base font-semibold text-foreground">6</p>
-          <p className="text-[0.6rem] uppercase tracking-wide text-muted-foreground">Awaiting</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AdminPanel() {
-  return (
-    <div className="space-y-3 p-5">
-      <div className="grid grid-cols-2 gap-2 text-center">
-        <div className="rounded-lg bg-background/50 px-2 py-2">
-          <p className="text-base font-semibold text-foreground">2,483</p>
-          <p className="text-[0.6rem] uppercase tracking-wide text-muted-foreground">Users</p>
-        </div>
-        <div className="rounded-lg bg-background/50 px-2 py-2">
-          <p className="text-base font-semibold text-foreground">12%</p>
-          <p className="text-[0.6rem] uppercase tracking-wide text-muted-foreground">Load</p>
-        </div>
-      </div>
-      <div className="rounded-lg border border-border/50 bg-card/40 p-3">
-        <p className="mb-2 text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">Audit trail</p>
-        {['Exam CS302 published', 'Student cs-290 submitted'].map((l) => (
-          <p key={l} className="font-mono text-[0.65rem] text-muted-foreground">· {l}</p>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ProctorPanel() {
-  return (
-    <div className="space-y-3 p-5">
-      <div className="flex items-center gap-3">
-        <Webcam className="h-12 w-16 shrink-0" />
-        <div className="flex-1">
-          <p className="text-sm font-medium text-foreground">Candidate cs-290</p>
-          <p className="text-xs text-emerald-500">Identity verified</p>
-        </div>
-        <Shield className="h-8 w-7 shrink-0" />
-      </div>
-      <div className="space-y-1.5">
-        {[
-          ['Fullscreen', 'Active', 'text-emerald-500'],
-          ['Tab switching', 'Flagged', 'text-amber-500'],
-          ['Webcam', 'Live', 'text-emerald-500'],
-        ].map(([k, v, c]) => (
-          <div key={k as string} className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">{k}</span>
-            <span className={cn('font-medium', c)}>{v}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AnalyticsPanel() {
-  const bars = [34, 52, 40, 72, 58, 90, 66];
-  return (
-    <div className="space-y-3 p-5">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-foreground">Score distribution</span>
-        <span className="text-xs font-medium text-emerald-500">88.8% pass</span>
-      </div>
-      <div className="flex h-16 items-end gap-1.5">
-        {bars.map((h, i) => (
-          <div key={i} className="flex-1 overflow-hidden rounded-[4px] bg-muted" style={{ height: '100%' }}>
-            <div
-              className="w-full rounded-[4px] bg-primary/70"
-              style={{ height: `${h}%`, transformOrigin: 'bottom', animation: `bar-grow 1.1s ${i * 0.08}s cubic-bezier(.16,1,.3,1) both` }}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+type Row = { k: string; v: string; tone: 'ok' | 'warn' | 'dim' };
+type Step = {
+  id: string;
+  title: string;
+  body: string;
+  focus: string;
+  rows: Row[];
+  feed: string[];
+};
 
 const STEPS: Step[] = [
-  { id: 'student', title: 'Take exams calmly', body: 'Question navigation, countdown, autosave, and instant results for every candidate.', ui: <StudentPanel /> },
-  { id: 'instructor', title: 'Author, schedule, monitor', body: 'Build question banks, template exams, schedule sessions, and monitor candidates live.', ui: <InstructorPanel /> },
-  { id: 'admin', title: 'Oversee everything', body: 'Manage users, roles, and system activity with full audit trails and analytics.', ui: <AdminPanel /> },
-  { id: 'proctor', title: 'Monitor in real time', body: 'Webcam, fullscreen, and tab-switch state monitored and flagged as candidates work.', ui: <ProctorPanel /> },
-  { id: 'analytics', title: 'Learn from results', body: 'Score distribution, pass rates, and item-level analysis flow automatically.', ui: <AnalyticsPanel /> },
+  {
+    id: 'identity',
+    title: 'Identity verified',
+    body: 'Webcam frames match the enrollment photo before the clock starts — sessions begin only for confirmed candidates.',
+    focus: 'Identity check',
+    rows: [
+      { k: 'Identity', v: 'Verified', tone: 'ok' },
+      { k: 'Fullscreen', v: 'Active', tone: 'dim' },
+      { k: 'Webcam', v: 'Live', tone: 'ok' },
+    ],
+    feed: ['cs-290 · identity verified', 'cs-284 · identity verified', 'cs-266 · photo match confirmed'],
+  },
+  {
+    id: 'behavior',
+    title: 'Fullscreen enforced',
+    body: 'Candidates stay inside the secure client. Leaving the tab or window raises a flag and a guard message.',
+    focus: 'Session state',
+    rows: [
+      { k: 'Identity', v: 'Verified', tone: 'ok' },
+      { k: 'Fullscreen', v: 'Enforced', tone: 'ok' },
+      { k: 'Webcam', v: 'Live', tone: 'ok' },
+    ],
+    feed: ['cs-273 · entered fullscreen', 'cs-258 · window focus locked', 'cs-277 · fullscreen active'],
+  },
+  {
+    id: 'flags',
+    title: 'Anomalies auto-flagged',
+    body: 'Tab switches, occluded faces, and repeated motion are flagged automatically for human review.',
+    focus: 'Anomaly flags',
+    rows: [
+      { k: 'Tab switching', v: 'Flagged', tone: 'warn' },
+      { k: 'Face occluded', v: 'Flagged', tone: 'warn' },
+      { k: 'Webcam', v: 'Live', tone: 'ok' },
+    ],
+    feed: ['cs-266 · flagged: tab switch', 'cs-277 · flagged: face occluded', 'cs-290 · review pending'],
+  },
+  {
+    id: 'sync',
+    title: 'State stays in sync',
+    body: 'Every answer autosaves over the connection. A dropped link resumes instantly — nothing is lost.',
+    focus: 'Session sync',
+    rows: [
+      { k: 'Autosave', v: 'Synced', tone: 'ok' },
+      { k: 'Connection', v: 'Stable · 24ms', tone: 'ok' },
+      { k: 'Webcam', v: 'Live', tone: 'ok' },
+    ],
+    feed: ['cs-258 · autosave synced', 'cs-290 · session resumed', 'cs-301 · progress saved'],
+  },
+  {
+    id: 'delivery',
+    title: 'Results delivered',
+    body: 'Completed sessions close cleanly, grading runs instantly, and scores flow to scorecards, certificates, and analytics.',
+    focus: 'Delivery',
+    rows: [
+      { k: 'Submission', v: 'Received', tone: 'ok' },
+      { k: 'Grading', v: 'Complete', tone: 'ok' },
+      { k: 'Results', v: 'Synced', tone: 'ok' },
+    ],
+    feed: ['cs-302 · submitted exam', 'cs-302 · auto-graded', 'cs-302 · scorecard released'],
+  },
 ];
+
+function toneClass(tone: Row['tone']) {
+  switch (tone) {
+    case 'ok':
+      return { text: 'text-emerald-500', dot: 'bg-emerald-500', chip: 'bg-emerald-500/10 border-emerald-500/25' };
+    case 'warn':
+      return { text: 'text-amber-500', dot: 'bg-amber-500', chip: 'bg-amber-500/10 border-amber-500/25' };
+    default:
+      return { text: 'text-foreground', dot: 'bg-foreground/40', chip: 'bg-background/40 border-border/50' };
+  }
+}
 
 export function NarrativeSection() {
   const ref = useRef<HTMLDivElement>(null);
@@ -181,20 +112,22 @@ export function NarrativeSection() {
     setActive(idx);
   });
 
+  const step = STEPS[active];
+
   return (
     <section id="narrative" className="relative border-y border-border/60 bg-card/20 py-20 md:py-28">
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <div className="max-w-2xl">
           <Reveal style="none">
             <span className="eyebrow">
-              <span className="eyebrow-dot" />
-              One product, every role
+              <span className="eyebrow-dot-gold" />
+              Real-time monitoring
             </span>
             <h2 className="mt-5 text-[1.7rem] font-semibold leading-[1.15] tracking-tight text-foreground sm:text-3xl">
-              <WrapUpText lines={['Watch the exam move', 'through the platform']} />
+              <WrapUpText lines={['Watch an exam come', 'alive in real time']} />
             </h2>
             <p className="mt-4 text-[0.95rem] leading-relaxed text-muted-foreground">
-              Scroll to step the same exam through each role — student, instructor, admin, proctoring, and analytics.
+              Scroll to step the proctor console through identity checks, enforcement, anomaly flags, sync, and delivery.
             </p>
           </Reveal>
         </div>
@@ -207,7 +140,7 @@ export function NarrativeSection() {
                 {STEPS.map((s, i) => (
                   <div key={s.id} className={cn('transition-opacity duration-500', i === active ? 'opacity-100' : 'opacity-35')}>
                     <div className="flex items-center gap-2 text-sm">
-                      <span className={cn('h-1.5 w-1.5 rounded-full transition-colors', i === active ? 'bg-primary' : 'bg-border')} />
+                      <span className={cn('h-1.5 w-1.5 rounded-full transition-colors', i === active ? 'bg-gold' : 'bg-border')} />
                       <span className="font-semibold text-foreground">{s.title}</span>
                     </div>
                     <p className="mt-2 pl-3.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
@@ -216,15 +149,20 @@ export function NarrativeSection() {
               </div>
             </div>
 
-            {/* Right — pinned interface that transforms */}
+            {/* Right — pinned monitor board that transforms */}
             <div className="order-1 lg:order-2">
               <div className="relative">
                 <div className="pointer-events-none absolute -inset-8 -z-10 rounded-[2.5rem] bg-primary/10 blur-3xl" />
-                <div className="glass-panel glass-edge overflow-hidden rounded-2xl">
+                <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
                   <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
-                    <p className="font-mono text-[0.65rem] text-muted-foreground">oes · workspace</p>
+                    <p className="font-mono text-[0.65rem] text-muted-foreground">oes · proctor console</p>
                     <span className="flex items-center gap-1.5 text-[0.65rem] font-medium text-emerald-400">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                      <span className="relative flex h-1.5 w-1.5">
+                        {!reduce && (
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                        )}
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      </span>
                       Synced
                     </span>
                   </div>
@@ -232,7 +170,7 @@ export function NarrativeSection() {
                     {STEPS.map((s, i) => (
                       <motion.div
                         key={s.id}
-                        className={cn('rounded-2xl')}
+                        className="rounded-2xl"
                         style={{ position: i === 0 ? 'relative' : 'absolute', inset: i === 0 ? undefined : 0 }}
                         initial={false}
                         animate={
@@ -246,11 +184,70 @@ export function NarrativeSection() {
                         }
                         transition={{ duration: 0.55, ease: EASE }}
                       >
-                        <div className="flex items-center justify-between bg-background/40 px-5 py-2.5">
-                          <span className="text-xs font-medium capitalize text-muted-foreground">{s.id}</span>
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        <div className="space-y-3 p-5">
+                          {/* Focus label */}
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-foreground">{s.focus}</span>
+                            <span className="text-[0.65rem] text-muted-foreground">stage 0{i + 1} / 05</span>
+                          </div>
+                          {/* Candidate identity */}
+                          <div className="flex items-center gap-3">
+                            <div className="relative overflow-hidden rounded-xl border border-border/50 bg-card/60 p-2">
+                              <Webcam className="h-12 w-16" />
+                              {!reduce && (
+                                <motion.div
+                                  aria-hidden
+                                  className="absolute inset-x-2 h-px bg-emerald-500/70"
+                                  initial={{ top: '8%', opacity: 0 }}
+                                  animate={{ top: ['8%', '88%', '8%'], opacity: [0, 1, 0] }}
+                                  transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+                                />
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-sm font-semibold text-foreground">Candidate cs-290</p>
+                              <p className="text-xs text-emerald-500">Identity verified</p>
+                            </div>
+                            <Shield className="h-8 w-7 shrink-0 text-primary" />
+                          </div>
+
+                          {/* Session state rows */}
+                          <div className="space-y-1.5">
+                            {s.rows.map((r) => {
+                              const t = toneClass(r.tone);
+                              return (
+                                <div key={r.k} className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">{r.k}</span>
+                                  <span className={cn('flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-medium', t.chip, t.text)}>
+                                    <span className={cn('h-1.5 w-1.5 rounded-full', t.dot)} />
+                                    {r.v}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Event feed */}
+                          <div className="rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+                            <p className="mb-1.5 text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Event stream
+                            </p>
+                            <div className="space-y-0.5">
+                              {s.feed.map((f) => (
+                                <motion.p
+                                  key={f}
+                                  initial={reduce ? false : { opacity: 0, x: -6 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ duration: 0.4 }}
+                                  className="flex items-center gap-1.5 font-mono text-[0.62rem] text-muted-foreground"
+                                >
+                                  <span className={cn('h-1 w-1 shrink-0 rounded-full', f.includes('flagged') ? 'bg-amber-500' : 'bg-emerald-500')} />
+                                  <span className="truncate">{f}</span>
+                                </motion.p>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                        {s.ui}
                       </motion.div>
                     ))}
                   </div>
