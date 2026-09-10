@@ -1,10 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { motion, useReducedMotion, useInView } from 'framer-motion';
-import { useRef } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { ShieldCheck, Radio, Cpu, Layers, ArrowRight, Lock, BadgeCheck, Video, ScrollText, KeyRound } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal, useRevealGate } from './landing-primitives';
 import { AuroraBand } from './landing-art';
 import { cn } from '@/lib/utils';
 
@@ -123,9 +122,7 @@ export function SecuritySection() {
 /* CTA — a large glass exam panel forms as you approach                 */
 /* ------------------------------------------------------------------ */
 export function CTASection() {
-  const ref = useRef<HTMLDivElement>(null);
-  const reduce = useReducedMotion() ?? false;
-  const inView = useInView(ref, { once: false, margin: '-20%' });
+  const { ref, shown, reduce } = useRevealGate();
 
   return (
     <SectionReveal mode="expand-in" className="relative overflow-hidden py-24 md:py-32">
@@ -137,7 +134,7 @@ export function CTASection() {
       </div>
 
       <div className="mx-auto max-w-4xl px-5 sm:px-6">
-        <div ref={ref} className="relative">
+        <div ref={ref as React.Ref<HTMLDivElement>} className="relative">
           {/* Floating chips framing the CTA panel */}
           <div
             className="float-soft absolute -left-10 top-10 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex"
@@ -164,7 +161,7 @@ export function CTASection() {
           <motion.div
             className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-gold/25 via-transparent to-primary/25 p-px"
             initial={reduce ? false : { opacity: 0, scale: 0.96, filter: 'blur(10px)' }}
-            animate={inView ? { opacity: 1, scale: 1, filter: 'blur(0px)' } : {}}
+            animate={shown ? { opacity: 1, scale: 1, filter: 'blur(0px)' } : {}}
             transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="h-full w-full rounded-3xl bg-background/60 backdrop-blur-xl" />

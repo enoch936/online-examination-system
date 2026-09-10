@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   GraduationCap,
   BookOpenCheck,
@@ -15,7 +15,7 @@ import {
   Radio,
   BarChart3,
 } from 'lucide-react';
-import { SectionHeader, Reveal, WrapUpText, Parallax, SectionReveal } from './landing-primitives';
+import { SectionHeader, Reveal, WrapUpText, Parallax, SectionReveal, useRevealGate } from './landing-primitives';
 import { NetworkOrb } from './landing-art';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
@@ -268,7 +268,7 @@ const roles = [
 
 export function RolesSection() {
   const [active, setActive] = useState(0);
-  const reduce = useReducedMotion() ?? false;
+  const { ref: orbitRef, shown, reduce } = useRevealGate();
   const role = roles[active];
   const Icon = role.icon;
 
@@ -276,7 +276,8 @@ export function RolesSection() {
   const tiles = roles.map((_, i) => {
     const deg = (i / roles.length) * 360 - 90;
     const rad = (deg * Math.PI) / 180;
-    return { x: Math.cos(rad), y: Math.sin(rad) };
+    return {
+    x: Math.cos(rad), y: Math.sin(rad) };
   });
 
   return (
@@ -293,8 +294,8 @@ export function RolesSection() {
           sub="Every role gets its own tailored surface — switch between them to see how each team works."
         />
 
-        {/* Orbital team selector */}
-        <div className="relative mx-auto mt-14 h-[18rem] max-w-3xl [--r:7rem] sm:h-[22rem] sm:[--r:9rem] lg:h-[24rem] lg:[--r:9.5rem]">
+{/* Orbital team selector */}
+          <div ref={orbitRef as React.Ref<HTMLDivElement>} className="relative mx-auto mt-14 h-[18rem] max-w-3xl [--r:7rem] sm:h-[22rem] sm:[--r:9rem] lg:h-[24rem] lg:[--r:9.5rem]">
           {/* Dashed orbit + rotating arcs */}
           <div
             aria-hidden
@@ -331,9 +332,8 @@ export function RolesSection() {
           <motion.div
             className="absolute left-1/2 top-1/2 z-[2] w-44 -translate-x-1/2 -translate-y-1/2 sm:w-56"
             initial={reduce ? false : { opacity: 0, scale: 0.85 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true, margin: '-80px' }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
+            animate={shown ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.85 }}
+            transition={{ duration: reduce ? 0 : 0.6, ease: [0.16, 1, 0.3, 1], delay: shown ? 0.15 : 0 }}
           >
             <AnimatePresence mode="wait">
               <motion.div
@@ -389,9 +389,8 @@ export function RolesSection() {
                     aria-selected={isActive}
                     onClick={() => setActive(i)}
                     initial={reduce ? false : { scale: 0, opacity: 0 }}
-                    whileInView={{ scale: 1, opacity: 1 }}
-                    viewport={{ once: true, margin: '-60px' }}
-                    transition={{ delay: 0.35 + i * 0.12, type: 'spring', stiffness: 300, damping: 20 }}
+                    animate={shown ? { scale: 1, opacity: 1 } : { scale: 0, opacity: 0 }}
+                    transition={{ delay: shown ? 0.35 + i * 0.12 : 0, type: 'spring', stiffness: 300, damping: 20 }}
                     whileTap={reduce ? undefined : { scale: 0.92 }}
                     className={cn(
                       'flex cursor-pointer select-none flex-col items-center gap-1 rounded-2xl border px-3 py-2 backdrop-blur-xl transition-colors duration-300',

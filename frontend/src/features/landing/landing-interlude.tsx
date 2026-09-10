@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { motion, useReducedMotion } from 'framer-motion';
 import { GraduationCap, Code2, BookOpen } from 'lucide-react';
-import { Reveal, SectionReveal, Parallax } from './landing-primitives';
+import { Reveal, SectionReveal, Parallax, useRevealGate } from './landing-primitives';
 
 const shots = [
   {
@@ -92,19 +92,25 @@ export function LandingInterlude() {
 
         <div className="mt-12 flex flex-wrap items-center justify-center gap-2">
           {strips.map((t, i) => (
-            <motion.span
-              key={t}
-              initial={reduce ? false : { opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: '-60px' }}
-              transition={{ delay: 0.25 + i * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-              className="rounded-full border border-border/60 bg-card/40 px-3.5 py-1.5 text-xs font-medium text-muted-foreground"
-            >
-              {t}
-            </motion.span>
+            <StripChip key={t} label={t} index={i} />
           ))}
         </div>
       </div>
     </SectionReveal>
+  );
+}
+
+function StripChip({ label, index }: { label: string; index: number }) {
+  const { ref, shown, reduce } = useRevealGate();
+  return (
+    <motion.span
+      ref={ref as React.Ref<HTMLSpanElement>}
+      initial={reduce ? false : { opacity: 0, y: 12 }}
+      animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
+      transition={{ delay: reduce ? 0 : 0.25 + index * 0.06, duration: reduce ? 0 : 0.45, ease: [0.16, 1, 0.3, 1] }}
+      className="rounded-full border border-border/60 bg-card/40 px-3.5 py-1.5 text-xs font-medium text-muted-foreground"
+    >
+      {label}
+    </motion.span>
   );
 }
