@@ -5,11 +5,6 @@ export class UpdateClassDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
-  courseId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUUID()
   instructorId?: string;
 
   @ApiPropertyOptional({ example: 'CS101 - Section A' })

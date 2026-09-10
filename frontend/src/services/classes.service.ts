@@ -2,7 +2,6 @@ import { api, unwrap } from './api';
 import type { Class, MyClass } from '@/types/api';
 
 export type ClassInput = {
-  courseId: string;
   instructorId: string;
   name: string;
   code: string;
@@ -16,9 +15,8 @@ export type EnrollResult = {
 };
 
 export const classesService = {
-  async list(courseId?: string) {
-    const params = courseId ? `?courseId=${courseId}` : '';
-    return unwrap<Class[]>(await api.get(`/classes${params}`));
+  async list() {
+    return unwrap<Class[]>(await api.get('/classes'));
   },
   async my() {
     return unwrap<MyClass[]>(await api.get('/classes/my'));

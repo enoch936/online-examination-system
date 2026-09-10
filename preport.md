@@ -521,6 +521,45 @@ Physical table: `exam_monitoring_configs`
 
 `examId` is unique ⇒ **one-to-one** to `exams`.
 
+### 3.31 classes (student containers)
+Physical table: `classes`
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `id` | String | **PK** |
+| `tenantId` | String? | — |
+| `instructorId` | String | **FK → users.id** (Restrict), owner of the class |
+| `name` | String | unique `[tenantId, name]` |
+| `code` | String | unique `[tenantId, code]` |
+| `description` | String? | — |
+| `createdAt` | DateTime | default now() |
+| `updatedAt` | DateTime | @updatedAt |
+
+A class is a **plain container of students** — it is deliberately **not** tied to a
+course. Students are added via `class_enrollments`; exams are delivered to whole
+classes via `exam_class_assignments`.
+
+### 3.32 class_enrollments (N:N join — Class ↔ Student)
+Physical table: `class_enrollments`
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `id` | String | **PK** |
+| `classId` | String | **FK → classes.id** (Cascade) |
+| `studentId` | String | **FK → users.id** (Restrict) |
+| `enrolledAt` | DateTime | default now() |
+
+Unique: `[classId, studentId]`.
+
+### 3.33 exam_class_assignments (N:N join — Exam ↔ Class)
+Physical table: `exam_class_assignments`
+| Field | Type | Constraints |
+|-------|------|-------------|
+| `id` | String | **PK** |
+| `examId` | String | **FK → exams.id** (Cascade) |
+| `classId` | String | **FK → classes.id** (Cascade) |
+| `assignedAt` | DateTime | default now() |
+
+Unique: `[examId, classId]`.
+
 ---
 
 ## 4. Relationships Summary
@@ -644,6 +683,10 @@ All migrations live under `backend/prisma/migrations/`, in chronological order:
 | `20260825000000_add_notification_user_created_at_index` | Index on notifications |
 | `20260829000000_add_retake_permitted_and_session_indexes` | `retakePermitted` + session indexes |
 | `20260831000000_add_resume_approval` | Resume-approval fields on sessions |
+| `20260908120000_default_strict_policies` | Strict proctoring defaults (approval on interruption/retake) |
+| `20260908130000_strict_copy_paste_defaults` | `disableCopy`/`disablePaste` default true |
+| `20260910000000_add_classes` | Add `classes`, `class_enrollments`, `exam_class_assignments` |
+| `20260910000100_classes_detach_from_courses` | Drop `classes.courseId` — classes are plain student containers |
 
 Also present: `migration_lock.toml` (locks provider to PostgreSQL).
 
@@ -654,6 +697,7 @@ Also present: `migration_lock.toml` (locks provider to PostgreSQL).
 - **Identity & Auth**: `users` ↔ `roles` (via `user_roles`), roles ↔ permissions (via `role_permissions`), tokens in `refresh_tokens`. RBAC with 4 roles (SUPER_ADMIN, ADMIN, INSTRUCTOR, STUDENT).
 - **Content hierarchy**: `subjects` → `courses` → `exams`; `subjects` → `questions`; `question_banks` optionally group questions and are linked to exams (via both `exams.questionBankId` and the `exam_question_banks` join).
 - **Exam delivery**: `exams` → `exam_assignments`/`exam_sessions` → `student_answers` → `submissions` → `results` → `certificates`. Attempts are bounded by unique `[examId, studentId, attemptNumber]`.
+- **Class delivery**: `classes` are course-agnostic student containers owned by an instructor; students join via `class_enrollments`, and exams are pushed to whole classes via `exam_class_assignments`. An exam with no direct/class assignments is open to all students; otherwise only directly-assigned students or members of an assigned class may start it.
 - **Proctoring/monitoring**: `exam_monitoring_configs`, `exam_events`, `exam_violations` attach to `exam_sessions`; risk (`riskScore`, `riskLevel`) lives on the session.
 - **Collaboration**: `exam_shares` lets one instructor share an exam with another under a permission level.
 - **Auditability**: `activity_logs` and `audit_logs` record actor/action/entity, indexed by actor and time.

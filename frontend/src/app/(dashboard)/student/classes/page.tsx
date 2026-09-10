@@ -69,8 +69,7 @@ export default function StudentClassesPage() {
                       <span className="truncate">{cls.name}</span>
                     </CardTitle>
                     <CardDescription className="mt-1">
-                      {cls.course?.subject?.name ?? ''}{cls.course?.subject?.name ? ' / ' : ''}{cls.course?.name ?? ''}
-                      <span className="ml-1 font-mono text-xs">{cls.code}</span>
+                      <span className="font-mono text-xs">{cls.code}</span>
                     </CardDescription>
                   </div>
                 </div>

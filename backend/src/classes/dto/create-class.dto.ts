@@ -4,10 +4,6 @@ import { IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 export class CreateClassDto {
   @ApiProperty()
   @IsUUID()
-  courseId: string;
-
-  @ApiProperty()
-  @IsUUID()
   instructorId: string;
 
   @ApiProperty({ example: 'CS101 - Section A' })

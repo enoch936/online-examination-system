@@ -5,7 +5,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Hash, Users, Plus, Pencil, Trash2, Loader2, X, Search, UserPlus, GraduationCap } from 'lucide-react';
 import { toast } from 'sonner';
 import { classesService } from '@/services/classes.service';
-import { coursesService } from '@/services/courses.service';
 import { usersService } from '@/services/users.service';
 import { apiErrorMessage } from '@/lib/api-error';
 import type { Class } from '@/types/api';
@@ -17,9 +16,9 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 
-type ClassForm = { courseId: string; instructorId: string; name: string; code: string; description: string };
+type ClassForm = { instructorId: string; name: string; code: string; description: string };
 
-const emptyForm: ClassForm = { courseId: '', instructorId: '', name: '', code: '', description: '' };
+const emptyForm: ClassForm = { instructorId: '', name: '', code: '', description: '' };
 
 export function ClassesManager({
   badge,
@@ -39,11 +38,6 @@ export function ClassesManager({
   const { data: classes, isLoading, error } = useQuery({
     queryKey: ['classes'],
     queryFn: () => classesService.list(),
-  });
-
-  const { data: courses } = useQuery({
-    queryKey: ['admin', 'courses'],
-    queryFn: () => coursesService.list(),
   });
 
   const { data: instructors } = useQuery({
@@ -73,7 +67,6 @@ export function ClassesManager({
   const openEdit = (cls: Class) => {
     setEditing(cls);
     setForm({
-      courseId: cls.courseId,
       instructorId: cls.instructorId,
       name: cls.name,
       code: cls.code,
@@ -149,7 +142,7 @@ export function ClassesManager({
         <Badge variant="outline" className="border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">{badge}</Badge>
         <h1 className="mt-3 text-3xl font-bold tracking-tight">Classes</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-          Group students into classes under a course, then push exams to whole classes at once.
+          Group students into classes, then push exams to whole classes at once.
         </p>
       </div>
 
@@ -172,27 +165,13 @@ export function ClassesManager({
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="course">Course</Label>
-                <select
-                  id="course"
-                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                  value={form.courseId}
-                  onChange={(e) => setForm({ ...form, courseId: e.target.value })}
-                >
-                  <option value="" disabled>Select a course</option>
-                  {(courses ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-2">
                 <Label htmlFor="code">Code</Label>
                 <Input id="code" placeholder="CS101-A" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
               </div>
-            </div>
-            <div className="mt-4 flex flex-col gap-2">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" placeholder="CS101 - Section A" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="name">Name</Label>
+                <Input id="name" placeholder="CS101 - Section A" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              </div>
             </div>
             <div className="mt-4 flex flex-col gap-2">
               <Label htmlFor="instructor">Class instructor</Label>
@@ -223,7 +202,7 @@ export function ClassesManager({
             </div>
             <div className="mt-4 flex gap-2">
               <Button
-                disabled={saveMutation.isPending || !form.courseId || !form.instructorId || !form.code.trim() || !form.name.trim()}
+                disabled={saveMutation.isPending || !form.instructorId || !form.code.trim() || !form.name.trim()}
                 onClick={() => saveMutation.mutate()}
               >
                 {saveMutation.isPending && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
@@ -269,7 +248,6 @@ export function ClassesManager({
                 <tr className="border-b bg-muted/50">
                   <th className="p-3 text-left font-medium"><Hash className="mr-1 inline h-3 w-3" />Code</th>
                   <th className="p-3 text-left font-medium"><BookOpen className="mr-1 inline h-3 w-3" />Name</th>
-                  <th className="p-3 text-left font-medium"><BookOpen className="mr-1 inline h-3 w-3" />Course</th>
                   <th className="p-3 text-left font-medium"><GraduationCap className="mr-1 inline h-3 w-3" />Instructor</th>
                   <th className="p-3 text-center font-medium"><Users className="mr-1 inline h-3 w-3" />Students</th>
                   <th className="p-3 text-right font-medium">Actions</th>
@@ -280,10 +258,6 @@ export function ClassesManager({
                   <tr key={cls.id} className="border-b transition-colors hover:bg-muted/50 last:border-0">
                     <td className="p-3 font-mono text-xs font-medium">{cls.code}</td>
                     <td className="p-3">{cls.name}</td>
-                    <td className="p-3 text-muted-foreground">
-                      {cls.course?.name ?? '—'}
-                      {cls.course?.subject ? <span className="text-xs"> ({cls.course.subject.name})</span> : null}
-                    </td>
                     <td className="p-3 text-muted-foreground">
                       {cls.instructor ? `${cls.instructor.firstName} ${cls.instructor.lastName}` : instructorName(cls.instructorId)}
                     </td>
@@ -330,7 +304,7 @@ export function ClassesManager({
             {classDetail && (
               <div className="rounded-md border p-3 text-sm">
                 <p className="font-medium">{classDetail.name}</p>
-                <p className="text-xs text-muted-foreground">{classDetail.course?.name ?? ''} · {classDetail.code}</p>
+                <p className="text-xs text-muted-foreground">{classDetail.code}</p>
               </div>
             )}
 

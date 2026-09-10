@@ -33,6 +33,7 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 - **`exams`**: `connectionLossPolicy` (default `APPROVAL_REQUIRED`), `resumePolicy` (default `INSTRUCTOR_APPROVAL`), `retakePolicy` (default `INSTRUCTOR_APPROVAL`). Existing exams were backfilled to these strict values so every student is blocked until instructor/admin approval after any interruption or submission/retake.
 - **`exam_monitoring_configs`**: `webcamMode`, `micMode`, `fullscreenPolicy` (default `OPTIONAL`), `strictness` (default `STANDARD`), `violationThreshold` (default 3), `trackTabSwitches` (true), `trackWindowBlur` (true), `detectClipboard`, `detectShortcuts`, `disableCopy` (true), `disablePaste` (true) — copy/paste are **blocked by default** (migration `20260908130000_strict_copy_paste_defaults` backfills existing exams).
 - **New tables**: `retake_requests`, `resume_requests` (student/exam/session FKs cascade, `reviewed_by` set-null, PENDING/APPROVED dedupe indexes on `(studentId,status)` and `(examId,status)`).
+- **Class tables** (user feature, integrated): `classes`, `class_enrollments`, `exam_class_assignments`. A `class` is a **course-agnostic container of students** owned by an instructor. `classes.courseId` was added in `20260910000000_add_classes` and **dropped** in `20260910000100_classes_detach_from_courses` (verified applied on prod); uniqueness is now `[tenantId, code]` and `[tenantId, name]`. Exams push to whole classes via `exam_class_assignments`; availability is enforced server-side (`assertStudentAuthorized`).
 - **Extended enums**: `ExamEventType` (+`CAMERA_PERMISSION_DENIED`, `CAMERA_UNAVAILABLE`, `FOCUS_RESTORED`, `PROCTORING_CONSENT_DECLINED`, `SESSION_TERMINATED`), `NotificationType` (+`RETAKE_REQUEST`, `RETAKE_APPROVED`, `RETAKE_REJECTED`, `RESUME_REQUEST`, `RESUME_APPROVED`, `RESUME_REJECTED`, `SESSION_MESSAGE`).
 
 ---
@@ -57,6 +58,9 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 | `roles/roles.service.ts` | `findMany` filters null-permission roles (avoids corrupting permission grids) |
 | `users/users.controller.ts`, `users/users.service.ts` | RBAC hierarchy for user management |
 | `websocket/realtime.gateway.ts` | `monitor:join` / `exam:join` require `assertCanMonitorExam`; `isMonitorRole` helper |
+| `classes/` (module, controller, service, DTOs) | Class CRUD + enrollment as a course-agnostic student container (no `courseId`); `GET /classes` (staff, `classes.manage` perm), `GET /classes/my` (student), enroll/unenroll — `classes.manage` permission must exist in the target DB or every `/classes` call 403s |
+| `exams/exams.service.ts` + `exams.controller.ts` | Class-based visibility: `assign-classes`/`unassign-class`/`class-assignments`/`assignments/effective` endpoints; `findAvailable` + `assertStudentAuthorized` enforce that unassigned exams are open, assigned exams are gated to direct students or class members |
+| `prisma/seed.ts` + `prisma/schema.prisma` | `classes.manage` permission for SUPER_ADMIN/ADMIN/INSTRUCTOR; seeded demo classes no longer reference a course |
 
 Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/assertCanMonitor/assertCanPerformAction`, `RealtimeGateway.emitNotification/emitToSession`, `AuditService`.
 
@@ -129,6 +133,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | Student blocked on interruption (blur/tab-switch/fullscreen-exit auto-pause + approval) | PASS (code review; enforced now that `connectionLossPolicy: APPROVAL_REQUIRED` is default & backfilled) |
 | Copy/paste blocked in the exam browser (disableCopy/disablePaste) + attempts still logged | PASS (code review + bundle marker) |
 | Exam room is fullscreen-only (no sidebar/topbar visible) during take/resume | PASS (code review + live RSC payload marker) |
+| Classes load for staff (`classes.manage` permission + class is a course-agnostic container; `classes.courseId` dropped on prod) | PASS (prod DB permission + migration verified) |
 | Webcam proctoring in production | DEPENDS on §7.1 env config |
 | Production migration + strict-policy backfill applied + verified via direct DB read | PASS |
 | Production smoke (deployed routes) | PENDING — manual after deploy |
@@ -137,4 +142,4 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 
 - Real-time proctoring still requires the FastAPI service reachable from the student browser over TLS; app code path is ready and resilient (banners + retry + consent + policy).
 - No automated unit/e2e suite exists in this repo; the matrix above is build/lint/typecheck + schema verification + static security review. Adding Playwright/Cypress spec coverage for the retake/resume request flows is the highest-value follow-up.
-- `preport.md` and `docs/` are pre-existing; not modified.
+- `docs/` are pre-existing; `preport.md` was updated with the class-container tables (§3.31–3.33) and the two class migrations.

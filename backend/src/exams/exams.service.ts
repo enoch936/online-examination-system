@@ -373,7 +373,6 @@ export class ExamsService {
           include: {
             class: {
               include: {
-                course: { include: { subject: true } },
                 instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
                 _count: { select: { enrollments: true } },
               },
@@ -909,23 +908,12 @@ export class ExamsService {
   }
 
   async assignClasses(examId: string, classIds: string[]) {
-    const exam = await this.findOne(examId);
-    const allowedCourseIds = new Set([
-      exam.courseId,
-      ...(exam.courses ?? []).map((ec) => ec.course.id),
-    ]);
-
     const classes = await this.prisma.class.findMany({
       where: { id: { in: classIds } },
-      select: { id: true, courseId: true },
+      select: { id: true },
     });
     if (classes.length !== classIds.length) {
       throw new NotFoundException('One or more classes were not found');
-    }
-    for (const cls of classes) {
-      if (!allowedCourseIds.has(cls.courseId)) {
-        throw new BadRequestException('A class must belong to the exam course to be assigned');
-      }
     }
 
     await this.prisma.examClassAssignment.createMany({
@@ -953,7 +941,6 @@ export class ExamsService {
       include: {
         class: {
           include: {
-            course: { include: { subject: true } },
             instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
             _count: { select: { enrollments: true } },
           },

@@ -34,8 +34,8 @@ export class ClassesService {
     return cls;
   }
 
-  async findMany(user: AuthenticatedUser, courseId?: string) {
-    const where: Prisma.ClassWhereInput = courseId ? { courseId } : {};
+  async findMany(user: AuthenticatedUser) {
+    const where: Prisma.ClassWhereInput = {};
     if (!this.isAdmin(user)) {
       where.instructorId = user.sub;
     }
@@ -43,7 +43,6 @@ export class ClassesService {
     const classes = await this.prisma.class.findMany({
       where,
       include: {
-        course: { include: { subject: true } },
         instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
         _count: { select: { enrollments: true, examClasses: true } },
       },
@@ -64,7 +63,6 @@ export class ClassesService {
       include: {
         class: {
           include: {
-            course: { include: { subject: true } },
             instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
             examClasses: {
               include: {
@@ -94,7 +92,6 @@ export class ClassesService {
       name: en.class.name,
       code: en.class.code,
       description: en.class.description,
-      course: en.class.course,
       instructor: en.class.instructor,
       enrolledAt: en.enrolledAt,
       exams: en.class.examClasses
@@ -108,7 +105,6 @@ export class ClassesService {
     const cls = await this.prisma.class.findUnique({
       where: { id },
       include: {
-        course: { include: { subject: true } },
         instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
         enrollments: {
           include: {
@@ -135,9 +131,6 @@ export class ClassesService {
   }
 
   async create(dto: CreateClassDto) {
-    const course = await this.prisma.course.findUnique({ where: { id: dto.courseId } });
-    if (!course) throw new BadRequestException('Course not found');
-
     const instructor = await this.prisma.user.findUnique({
       where: { id: dto.instructorId },
       include: { roles: { include: { role: true } } },
@@ -150,14 +143,12 @@ export class ClassesService {
     try {
       return await this.prisma.class.create({
         data: {
-          courseId: dto.courseId,
           instructorId: dto.instructorId,
           name: dto.name,
           code: dto.code.toUpperCase(),
           description: dto.description,
         },
         include: {
-          course: { include: { subject: true } },
           instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
         },
       });
@@ -166,7 +157,7 @@ export class ClassesService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('A class with this code or name already exists for this course');
+        throw new ConflictException('A class with this code or name already exists');
       }
       throw error;
     }
@@ -197,14 +188,12 @@ export class ClassesService {
       return await this.prisma.class.update({
         where: { id },
         data: {
-          courseId: dto.courseId,
           instructorId: dto.instructorId,
           name: dto.name,
           code: dto.code ? dto.code.toUpperCase() : undefined,
           description: dto.description,
         },
         include: {
-          course: { include: { subject: true } },
           instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
         },
       });
@@ -213,7 +202,7 @@ export class ClassesService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException('A class with this code or name already exists for this course');
+        throw new ConflictException('A class with this code or name already exists');
       }
       throw error;
     }

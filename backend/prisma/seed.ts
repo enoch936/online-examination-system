@@ -551,14 +551,14 @@ async function main() {
     }
   }
 
-  // Demo classes: sections under seeded courses, with an instructor owner and
+  // Demo classes: simple student containers owned by an instructor, with
   // enrolled students. The PUBLISHED "CS101 Final" is also pushed to a class so
   // class-based visibility can be exercised.
   const classDefs = [
-    { code: 'CS101-A', name: 'CS101 - Section A', courseCode: 'CS101', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'alice.johnson@oes.local'] },
-    { code: 'CS101-B', name: 'CS101 - Section B', courseCode: 'CS101', instructorEmail: 'dr.peter@oes.local', studentEmails: ['bob.wilson@oes.local', 'carol.brown@oes.local'] },
-    { code: 'MATH101-A', name: 'MATH101 - Section A', courseCode: 'MATH101', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'bob.wilson@oes.local', 'alice.johnson@oes.local', 'carol.brown@oes.local'] },
-    { code: 'BIO101-A', name: 'BIO101 - Section A', courseCode: 'BIO101', instructorEmail: 'dr.peter@oes.local', studentEmails: ['john.doe@oes.local', 'carol.brown@oes.local'] },
+    { code: 'CS101-A', name: 'CS101 - Section A', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'alice.johnson@oes.local'] },
+    { code: 'CS101-B', name: 'CS101 - Section B', instructorEmail: 'dr.peter@oes.local', studentEmails: ['bob.wilson@oes.local', 'carol.brown@oes.local'] },
+    { code: 'MATH101-A', name: 'MATH101 - Section A', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'bob.wilson@oes.local', 'alice.johnson@oes.local', 'carol.brown@oes.local'] },
+    { code: 'BIO101-A', name: 'BIO101 - Section A', instructorEmail: 'dr.peter@oes.local', studentEmails: ['john.doe@oes.local', 'carol.brown@oes.local'] },
   ];
   const classRecords: Array<{ id: string; code: string }> = [];
   for (const def of classDefs) {
@@ -567,14 +567,12 @@ async function main() {
       ? await prisma.class.update({
           where: { id: existing.id },
           data: {
-            courseId: courseRecords[def.courseCode],
             instructorId: createdUsers[def.instructorEmail],
             name: def.name,
           },
         })
       : await prisma.class.create({
           data: {
-            courseId: courseRecords[def.courseCode],
             instructorId: createdUsers[def.instructorEmail],
             name: def.name,
             code: def.code,

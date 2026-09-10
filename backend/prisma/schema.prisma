@@ -343,7 +343,6 @@ model Course {
   exams         Exam[]
   questionBanks QuestionBank[]
   examCourses   ExamCourse[]
-  classes       Class[]
 
   @@unique([tenantId, code])
   @@index([subjectId])
@@ -557,7 +556,6 @@ model ExamAssignment {
 model Class {
   id           String   @id @default(uuid())
   tenantId     String?
-  courseId     String
   instructorId String
   name         String
   code         String
@@ -565,15 +563,13 @@ model Class {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  course      Course               @relation(fields: [courseId], references: [id])
   instructor  User                 @relation("ClassInstructor", fields: [instructorId], references: [id])
   enrollments ClassEnrollment[]
   examClasses ExamClassAssignment[]
 
   @@unique([tenantId, code])
-  @@unique([courseId, name])
+  @@unique([tenantId, name])
   @@index([instructorId])
-  @@index([courseId])
   @@map("classes")
 }
 

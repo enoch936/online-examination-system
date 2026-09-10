@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsUUID } from 'class-validator';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -25,9 +25,8 @@ export class ClassesController {
   @Get()
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   @Permissions('classes.manage')
-  @ApiQuery({ name: 'courseId', required: false })
-  findMany(@CurrentUser() user: AuthenticatedUser, @Query('courseId') courseId?: string) {
-    return this.classes.findMany(user, courseId);
+  findMany(@CurrentUser() user: AuthenticatedUser) {
+    return this.classes.findMany(user);
   }
 
   @Get('my')

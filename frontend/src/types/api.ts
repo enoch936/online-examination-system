@@ -50,13 +50,11 @@ export type Course = {
 
 export type Class = {
   id: string;
-  courseId: string;
   instructorId: string;
   name: string;
   code: string;
   description?: string | null;
   createdAt: string;
-  course?: Course;
   instructor?: { id: string; firstName: string; lastName: string; email: string };
   studentCount?: number;
   examCount?: number;
@@ -68,7 +66,6 @@ export type MyClass = {
   name: string;
   code: string;
   description?: string | null;
-  course: Course;
   instructor: { id: string; firstName: string; lastName: string; email: string };
   enrolledAt: string;
   exams: Array<{
