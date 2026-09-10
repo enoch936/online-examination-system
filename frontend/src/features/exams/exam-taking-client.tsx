@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
   AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, GraduationCap, Grid3X3,
-  LayoutList, ListChecks, Loader2, Maximize, Mic, Minimize, Send, ShieldAlert, Type, Video,
+  LayoutList, ListChecks, Loader2, Maximize, Mic, Minimize, RefreshCw, Send, ShieldAlert, Type, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ import { useAutosave } from '@/hooks/use-autosave';
 import { useCountdown } from '@/hooks/use-countdown';
 import { useExamMonitoring, type ProctorControl } from '@/hooks/use-exam-monitoring';
 import { useProctoring } from '@/hooks/use-proctoring';
+import { useNotifications } from '@/hooks/use-notifications';
+import { NotificationsBell } from '@/features/notifications/notifications-bell';
 import { apiErrorMessage } from '@/lib/api-error';
 import { formatDuration } from '@/lib/utils';
 import { examsService } from '@/services/exams.service';
@@ -156,6 +158,17 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState('');
   const [reporting, setReporting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const { refetch: refetchNotifications } = useNotifications();
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refetchNotifications();
+    } finally {
+      window.setTimeout(() => setRefreshing(false), 600);
+    }
+  };
 
   const query = useQuery({
     queryKey: ['exam-session', examId, sessionId],
@@ -656,7 +669,12 @@ const resumeErrorPolicy = (
             <p className="truncate text-[11px] text-muted-foreground">Secure examination in progress</p>
           </div>
         </div>
-        <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">Proctored environment</Badge>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="icon" aria-label="Refresh data" onClick={() => void handleRefresh()}>
+            <RefreshCw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+          </Button>
+          <NotificationsBell />
+        </div>
       </header>
       {proctoringBanner && (
         <div
