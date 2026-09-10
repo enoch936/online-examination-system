@@ -131,8 +131,8 @@ export function CTASection() {
     <SectionReveal mode="expand-in" className="relative overflow-hidden py-24 md:py-32">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <AuroraBand />
-        <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-[140px]" />
-        <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-[120px]" />
+        <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-3xl" />
+        <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-3xl" />
         <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
       </div>
 

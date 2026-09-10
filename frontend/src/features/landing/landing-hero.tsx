@@ -367,10 +367,10 @@ export function LandingHero() {
         <div className="absolute inset-0 bg-grid-fine [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,#000_60%,transparent_100%)] opacity-60" />
         <motion.div
           style={{ y: glowY }}
-          className="absolute -top-40 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]"
+          className="absolute -top-40 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
         />
-        <div className="absolute right-[-6%] top-40 h-64 w-64 rounded-full bg-gold/10 blur-[120px]" />
-        <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-[110px]" />
+        <div className="absolute right-[-6%] top-40 h-64 w-64 rounded-full bg-gold/10 blur-3xl" />
+        <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
         <NetworkOrb className="absolute bottom-10 left-0 hidden h-40 w-44 text-primary/30 md:block" />
       </div>
 

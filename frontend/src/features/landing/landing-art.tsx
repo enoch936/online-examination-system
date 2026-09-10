@@ -158,17 +158,17 @@ export function AuroraBand({ className }: { className?: string }) {
       aria-label="Atmospheric gradient field"
     >
       <motion.div
-        className="absolute -top-32 left-1/4 h-[420px] w-[620px] rounded-full bg-primary/15 blur-[130px]"
+        className="absolute -top-32 left-1/4 h-[420px] w-[620px] rounded-full bg-primary/15 blur-3xl"
         animate={reduce ? undefined : { x: [0, 40, 0], y: [0, -24, 0] }}
         transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
       />
       <motion.div
-        className="absolute -bottom-24 right-1/5 h-[380px] w-[520px] rounded-full bg-gold/12 blur-[120px]"
+        className="absolute -bottom-24 right-1/5 h-[380px] w-[520px] rounded-full bg-gold/12 blur-3xl"
         animate={reduce ? undefined : { x: [0, -36, 0], y: [0, 28, 0] }}
         transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
       />
       <motion.div
-        className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/10 blur-[110px]"
+        className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/10 blur-3xl"
         animate={reduce ? undefined : { scale: [1, 1.18, 1], opacity: [0.7, 1, 0.7] }}
         transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
       />
