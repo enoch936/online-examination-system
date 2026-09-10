@@ -129,6 +129,8 @@ export class ExamSessionsService {
       throw new ForbiddenException('Exam has not been started yet. Please wait for the instructor to begin the exam.');
     }
 
+    await this.assertStudentAuthorized(examId, studentId);
+
     const submittedSession = await this.prisma.examSession.findFirst({
       where: {
         examId,
@@ -402,6 +404,28 @@ export class ExamSessionsService {
     });
     if (!session) throw new NotFoundException('Exam session not found');
     return session.examId;
+  }
+
+  /**
+   * Enforces exam access server-side. An exam with no assignments at all is
+   * open to every student. Once an exam has any assignment (direct students or
+   * whole classes), only directly-assigned students or students enrolled in an
+   * assigned class may start a new session.
+   */
+  private async assertStudentAuthorized(examId: string, studentId: string) {
+    const [allDirect, allClasses, studentDirect, studentInClass] = await Promise.all([
+      this.prisma.examAssignment.count({ where: { examId } }),
+      this.prisma.examClassAssignment.count({ where: { examId } }),
+      this.prisma.examAssignment.count({ where: { examId, studentId } }),
+      this.prisma.examClassAssignment.count({
+        where: { examId, class: { enrollments: { some: { studentId } } } },
+      }),
+    ]);
+
+    if (allDirect === 0 && allClasses === 0) return;
+    if (studentDirect === 0 && studentInClass === 0) {
+      throw new ForbiddenException('You are not assigned to this exam. Contact your instructor.');
+    }
   }
 
   private sessionInclude() {

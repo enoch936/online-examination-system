@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { examsService, EXAM_PERMISSION_LEVELS, type ExamPermissionLevel } from '@/services/exams.service';
 import { usersService } from '@/services/users.service';
 import { coursesService } from '@/services/courses.service';
+import { classesService } from '@/services/classes.service';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -13,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { toast } from 'sonner';
 import {
-  Eye, Send, ClipboardList, Users, Loader2, Calendar, Pencil, Trash2, Plus, Search, X, Play, RotateCcw, XCircle, Share2, ArrowLeftRight, ListChecks, UserCheck, UserX,
+  Eye, Send, ClipboardList, Users, Loader2, Calendar, Pencil, Trash2, Plus, Search, X, Play, RotateCcw, XCircle, Share2, ArrowLeftRight, ListChecks, UserCheck, UserX, School,
 } from 'lucide-react';
 import type { ExamSummary } from '@/types/api';
 
@@ -93,6 +94,7 @@ export default function ManageExamPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [selectedSharing, setSelectedSharing] = useState<string[]>([]);
@@ -135,6 +137,17 @@ export default function ManageExamPage() {
   const { data: students } = useQuery({
     queryKey: ['users', 'STUDENT'],
     queryFn: () => usersService.list('STUDENT'),
+    enabled: !!assigningId,
+  });
+
+  const { data: classOptions } = useQuery({
+    queryKey: ['classes'],
+    queryFn: () => classesService.list(),
+  });
+
+  const { data: examClassAssignments, refetch: refetchClassAssignments } = useQuery({
+    queryKey: ['exam-class-assignments', assigningId],
+    queryFn: () => examsService.getClassAssignments(assigningId!),
     enabled: !!assigningId,
   });
 
@@ -199,6 +212,26 @@ export default function ManageExamPage() {
     mutationFn: ({ id, studentId }: { id: string; studentId: string }) => examsService.unassignStudent(id, studentId),
     onSuccess: () => { refetchAssigned(); toast.success('Student unassigned'); },
     onError: () => toast.error('Failed to unassign student'),
+  });
+
+  const assignClassMutation = useMutation({
+    mutationFn: ({ id, classIds }: { id: string; classIds: string[] }) => examsService.assignClasses(id, classIds),
+    onSuccess: () => {
+      refetchClassAssignments();
+      refetchAssigned();
+      toast.success('Class(es) assigned to exam');
+    },
+    onError: () => toast.error('Failed to assign classes'),
+  });
+
+  const unassignClassMutation = useMutation({
+    mutationFn: ({ id, classId }: { id: string; classId: string }) => examsService.unassignClass(id, classId),
+    onSuccess: () => {
+      refetchClassAssignments();
+      refetchAssigned();
+      toast.success('Class unassigned from exam');
+    },
+    onError: () => toast.error('Failed to unassign class'),
   });
 
   const activeAccessId = sharingId ?? transferringId;
@@ -410,6 +443,7 @@ export default function ManageExamPage() {
                     <span className="flex items-center gap-1 text-xs"><ClipboardList className="h-3.5 w-3.5" />{exam._count?.questions ?? 0} Q</span>
                     <span className="flex items-center gap-1 text-xs"><Users className="h-3.5 w-3.5" />{exam._count?.sessions ?? 0} sessions</span>
                     <span className="flex items-center gap-1 text-xs"><Users className="h-3.5 w-3.5" />{exam._count?.assignments ?? 0} assigned</span>
+                    <span className="flex items-center gap-1 text-xs"><School className="h-3.5 w-3.5" />{exam._count?.classAssignments ?? 0} classes</span>
                   </div>
                 </div>
                 <div className="mt-4 flex gap-2 pt-3 border-t flex-wrap">
@@ -436,7 +470,7 @@ export default function ManageExamPage() {
                       <Button variant="outline" size="sm" onClick={() => openEdit(exam)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => { setAssigningId(exam.id); setSelectedStudents([]); }}>
+                      <Button variant="outline" size="sm" onClick={() => { setAssigningId(exam.id); setSelectedStudents([]); setSelectedClasses([]); }}>
                         <Users className="h-3.5 w-3.5" />
                       </Button>
                     </>
@@ -564,10 +598,54 @@ export default function ManageExamPage() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={!!assigningId} onOpenChange={(o) => { if (!o) { setAssigningId(null); setSelectedStudents([]); } }}>
+      <Sheet open={!!assigningId} onOpenChange={(o) => { if (!o) { setAssigningId(null); setSelectedStudents([]); setSelectedClasses([]); } }}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Assign Students</SheetTitle><SheetDescription>Select students to assign to this exam.</SheetDescription></SheetHeader>
+          <SheetHeader><SheetTitle>Assign Students & Classes</SheetTitle><SheetDescription>Push this exam to whole classes or to individual students. Exams with no assignments stay open to all students.</SheetDescription></SheetHeader>
           <div className="mt-6 space-y-4">
+            {examClassAssignments && examClassAssignments.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Assigned classes ({examClassAssignments.length})</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {examClassAssignments.map((a) => (
+                    <div key={a.id} className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <School className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{a.class.name}</span>
+                        <span className="text-xs text-muted-foreground">({a.class.studentCount} students)</span>
+                      </span>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" disabled={unassignClassMutation.isPending} onClick={() => unassignClassMutation.mutate({ id: assigningId!, classId: a.classId })}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-sm font-medium mb-2">Assign to classes</p>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {(classOptions ?? []).filter((c) => !(examClassAssignments ?? []).some((a) => a.classId === c.id)).map((c) => (
+                  <label key={c.id} className={`flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer text-sm ${selectedClasses.includes(c.id) ? 'border-primary bg-primary/5' : ''}`}>
+                    <input type="checkbox" className="h-4 w-4" checked={selectedClasses.includes(c.id)} onChange={() => setSelectedClasses((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])} />
+                    <span className="truncate">{c.name}</span>
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{c.studentCount ?? 0} students</span>
+                  </label>
+                ))}
+                {(classOptions ?? []).length === 0 && <p className="text-sm text-muted-foreground py-2 text-center">No classes available. Create a class first.</p>}
+              </div>
+              <Button
+                className="w-full mt-2"
+                size="sm"
+                disabled={selectedClasses.length === 0 || assignClassMutation.isPending}
+                onClick={() => assignClassMutation.mutate({ id: assigningId!, classIds: selectedClasses })}
+              >
+                {assignClassMutation.isPending ? 'Assigning...' : `Assign to ${selectedClasses.length} class${selectedClasses.length !== 1 ? 'es' : ''}`}
+              </Button>
+            </div>
+
+            <hr className="border-t" />
+
             <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input className="flex-1 bg-transparent text-sm outline-none" placeholder="Search students..." value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} />
@@ -591,6 +669,7 @@ export default function ManageExamPage() {
 
             <div>
               <p className="text-sm font-medium mb-2">All students</p>
+              <p className="text-xs text-muted-foreground mb-2">Individually assign or remove specific students (overrides for class-assigned students).</p>
               <div className="max-h-64 overflow-y-auto space-y-1">
                 {filteredStudents.map((s) => (
                   <label key={s.id} className={`flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer text-sm ${selectedStudents.includes(s.id) ? 'border-primary bg-primary/5' : ''}`}>

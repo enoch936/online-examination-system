@@ -554,6 +554,59 @@ model ExamAssignment {
   @@map("exam_assignments")
 }
 
+model Class {
+  id           String   @id @default(uuid())
+  tenantId     String?
+  courseId     String
+  instructorId String
+  name         String
+  code         String
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  course      Course               @relation(fields: [courseId], references: [id])
+  instructor  User                 @relation("ClassInstructor", fields: [instructorId], references: [id])
+  enrollments ClassEnrollment[]
+  examClasses ExamClassAssignment[]
+
+  @@unique([tenantId, code])
+  @@unique([courseId, name])
+  @@index([instructorId])
+  @@index([courseId])
+  @@map("classes")
+}
+
+model ClassEnrollment {
+  id         String   @id @default(uuid())
+  classId    String
+  studentId  String
+  enrolledAt DateTime @default(now())
+
+  class   Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student User  @relation("ClassStudents", fields: [studentId], references: [id])
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+  @@index([classId])
+  @@map("class_enrollments")
+}
+
+model ExamClassAssignment {
+  id         String   @id @default(uuid())
+  examId     String
+  classId    String
+  assignedAt DateTime @default(now())
+
+  exam  Exam  @relation(fields: [examId], references: [id], onDelete: Cascade)
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, classId])
+  @@index([classId])
+  @@index([examId])
+  @@map("exam_class_assignments")
+}
+
 model ExamSession {
   id                   String          @id @default(uuid())
   examId               String

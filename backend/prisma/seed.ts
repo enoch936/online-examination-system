@@ -22,6 +22,7 @@ const permissions = [
   ['roles.manage', 'Manage roles', 'roles'],
   ['subjects.manage', 'Manage subjects', 'subjects'],
   ['courses.manage', 'Manage courses', 'courses'],
+  ['classes.manage', 'Manage classes and enrollments', 'classes'],
   ['exams.manage', 'Manage exams', 'exams'],
   ['questions.manage', 'Manage questions', 'questions'],
   ['sessions.monitor', 'Monitor exam sessions', 'exam-sessions'],
@@ -30,9 +31,9 @@ const permissions = [
 ] as const;
 
 const rolePermissionsMap: Record<RoleName, string[]> = {
-  SUPER_ADMIN: ['users.read', 'users.write', 'roles.manage', 'subjects.manage', 'courses.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
-  ADMIN: ['users.read', 'subjects.manage', 'courses.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
-  INSTRUCTOR: ['exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read'],
+  SUPER_ADMIN: ['users.read', 'users.write', 'roles.manage', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
+  ADMIN: ['users.read', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
+  INSTRUCTOR: ['exams.manage', 'questions.manage', 'classes.manage', 'sessions.monitor', 'reports.read'],
   STUDENT: ['users.read'],
 };
 
@@ -548,6 +549,57 @@ async function main() {
         create: { examId, studentId: sid },
       });
     }
+  }
+
+  // Demo classes: sections under seeded courses, with an instructor owner and
+  // enrolled students. The PUBLISHED "CS101 Final" is also pushed to a class so
+  // class-based visibility can be exercised.
+  const classDefs = [
+    { code: 'CS101-A', name: 'CS101 - Section A', courseCode: 'CS101', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'alice.johnson@oes.local'] },
+    { code: 'CS101-B', name: 'CS101 - Section B', courseCode: 'CS101', instructorEmail: 'dr.peter@oes.local', studentEmails: ['bob.wilson@oes.local', 'carol.brown@oes.local'] },
+    { code: 'MATH101-A', name: 'MATH101 - Section A', courseCode: 'MATH101', instructorEmail: 'dr.sarah@oes.local', studentEmails: ['john.doe@oes.local', 'jane.smith@oes.local', 'bob.wilson@oes.local', 'alice.johnson@oes.local', 'carol.brown@oes.local'] },
+    { code: 'BIO101-A', name: 'BIO101 - Section A', courseCode: 'BIO101', instructorEmail: 'dr.peter@oes.local', studentEmails: ['john.doe@oes.local', 'carol.brown@oes.local'] },
+  ];
+  const classRecords: Array<{ id: string; code: string }> = [];
+  for (const def of classDefs) {
+    const existing = await prisma.class.findFirst({ where: { code: def.code, tenantId: null } });
+    const cls = existing
+      ? await prisma.class.update({
+          where: { id: existing.id },
+          data: {
+            courseId: courseRecords[def.courseCode],
+            instructorId: createdUsers[def.instructorEmail],
+            name: def.name,
+          },
+        })
+      : await prisma.class.create({
+          data: {
+            courseId: courseRecords[def.courseCode],
+            instructorId: createdUsers[def.instructorEmail],
+            name: def.name,
+            code: def.code,
+          },
+        });
+    classRecords.push({ id: cls.id, code: def.code });
+
+    for (const email of def.studentEmails) {
+      await prisma.classEnrollment.upsert({
+        where: { classId_studentId: { classId: cls.id, studentId: createdUsers[email] } },
+        update: {},
+        create: { classId: cls.id, studentId: createdUsers[email] },
+      });
+    }
+  }
+
+  // Push the PUBLISHED CS101 Final exam to CS101 - Section A only.
+  const sectionA = classRecords.find((c) => c.code === 'CS101-A');
+  const cs101Final = examRecords.find((e) => e.title === 'Introduction to Programming - Final');
+  if (sectionA && cs101Final) {
+    await prisma.examClassAssignment.upsert({
+      where: { examId_classId: { examId: cs101Final.id, classId: sectionA.id } },
+      update: {},
+      create: { examId: cs101Final.id, classId: sectionA.id },
+    });
   }
 
   // Closed exams: create real session, answers, submission, result, certificates and notifications

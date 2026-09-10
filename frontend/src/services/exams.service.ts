@@ -1,5 +1,5 @@
 import { api, unwrap } from './api';
-import type { ExamSession, ExamSummary, ExamDetail, ExamQuestionPool } from '@/types/api';
+import type { ExamSession, ExamSummary, ExamDetail, ExamQuestionPool, ExamClassAssignment } from '@/types/api';
 
 // exam data type for creating an examination
 export type CreateExamData = {
@@ -105,6 +105,24 @@ export const examsService = {
     return unwrap<Array<{ id: string; firstName: string; lastName: string; email: string; status: string }>>(
       await api.get(`/exams/${id}/assignments`),
     );
+  },
+
+  async getEffectiveStudents(id: string) {
+    return unwrap<Array<{ id: string; firstName: string; lastName: string; email: string; status: string }>>(
+      await api.get(`/exams/${id}/assignments/effective`),
+    );
+  },
+
+  async assignClasses(id: string, classIds: string[]) {
+    return unwrap<{ assigned: number }>(await api.post(`/exams/${id}/assign-classes`, { classIds }));
+  },
+
+  async unassignClass(id: string, classId: string) {
+    return unwrap<{ success: boolean }>(await api.delete(`/exams/${id}/assign-classes/${classId}`));
+  },
+
+  async getClassAssignments(id: string) {
+    return unwrap<ExamClassAssignment[]>(await api.get(`/exams/${id}/class-assignments`));
   },
 
   async getInstructors() {

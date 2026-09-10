@@ -48,6 +48,48 @@ export type Course = {
   subject?: Subject;
 };
 
+export type Class = {
+  id: string;
+  courseId: string;
+  instructorId: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  createdAt: string;
+  course?: Course;
+  instructor?: { id: string; firstName: string; lastName: string; email: string };
+  studentCount?: number;
+  examCount?: number;
+  students?: Array<{ id: string; firstName: string; lastName: string; email: string; status: string }>;
+};
+
+export type MyClass = {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  course: Course;
+  instructor: { id: string; firstName: string; lastName: string; email: string };
+  enrolledAt: string;
+  exams: Array<{
+    id: string;
+    title: string;
+    status: string;
+    durationMinutes: number;
+    totalMarks: number;
+    passingMarks: number;
+    startsAt: string;
+    endsAt: string;
+  }>;
+};
+
+export type ExamClassAssignment = {
+  id: string;
+  classId: string;
+  assignedAt: string;
+  class: Class & { studentCount: number };
+};
+
 export type QuestionBank = {
   id: string;
   courseId: string;
@@ -177,7 +219,8 @@ export type ExamSummary = {
   questionBank?: { id: string; name: string } | null;
   questionBanks?: Array<{ id: string; questionBank: { id: string; name: string } }>;
   createdBy?: { id: string; firstName: string; lastName: string; email: string };
-  _count?: { questions: number; sessions: number; assignments: number };
+  _count?: { questions: number; sessions: number; assignments: number; classAssignments?: number };
+  classAssignments?: ExamClassAssignment[];
   monitoring?: { violations: number; submissions: number };
   isOwner?: boolean;
   myPermission?: 'OWNER' | 'VIEWER' | 'MONITOR' | 'PROCTOR' | 'CO_OWNER' | null;
@@ -190,6 +233,7 @@ export type ExamDetail = ExamSummary & {
     id: string;
     student: { id: string; firstName: string; lastName: string; email: string };
   }>;
+  classAssignments?: ExamClassAssignment[];
 };
 
 export type ExamQuestion = {

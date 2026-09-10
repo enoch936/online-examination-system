@@ -11,6 +11,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { appConfig, validateConfig } from './config/app.config';
 import { CertificatesModule } from './certificates/certificates.module';
+import { ClassesModule } from './classes/classes.module';
 import { ContactModule } from './contact/contact.module';
 import { CoursesModule } from './courses/courses.module';
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -64,6 +65,7 @@ import { QueueModule } from './queue/queue.module';
     PermissionsModule,
     SubjectsModule,
     CoursesModule,
+    ClassesModule,
     DashboardModule,
     ExamsModule,
     QuestionsModule,

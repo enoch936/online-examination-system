@@ -50,7 +50,7 @@ export class ExamsService {
             grantedBy: { select: { id: true, firstName: true, lastName: true } },
           },
         },
-        _count: { select: { questions: true, sessions: true, assignments: true } },
+        _count: { select: { questions: true, sessions: true, assignments: true, classAssignments: true } },
       },
       orderBy: { startsAt: 'desc' },
     });
@@ -301,12 +301,30 @@ export class ExamsService {
       where: {
         status: { in: [ExamStatus.PUBLISHED, ExamStatus.LIVE] },
         endsAt: { gte: now },
-        OR: [{ assignments: { none: {} } }, { assignments: { some: { studentId } } }],
+        AND: [
+          {
+            OR: [
+              // No assignments of any kind -> open to all students.
+              { assignments: { none: {} }, classAssignments: { none: {} } },
+              // Directly assigned to this student.
+              { assignments: { some: { studentId } } },
+              // The student is enrolled in a class the exam was pushed to.
+              {
+                classAssignments: {
+                  some: { class: { enrollments: { some: { studentId } } } },
+                },
+              },
+            ],
+          },
+        ],
       },
       include: {
         course: { include: { subject: true } },
         courses: { include: { course: { include: { subject: true } } } },
         questionBanks: { include: { questionBank: { select: { id: true, name: true } } } },
+        classAssignments: {
+          include: { class: { select: { id: true, name: true, code: true } } },
+        },
         _count: { select: { questions: true } },
       },
       orderBy: { endsAt: 'asc' },
@@ -350,6 +368,17 @@ export class ExamsService {
         },
         assignments: {
           include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } },
+        },
+        classAssignments: {
+          include: {
+            class: {
+              include: {
+                course: { include: { subject: true } },
+                instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
+                _count: { select: { enrollments: true } },
+              },
+            },
+          },
         },
       },
     });
@@ -877,6 +906,94 @@ export class ExamsService {
       },
     });
     return assignments.map((a) => a.student);
+  }
+
+  async assignClasses(examId: string, classIds: string[]) {
+    const exam = await this.findOne(examId);
+    const allowedCourseIds = new Set([
+      exam.courseId,
+      ...(exam.courses ?? []).map((ec) => ec.course.id),
+    ]);
+
+    const classes = await this.prisma.class.findMany({
+      where: { id: { in: classIds } },
+      select: { id: true, courseId: true },
+    });
+    if (classes.length !== classIds.length) {
+      throw new NotFoundException('One or more classes were not found');
+    }
+    for (const cls of classes) {
+      if (!allowedCourseIds.has(cls.courseId)) {
+        throw new BadRequestException('A class must belong to the exam course to be assigned');
+      }
+    }
+
+    await this.prisma.examClassAssignment.createMany({
+      data: classIds.map((classId) => ({ examId, classId })),
+      skipDuplicates: true,
+    });
+
+    const result = await this.prisma.examClassAssignment.findMany({
+      where: { examId, classId: { in: classIds } },
+    });
+    return { assigned: result.length };
+  }
+
+  async unassignClass(examId: string, classId: string) {
+    const deleted = await this.prisma.examClassAssignment.deleteMany({
+      where: { examId, classId },
+    });
+    return { success: deleted.count > 0 };
+  }
+
+  async getClassAssignments(examId: string) {
+    await this.findOne(examId);
+    const assignments = await this.prisma.examClassAssignment.findMany({
+      where: { examId },
+      include: {
+        class: {
+          include: {
+            course: { include: { subject: true } },
+            instructor: { select: { id: true, firstName: true, lastName: true, email: true } },
+            _count: { select: { enrollments: true } },
+          },
+        },
+      },
+      orderBy: { assignedAt: 'asc' },
+    });
+    return assignments.map((a) => ({
+      id: a.id,
+      classId: a.classId,
+      assignedAt: a.assignedAt,
+      class: {
+        ...a.class,
+        studentCount: a.class._count.enrollments,
+        _count: undefined,
+      },
+    }));
+  }
+
+  async getEffectiveStudents(examId: string) {
+    await this.findOne(examId);
+    const [direct, classRows] = await Promise.all([
+      this.prisma.examAssignment.findMany({
+        where: { examId },
+        select: { student: { select: { id: true, firstName: true, lastName: true, email: true, status: true } } },
+      }),
+      this.prisma.examClassAssignment.findMany({
+        where: { examId },
+        select: { class: { select: { enrollments: { select: { student: { select: { id: true, firstName: true, lastName: true, email: true, status: true } } } } } } },
+      }),
+    ]);
+
+    const byId = new Map<string, { id: string; firstName: string; lastName: string; email: string; status: string }>();
+    for (const row of direct) byId.set(row.student.id, row.student);
+    for (const row of classRows) {
+      for (const en of row.class.enrollments) {
+        if (!byId.has(en.student.id)) byId.set(en.student.id, en.student);
+      }
+    }
+    return Array.from(byId.values());
   }
 
   private slugify(input: string) {

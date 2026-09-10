@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileText, Eye, Loader2, Send, Trash2, Filter, BookOpen, ListChecks, Users, Search, X, Play, UserCheck, UserX, RotateCcw } from 'lucide-react';
+import { FileText, Eye, Loader2, Send, Trash2, Filter, BookOpen, ListChecks, Users, Search, X, Play, UserCheck, UserX, RotateCcw, School } from 'lucide-react';
 import { toast } from 'sonner';
 import { examsService } from '@/services/exams.service';
 import { usersService } from '@/services/users.service';
+import { classesService } from '@/services/classes.service';
 import { api } from '@/services/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ export default function AdminExamsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [studentSearch, setStudentSearch] = useState('');
   const [sessionsExamId, setSessionsExamId] = useState<string | null>(null);
 
@@ -82,6 +84,17 @@ export default function AdminExamsPage() {
     enabled: !!assigningId,
   });
 
+  const { data: classOptions } = useQuery({
+    queryKey: ['classes'],
+    queryFn: () => classesService.list(),
+  });
+
+  const { data: examClassAssignments, refetch: refetchClassAssignments } = useQuery({
+    queryKey: ['exam-class-assignments', assigningId],
+    queryFn: () => examsService.getClassAssignments(assigningId!),
+    enabled: !!assigningId,
+  });
+
   const { data: assignedStudents, refetch: refetchAssigned } = useQuery({
     queryKey: ['exam-assignments', assigningId],
     queryFn: () => examsService.getAssignedStudents(assigningId!),
@@ -98,6 +111,26 @@ export default function AdminExamsPage() {
     mutationFn: ({ id, studentId }: { id: string; studentId: string }) => examsService.unassignStudent(id, studentId),
     onSuccess: () => { refetchAssigned(); toast.success('Student unassigned'); },
     onError: () => toast.error('Failed to unassign student'),
+  });
+
+  const assignClassMutation = useMutation({
+    mutationFn: ({ id, classIds }: { id: string; classIds: string[] }) => examsService.assignClasses(id, classIds),
+    onSuccess: () => {
+      refetchClassAssignments();
+      refetchAssigned();
+      toast.success('Class(es) assigned to exam');
+    },
+    onError: () => toast.error('Failed to assign classes'),
+  });
+
+  const unassignClassMutation = useMutation({
+    mutationFn: ({ id, classId }: { id: string; classId: string }) => examsService.unassignClass(id, classId),
+    onSuccess: () => {
+      refetchClassAssignments();
+      refetchAssigned();
+      toast.success('Class unassigned from exam');
+    },
+    onError: () => toast.error('Failed to unassign class'),
   });
 
   const { data: examSessions, refetch: refetchSessions } = useQuery({
@@ -252,7 +285,7 @@ export default function AdminExamsPage() {
                           variant="ghost"
                           size="icon"
                           title="Assign students"
-                          onClick={() => { setAssigningId(exam.id); setSelectedStudents([]); setStudentSearch(''); }}
+                          onClick={() => { setAssigningId(exam.id); setSelectedStudents([]); setSelectedClasses([]); setStudentSearch(''); }}
                         >
                           <Users className="h-4 w-4" />
                         </Button>
@@ -329,10 +362,54 @@ export default function AdminExamsPage() {
         </Card>
       )}
 
-      <Sheet open={!!assigningId} onOpenChange={(o) => { if (!o) { setAssigningId(null); setSelectedStudents([]); setStudentSearch(''); } }}>
+      <Sheet open={!!assigningId} onOpenChange={(o) => { if (!o) { setAssigningId(null); setSelectedStudents([]); setSelectedClasses([]); setStudentSearch(''); } }}>
         <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>Assign Students</SheetTitle><SheetDescription>Select students to assign to this exam. Exams with no assignments are open to all students.</SheetDescription></SheetHeader>
+          <SheetHeader><SheetTitle>Assign Students & Classes</SheetTitle><SheetDescription>Push this exam to whole classes or to individual students. Exams with no assignments are open to all students.</SheetDescription></SheetHeader>
           <div className="mt-6 space-y-4">
+            {examClassAssignments && examClassAssignments.length > 0 && (
+              <div>
+                <p className="text-sm font-medium mb-2">Assigned classes ({examClassAssignments.length})</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {examClassAssignments.map((a) => (
+                    <div key={a.id} className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
+                      <span className="flex items-center gap-2 min-w-0">
+                        <School className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{a.class.name}</span>
+                        <span className="text-xs text-muted-foreground">({a.class.studentCount} students)</span>
+                      </span>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" disabled={unassignClassMutation.isPending} onClick={() => unassignClassMutation.mutate({ id: assigningId!, classId: a.classId })}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p className="text-sm font-medium mb-2">Assign to classes</p>
+              <div className="max-h-48 overflow-y-auto space-y-1">
+                {(classOptions ?? []).filter((c) => !(examClassAssignments ?? []).some((a) => a.classId === c.id)).map((c) => (
+                  <label key={c.id} className={`flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer text-sm ${selectedClasses.includes(c.id) ? 'border-primary bg-primary/5' : ''}`}>
+                    <input type="checkbox" className="h-4 w-4" checked={selectedClasses.includes(c.id)} onChange={() => setSelectedClasses((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])} />
+                    <span className="truncate">{c.name}</span>
+                    <span className="ml-auto shrink-0 text-xs text-muted-foreground">{c.studentCount ?? 0} students</span>
+                  </label>
+                ))}
+                {(classOptions ?? []).length === 0 && <p className="text-sm text-muted-foreground py-2 text-center">No classes available. Create a class first.</p>}
+              </div>
+              <Button
+                className="w-full mt-2"
+                size="sm"
+                disabled={selectedClasses.length === 0 || assignClassMutation.isPending}
+                onClick={() => assignClassMutation.mutate({ id: assigningId!, classIds: selectedClasses })}
+              >
+                {assignClassMutation.isPending ? 'Assigning...' : `Assign to ${selectedClasses.length} class${selectedClasses.length !== 1 ? 'es' : ''}`}
+              </Button>
+            </div>
+
+            <hr className="border-t" />
+
             <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input className="flex-1 bg-transparent text-sm outline-none" placeholder="Search students..." value={studentSearch} onChange={(e) => setStudentSearch(e.target.value)} />

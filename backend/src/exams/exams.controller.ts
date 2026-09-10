@@ -209,4 +209,44 @@ export class ExamsController {
     await this.access.assertCanManage(id, user);
     return this.exams.getAssignedStudents(id);
   }
+
+  @Get(':id/assignments/effective')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('exams.manage')
+  async getEffectiveStudents(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanManage(id, user);
+    return this.exams.getEffectiveStudents(id);
+  }
+
+  @Post(':id/assign-classes')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('exams.manage')
+  async assignClasses(
+    @Param('id') id: string,
+    @Body() body: { classIds: string[] },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.access.assertCanManage(id, user);
+    return this.exams.assignClasses(id, body.classIds ?? []);
+  }
+
+  @Delete(':id/assign-classes/:classId')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('exams.manage')
+  async unassignClass(
+    @Param('id') id: string,
+    @Param('classId') classId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    await this.access.assertCanManage(id, user);
+    return this.exams.unassignClass(id, classId);
+  }
+
+  @Get(':id/class-assignments')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('exams.manage')
+  async getClassAssignments(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.access.assertCanManage(id, user);
+    return this.exams.getClassAssignments(id);
+  }
 }
