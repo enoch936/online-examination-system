@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { motion, useScroll, useMotionValueEvent, useReducedMotion } from 'framer-motion';
-import { Reveal, WrapUpText } from './landing-primitives';
+import { BadgeCheck, ShieldCheck, Activity } from 'lucide-react';
+import { Reveal, WrapUpText, Parallax } from './landing-primitives';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -115,7 +116,12 @@ export function NarrativeSection() {
   const step = STEPS[active];
 
   return (
-    <section id="narrative" className="relative border-y border-border/60 bg-card/20 py-20 md:py-28">
+    <section id="narrative" className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={130} className="absolute -right-32 bottom-0 h-80 w-80 rounded-full bg-gold/8 blur-3xl" />
+        <Parallax speed={70} className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <div className="max-w-2xl">
           <Reveal style="none">
@@ -134,23 +140,8 @@ export function NarrativeSection() {
 
         <div ref={ref} className="relative mt-14">
           <div className="lg:sticky lg:top-24 lg:grid lg:grid-cols-2 lg:items-center lg:gap-14">
-            {/* Left — synced step copy */}
-            <div className="order-2 mt-10 lg:order-1 lg:mt-0">
-              <div className="space-y-8">
-                {STEPS.map((s, i) => (
-                  <div key={s.id} className={cn('transition-opacity duration-500', i === active ? 'opacity-100' : 'opacity-35')}>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={cn('h-1.5 w-1.5 rounded-full transition-colors', i === active ? 'bg-gold' : 'bg-border')} />
-                      <span className="font-semibold text-foreground">{s.title}</span>
-                    </div>
-                    <p className="mt-2 pl-3.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right — pinned monitor board that transforms */}
-            <div className="order-1 lg:order-2">
+            {/* Board — pinned left, transforms through monitoring states */}
+            <div className="order-1 lg:order-1">
               <div className="relative">
                 <div className="pointer-events-none absolute -inset-8 -z-10 rounded-[2.5rem] bg-primary/10 blur-3xl" />
                 <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
@@ -252,6 +243,41 @@ export function NarrativeSection() {
                     ))}
                   </div>
                 </div>
+
+                {/* Floating chips overlapping the board */}
+                <div className="float-soft absolute -left-5 top-14 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex">
+                  <BadgeCheck className="h-3.5 w-3.5 text-emerald-500" />
+                  Identity verified
+                </div>
+                <div
+                  className="float-soft absolute -right-4 bottom-12 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex"
+                  style={{ animationDelay: '1.4s' }}
+                >
+                  <Activity className="h-3.5 w-3.5 text-gold-strong" />
+                  <span className="flex items-center gap-1.5">0 violations · synced</span>
+                </div>
+                <div
+                  className="float-soft absolute -top-4 right-8 z-20 hidden items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-2.5 py-1 text-[0.65rem] font-semibold uppercase tracking-wide text-gold-strong shadow-sm lg:flex"
+                  style={{ animationDelay: '0.7s' }}
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                  Live proctoring
+                </div>
+              </div>
+            </div>
+
+            {/* Copy — synced step list alongside the pinned board */}
+            <div className="order-2 mt-10 lg:order-2 lg:mt-0">
+              <div className="space-y-8">
+                {STEPS.map((s, i) => (
+                  <div key={s.id} className={cn('transition-opacity duration-500', i === active ? 'opacity-100' : 'opacity-35')}>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={cn('h-1.5 w-1.5 rounded-full transition-colors', i === active ? 'bg-gold' : 'bg-border')} />
+                      <span className="font-semibold text-foreground">{s.title}</span>
+                    </div>
+                    <p className="mt-2 pl-3.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

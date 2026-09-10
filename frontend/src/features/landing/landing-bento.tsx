@@ -2,7 +2,7 @@
 
 import { useReducedMotion } from 'framer-motion';
 import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock } from 'lucide-react';
-import { Reveal, SectionHeader, TiltCard } from './landing-primitives';
+import { Parallax, Reveal, SectionHeader, TiltCard } from './landing-primitives';
 
 /* ------------------------------------------------------------------ */
 /* Capability strip — product capabilities (no fabricated figures)    */
@@ -79,9 +79,16 @@ function MiniBars() {
 
 export function BentoSection() {
   return (
-    <section id="product" className="relative py-20 md:py-28">
+    <section id="product" className="relative isolate py-20 md:py-28">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={150} className="absolute -right-24 top-16 h-80 w-80 rounded-full bg-primary/15 blur-3xl" />
+        <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
+          align="left"
+          reveal="blur"
           eyebrow="Platform capabilities"
           title="Everything an exam requires, in one workspace"
           sub="Asymmetric tools that move work forward — creation, security, monitoring, and analytics under a single surface."

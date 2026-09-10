@@ -1,7 +1,7 @@
 'use client';
 
 import { Network, Video, Zap, Database, KeyRound, Eye } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax } from './landing-primitives';
 import { cn } from '@/lib/utils';
 
 const layers = [
@@ -47,9 +47,15 @@ const pipeline = ['Client', 'WebSocket', 'Redis', 'PostgreSQL', 'Workers'];
 
 export function ArchitectureSection() {
   return (
-    <section id="architecture" className="relative py-20 md:py-28">
+    <section id="architecture" className="relative isolate py-20 md:py-28">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={140} className="absolute -left-32 top-24 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
+          align="right"
+          reveal="fade-right"
           eyebrow="Under the hood"
           title="Engineered for real-time examinations"
           sub="The stack is chosen for one thing: state that stays synchronized from the first question to the final result."

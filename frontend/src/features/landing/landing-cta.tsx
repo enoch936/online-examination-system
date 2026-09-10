@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { motion, useReducedMotion, useInView } from 'framer-motion';
 import { useRef } from 'react';
 import { ShieldCheck, Radio, Cpu, Layers, ArrowRight, Lock, BadgeCheck, Video, ScrollText, KeyRound } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax } from './landing-primitives';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -47,16 +47,23 @@ const states = [
 
 export function SecuritySection() {
   return (
-    <section id="security" className="relative border-y border-border/60 bg-card/20 py-20 md:py-28">
+    <section id="security" className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={120} className="absolute -right-28 top-16 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
+        <Parallax speed={60} className="absolute -left-28 bottom-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
+          align="left"
+          reveal="fade-left"
           eyebrow="The fundamentals"
           title="Secure, real-time, and built to scale"
         />
 
         {/* Security state chips */}
         <Reveal style="none" delay={0.05} className="mt-8">
-          <div className="flex flex-wrap items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
             {states.map((s, i) => {
               const Icon = s.icon;
               return (
@@ -117,13 +124,36 @@ export function CTASection() {
 
   return (
     <section className="relative overflow-hidden py-24 md:py-32">
-      <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute left-1/2 top-1/2 h-[420px] w-[720px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-[140px]" />
-        <div className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-[120px]" />
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-[140px]" />
+        <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-[120px]" />
+        <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
       </div>
 
       <div className="mx-auto max-w-4xl px-5 sm:px-6">
         <div ref={ref} className="relative">
+          {/* Floating chips framing the CTA panel */}
+          <div
+            className="float-soft absolute -left-10 top-10 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex"
+          >
+            <Cpu className="h-3.5 w-3.5 text-gold-strong" />
+            Auto-graded · rubric ready
+          </div>
+          <div
+            className="float-soft absolute -right-12 top-1/2 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex"
+            style={{ animationDelay: '1.6s' }}
+          >
+            <Video className="h-3.5 w-3.5 text-emerald-500" />
+            Monitoring active
+          </div>
+          <div
+            className="float-soft absolute -left-6 bottom-10 z-20 hidden items-center gap-1.5 rounded-full border border-gold/30 bg-gold/10 px-3 py-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-gold-strong lg:flex"
+            style={{ animationDelay: '0.8s' }}
+          >
+            <BadgeCheck className="h-3 w-3" />
+            Role verified
+          </div>
+
           {/* Glass panel forming behind CTA */}
           <motion.div
             className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-gold/25 via-transparent to-primary/25 p-px"

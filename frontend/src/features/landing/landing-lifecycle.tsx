@@ -14,7 +14,7 @@ import {
   Check,
   CheckCircle2,
 } from 'lucide-react';
-import { SectionHeader, Reveal, WrapUpText } from './landing-primitives';
+import { SectionHeader, Reveal, WrapUpText, Parallax } from './landing-primitives';
 import { Smartboard } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -58,12 +58,18 @@ export function LifecycleSection() {
   return (
     <section
       id="lifecycle"
-      className="relative border-y border-border/60 bg-card/20 py-20 md:py-28"
+      className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={120} className="absolute -right-32 top-1/3 h-96 w-96 rounded-full bg-gold/8 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
+          align="left"
+          reveal="expand-out"
           eyebrow="Exam lifecycle"
           title={<WrapUpText lines={['From question to certificate']} />}
           sub="A connected pipeline that carries every exam from creation through monitoring to results."

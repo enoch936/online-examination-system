@@ -15,7 +15,7 @@ import {
   Radio,
   BarChart3,
 } from 'lucide-react';
-import { SectionHeader, Reveal, WrapUpText } from './landing-primitives';
+import { SectionHeader, Reveal, WrapUpText, Parallax } from './landing-primitives';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -272,7 +272,11 @@ export function RolesSection() {
   const Icon = role.icon;
 
   return (
-    <section id="roles" className="relative py-20 md:py-28">
+    <section id="roles" className="relative isolate py-20 md:py-28">
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <Parallax speed={100} className="absolute inset-x-0 top-8 mx-auto h-96 w-[48rem] rounded-full bg-primary/8 blur-3xl" />
+      </div>
+
       <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
           eyebrow="Who it's for"

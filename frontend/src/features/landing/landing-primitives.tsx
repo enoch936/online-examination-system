@@ -4,9 +4,11 @@ import {
   motion,
   useInView,
   useMotionValue,
+  useScroll,
   useSpring,
   useReducedMotion,
   useMotionTemplate,
+  useTransform,
   type TargetAndTransition,
 } from 'framer-motion';
 import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from 'react';
@@ -552,20 +554,22 @@ export function SectionHeader({
   title,
   sub,
   align = 'center',
+  reveal = 'none',
   className,
 }: {
   eyebrow: string;
   title: ReactNode;
   sub?: string;
-  align?: 'center' | 'left';
+  align?: 'center' | 'left' | 'right';
+  reveal?: RevealStyle;
   className?: string;
 }) {
   return (
     <Reveal
-      style="none"
+      style={reveal}
       className={cn(
         'max-w-2xl',
-        align === 'center' ? 'mx-auto text-center' : 'text-left',
+        align === 'center' ? 'mx-auto text-center' : align === 'right' ? 'ml-auto text-right' : 'text-left',
         className,
       )}
     >
@@ -578,6 +582,40 @@ export function SectionHeader({
       </h2>
       {sub && <p className="mt-4 text-[0.95rem] leading-relaxed text-muted-foreground">{sub}</p>}
     </Reveal>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Parallax — scroll-linked vertical drift. Wrap decorative layers     */
+/* with different `speed` values to create depth (background slow,     */
+/* foreground fast). Disabled under prefers-reduced-motion.            */
+/* ------------------------------------------------------------------ */
+export function Parallax({
+  children,
+  className,
+  speed = 60,
+}: {
+  children?: ReactNode;
+  className?: string;
+  speed?: number;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion() ?? false;
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end start'] });
+  const y = useTransform(scrollYProgress, [0, 1], [speed, -speed]);
+
+  if (reduce) {
+    return (
+      <div ref={ref} className={className}>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <motion.div ref={ref} className={className} style={{ y }}>
+      {children}
+    </motion.div>
   );
 }
 
