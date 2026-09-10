@@ -411,6 +411,15 @@ Physical table: `push_subscriptions`
 
 Indexes: `@@index([userId])`.
 
+### 3.35 live staff inbox (Socket.IO)
+
+Staff (SUPER_ADMIN/ADMIN/INSTRUCTOR) sockets emit `staff:subscribe` to join the shared `staff` room. Two events push `message:new` to that room so the staff Messages inbox updates live (the page also keeps a 15s poll as fallback):
+
+- `ContactService.create` (contact form, `POST /contact`) → emits `{source:'CONTACT', id, name, email, message, status, createdAt}`.
+- `MonitoringService.recordEvent` when a student `MANUAL_FLAG` exam event carries a `message` → emits `{source:'EXAM_REPORT', id, studentName, studentEmail, examId}`.
+
+The frontend hook (`hooks/use-inbox.ts`) listens for `message:new`, invalidates the `['messages']` query and toasts. An extra header `RefreshButton` in `components/layout/dashboard-shell.tsx` calls `queryClient.invalidateQueries()` for a manual/extra refresh without reloading the page.
+
 ### 3.23 activity_logs
 Physical table: `activity_logs`
 | Field | Type | Constraints |

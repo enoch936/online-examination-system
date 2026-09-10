@@ -99,6 +99,9 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `hooks/use-push-notifications.ts` (new) | `enable()` requests permission, registers `/sw.js`, subscribes via `pushManager` using the server VAPID key, and syncs the endpoint to the backend; `disable()` unsubscribes locally + deletes server-side; detects existing subscriptions on mount |
 | `features/notifications/push-preferences.tsx` (new) | "Browser notifications" card on the shared notifications page (Enable/Disable; warns when permission is blocked) |
 | `middleware.ts` | `/sw.js` added to the public bypass so the service worker registers regardless of auth state |
+| `websocket/realtime.gateway.ts` | `staff:subscribe` handler (joins `staff` room, monitor roles only) + `emitToStaff(event, payload)` helper; `message:new` emitted on contact-form submission (`ContactService.create`) and on student `MANUAL_FLAG` exam events carrying a message (`MonitoringService.recordEvent`), so staff inboxes update live |
+| `hooks/use-inbox.ts` (new) | Staff live-inbox hook: connects the singleton socket, emits `staff:subscribe`, listens `message:new` → invalidates `['messages']` queries + toast; used by the instructor Messages page, which also keeps its 15s poll as fallback |
+| `components/layout/dashboard-shell.tsx` | Global `RefreshButton` (Refresh icon) in the header: `queryClient.invalidateQueries()` for all active queries with a spinner while in-flight — manual refresh no longer needs a page reload |
 
 ---
 
@@ -160,6 +163,8 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | Web Push end-to-end delivery | DEPENDS on §7.5 env config (VAPID keys on the backend) |
 | Webcam proctoring in production | DEPENDS on §7.1 env config |
 | Production migration + strict-policy backfill applied + verified via direct DB read | PASS |
+| Notifications live (persist + socket `notification:new` + unread badge + read-all) | PASS (deployed chunk contains `notifications:subscribe` / `notification:new`) |
+| Staff inbox live (socket `staff:subscribe` + `message:new` on contact + MANUAL_FLAG) + global refresh button | PASS (deployed chunk `453nbbj0l4x_6.js` contains `message:new` + `staff:subscribe`) |
 | Production smoke (deployed routes) | PENDING — manual after deploy |
 
 ## 9. Known Limitations / Next Steps
