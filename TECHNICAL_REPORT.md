@@ -61,6 +61,8 @@ Migrations: `backend/prisma/migrations/20260908000000_add_exam_policies_requests
 | `classes/` (module, controller, service, DTOs) | Class CRUD + enrollment as a course-agnostic student container (no `courseId`); `GET /classes` (staff, `classes.manage` perm), `GET /classes/my` (student), enroll/unenroll — `classes.manage` permission must exist in the target DB or every `/classes` call 403s |
 | `exams/exams.service.ts` + `exams.controller.ts` | Class-based visibility: `assign-classes`/`unassign-class`/`class-assignments`/`assignments/effective` endpoints; `findAvailable` + `assertStudentAuthorized` enforce that unassigned exams are open, assigned exams are gated to direct students or class members |
 | `prisma/seed.ts` + `prisma/schema.prisma` | `classes.manage` permission for SUPER_ADMIN/ADMIN/INSTRUCTOR; seeded demo classes no longer reference a course |
+| `notifications/notifications.service.ts`, `notifications.controller.ts`, `notifications.module.ts` | Notification system made real: every create/`notifyMany` persists (with JSON `metadata`, carrying a frontend `link`) **and** emits `notification:new` to the recipient's `user:{id}` room via `RealtimeGateway` (module now imports `RealtimeModule`); added `GET /notifications/unread-count` and `PATCH /notifications/read-all` beside `GET /` and `PATCH :id/read` |
+| `exams/exams.service.ts` (assignment) | `assignStudents` / `assignClasses` notify each newly affected student ("New exam assigned/available", type INFO, `link: /student/exams`); class assignment only notifies students of **newly** assigned classes |
 
 Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/assertCanMonitor/assertCanPerformAction`, `RealtimeGateway.emitNotification/emitToSession`, `AuditService`.
 
@@ -81,6 +83,12 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `app/(dashboard)/instructor/exams/create/page.tsx` | `connectionLossPolicy` / `resumePolicy` / `retakePolicy` selects default to strict (`APPROVAL_REQUIRED` / `INSTRUCTOR_APPROVAL` / `INSTRUCTOR_APPROVAL`) |
 | `app/(dashboard)/instructor/exams/manage/page.tsx` | Same policy selects wired into edit payload (defaults to strict) |
 | `app/(dashboard)/instructor/exams/monitor/page.tsx` | Monitoring settings: mode/policy selects, `violationThreshold`, tracking toggles; `PendingRequestsPanel` (list + approve/reject) |
+| `hooks/use-notifications.ts` (new) | Live notification hook: connects the singleton socket, emits `notifications:subscribe {userId}`, listens `notification:new` → invalidates the list query (badge updates instantly) + 60s poll fallback; exposes `markRead`/`markAllRead` mutations and a `metadata.link` helper |
+| `features/notifications/` (new) `notification-card.tsx`, `notifications-bell.tsx`, `notifications-page.tsx` | Reusable card (type icons incl. new types, unread highlight, optional route link); header Bell with live unread badge + dropdown (recent 8, mark-all-read, View all → `/notifications`); shared role-agnostic notifications page with skeleton/error/empty states |
+| `components/layout/dashboard-shell.tsx` | Static link replaced by `<NotificationsBell />`; `/notifications` nav item added to Instructor and Admin groups |
+| `app/(dashboard)/notifications/page.tsx` (new) | Shared notifications route for **all roles** under the dashboard layout |
+| `app/(dashboard)/student/notifications/page.tsx` | Now renders the shared `NotificationsPage` (route preserved) |
+| `types/api.ts`, `services/notifications.service.ts` | `Notification.metadata`; client `markAllRead`/`unreadCount` |
 
 ---
 
@@ -92,6 +100,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 - `GET /requests/exam/:examId` → monitor-guarded history.
 - `POST /requests/:id/approve|reject` → CO_OWNER/admin vs PROCTOR rules; approves retake → sets `retakePermitted`; approves resume → transitions session to `IN_PROGRESS` + emits socket control.
 - LOCKED error codes surfaced to the client: `RETAKE_REQUIRED`, `RETAKE_PENDING`, `RESUME_PENDING`, `RESUME_DENIED`.
+- Notifications: `GET /notifications` (own, latest 100), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` — all scoped to the authenticated user; new notifications also arrive live on `notification:new` (Socket.IO room `user:{userId}`).
 
 ---
 
