@@ -1,6 +1,7 @@
 import { LandingNav } from './landing-nav';
 import { LandingHero } from './landing-hero';
 import { CapabilitiesStrip, BentoSection } from './landing-bento';
+import { LandingInterlude } from './landing-interlude';
 import { LifecycleSection } from './landing-lifecycle';
 import { NarrativeSection } from './landing-narrative';
 import { RolesSection } from './landing-roles';
@@ -17,6 +18,7 @@ export function LandingPage() {
         <LandingHero />
         <CapabilitiesStrip />
         <BentoSection />
+        <LandingInterlude />
         <LifecycleSection />
         <RolesSection />
         <ArchitectureSection />

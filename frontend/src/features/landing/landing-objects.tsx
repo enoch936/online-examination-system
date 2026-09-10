@@ -228,6 +228,23 @@ export function OrbitObjects({
 
   return (
     <div className={cn('pointer-events-none absolute inset-0', className)} aria-hidden>
+      {/* Richer orbit: static dashed ring, halo, and two counter-rotating arcs */}
+      <div className="absolute left-1/2 top-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-border/30" />
+      <div className="absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-2xl" />
+      {!reduce && mounted && (
+        <>
+          <motion.div
+            className="absolute left-1/2 top-1/2 -ml-28 -mt-28 h-56 w-56 rounded-full border-2 border-transparent border-t-gold/50 border-r-primary/20"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 46, repeat: Infinity, ease: 'linear' }}
+          />
+          <motion.div
+            className="absolute left-1/2 top-1/2 -ml-22 -mt-22 h-44 w-44 rounded-full border-2 border-transparent border-b-accent/40 border-l-primary/20"
+            animate={{ rotate: -360 }}
+            transition={{ duration: 58, repeat: Infinity, ease: 'linear' }}
+          />
+        </>
+      )}
       {!mounted
         ? items.map(({ node }, i) => (
             <div

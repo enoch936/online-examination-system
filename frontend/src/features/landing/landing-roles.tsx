@@ -272,6 +272,13 @@ export function RolesSection() {
   const role = roles[active];
   const Icon = role.icon;
 
+  const activeDeg = (active / roles.length) * 360;
+  const tiles = roles.map((_, i) => {
+    const deg = (i / roles.length) * 360 - 90;
+    const rad = (deg * Math.PI) / 180;
+    return { x: Math.cos(rad), y: Math.sin(rad) };
+  });
+
   return (
     <SectionReveal id="roles" mode="fade-scale" className="relative isolate py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
@@ -286,51 +293,135 @@ export function RolesSection() {
           sub="Every role gets its own tailored surface — switch between them to see how each team works."
         />
 
-        {/* Tab bar */}
-        <Reveal style="none" className="mt-10">
+        {/* Orbital team selector */}
+        <div className="relative mx-auto mt-14 h-[18rem] max-w-3xl [--r:7rem] sm:h-[22rem] sm:[--r:9rem] lg:h-[24rem] lg:[--r:9.5rem]">
+          {/* Dashed orbit + rotating arcs */}
           <div
-            role="tablist"
-            aria-label="Platform roles"
-            className="mx-auto flex max-w-full flex-wrap items-center justify-center gap-2"
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[calc(var(--r)*2)] w-[calc(var(--r)*2)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-dashed border-border/40"
+          />
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[calc(var(--r)*2)] w-[calc(var(--r)*2)] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-transparent border-t-gold/50"
+            animate={reduce ? { rotate: 0 } : { rotate: 360 }}
+            transition={{ duration: 40, repeat: Infinity, ease: 'linear' }}
+          />
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute left-1/2 top-1/2 h-[calc(var(--r)*2)] w-[calc(var(--r)*2)] -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-transparent border-b-primary/40"
+            animate={reduce ? { rotate: 0 } : { rotate: -360 }}
+            transition={{ duration: 52, repeat: Infinity, ease: 'linear' }}
+          />
+
+          {/* Active beam — from behind the panel toward the active chip */}
+          <AnimatePresence mode="popLayout">
+            <motion.div
+              key={`beam-${role.id}`}
+              aria-hidden
+              initial={reduce ? false : { opacity: 0 }}
+              animate={{ opacity: [0.15, 0.7, 0.15] }}
+              exit={reduce ? undefined : { opacity: 0 }}
+              transition={{ opacity: { duration: 2.6, repeat: Infinity, ease: 'easeInOut' } }}
+              className="pointer-events-none absolute left-1/2 top-1/2 z-[1] h-0.5 w-[var(--r)] origin-left bg-gradient-to-r from-primary/10 via-gold/50 to-transparent"
+              style={{ transform: `rotate(${activeDeg}deg)` }}
+            />
+          </AnimatePresence>
+
+          {/* Center panel */}
+          <motion.div
+            className="absolute left-1/2 top-1/2 z-[2] w-44 -translate-x-1/2 -translate-y-1/2 sm:w-56"
+            initial={reduce ? false : { opacity: 0, scale: 0.85 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true, margin: '-80px' }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
           >
-            {roles.map((r, i) => {
-              const TabIcon = r.icon;
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={role.id}
+                initial={reduce ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={reduce ? undefined : { opacity: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl shadow-xl shadow-black/10">
+                  <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                    <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg p-1.5', role.accent)}>
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="flex items-center gap-2 text-[0.62rem] font-medium text-muted-foreground">
+                      <span className="rounded-full border border-border/60 bg-card/60 px-2 py-0.5 uppercase tracking-wide">
+                        Demo
+                      </span>
+                      <span className="flex items-center gap-1.5 text-emerald-400">
+                        <span className="relative flex h-1.5 w-1.5">
+                          {!reduce && (
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                          )}
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        </span>
+                        Live
+                      </span>
+                    </span>
+                  </div>
+                  <div className={cn('bg-background/40 p-4')}>{role.ui}</div>
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+
+          {/* Orbital chips */}
+          <div role="tablist" aria-label="Platform roles" className="contents">
+            {tiles.map((t, i) => {
+              const r = roles[i];
+              const ChipIcon = r.icon;
               const isActive = i === active;
               return (
-                <button
+                <div
                   key={r.id}
-                  role="tab"
-                  aria-selected={isActive}
-                  onClick={() => setActive(i)}
-                  className={cn(
-                    'relative flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all duration-300',
-                    isActive
-                      ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm shadow-primary/10'
-                      : 'border-border/60 bg-card/40 text-muted-foreground hover:border-border hover:text-foreground',
-                  )}
+                  className="absolute left-1/2 top-1/2 z-10"
+                  style={{
+                    transform: `translate(calc(-50% + var(--r) * ${t.x.toFixed(3)}), calc(-50% + var(--r) * ${t.y.toFixed(3)}))`,
+                  }}
                 >
-                  <TabIcon className="h-3.5 w-3.5" />
-                  {r.label}
-                  {isActive && (
-                    <motion.span
-                      layoutId="role-tab-glow"
-                      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                      className="absolute inset-x-3 -bottom-px h-0.5 rounded-full bg-gold"
-                    />
-                  )}
-                </button>
+                  <motion.button
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setActive(i)}
+                    initial={reduce ? false : { scale: 0, opacity: 0 }}
+                    whileInView={{ scale: 1, opacity: 1 }}
+                    viewport={{ once: true, margin: '-60px' }}
+                    transition={{ delay: 0.35 + i * 0.12, type: 'spring', stiffness: 300, damping: 20 }}
+                    whileTap={reduce ? undefined : { scale: 0.92 }}
+                    className={cn(
+                      'flex cursor-pointer select-none flex-col items-center gap-1 rounded-2xl border px-3 py-2 backdrop-blur-xl transition-colors duration-300',
+                      isActive
+                        ? 'border-gold/50 bg-gold/10 text-gold-strong shadow-lg shadow-gold/10'
+                        : 'border-border/60 bg-card/60 text-muted-foreground hover:border-border hover:text-foreground',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'flex h-9 w-9 items-center justify-center rounded-xl',
+                        isActive ? 'bg-gold/10 text-gold-strong' : 'bg-primary/8 text-primary',
+                      )}
+                    >
+                      <ChipIcon className="h-4 w-4" />
+                    </span>
+                    <span className="text-[0.58rem] font-semibold uppercase tracking-[0.14em]">{r.label}</span>
+                  </motion.button>
+                </div>
               );
             })}
           </div>
-        </Reveal>
+        </div>
 
-        {/* Active role — copy + preview */}
-        <div className="mt-12 grid items-center gap-10 lg:grid-cols-2 lg:gap-14">
-          {/* Copy */}
+        {/* Active role — copy */}
+        <div className="mx-auto mt-14 max-w-xl text-center">
           <AnimatePresence mode="wait">
             <motion.div
               key={role.id}
-              initial={reduce ? false : { opacity: 0, y: 16 }}
+              initial={reduce ? false : { opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? undefined : { opacity: 0, y: -12 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
@@ -339,14 +430,14 @@ export function RolesSection() {
                 <span className="eyebrow-dot-gold" />
                 {role.eyebrow}
               </span>
-              <div className={`mt-6 flex h-11 w-11 items-center justify-center rounded-xl ${role.accent} lg:hidden`}>
+              <div className={cn('mx-auto mt-5 flex h-11 w-11 items-center justify-center rounded-xl lg:hidden', role.accent)}>
                 <Icon className="h-5 w-5" />
               </div>
               <h3 className="mt-5 text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-[1.7rem]">
                 {role.title}
               </h3>
-              <p className="mt-3 max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
-              <ul className="mt-6 flex flex-wrap gap-2">
+              <p className="mx-auto mt-3 max-w-lg text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
+              <ul className="mt-6 flex flex-wrap justify-center gap-2">
                 {role.points.map((p) => (
                   <li
                     key={p}
@@ -357,41 +448,6 @@ export function RolesSection() {
                   </li>
                 ))}
               </ul>
-            </motion.div>
-          </AnimatePresence>
-
-          {/* Preview */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={role.id}
-              initial={reduce ? false : { opacity: 0, y: 20, scale: 0.985 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={reduce ? undefined : { opacity: 0, y: -12, scale: 0.99 }}
-              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              className="mx-auto w-full max-w-md"
-            >
-              <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
-                <div className="flex items-center justify-between border-b border-border/60 px-4 py-2.5">
-                  <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg p-1.5', role.accent)}>
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <span className="flex items-center gap-2 text-[0.65rem] font-medium text-muted-foreground">
-                    <span className="rounded-full border border-border/60 bg-card/60 px-2 py-0.5 uppercase tracking-wide">
-                      Demo
-                    </span>
-                    <span className="flex items-center gap-1.5 text-emerald-400">
-                      <span className="relative flex h-1.5 w-1.5">
-                        {!reduce && (
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                        )}
-                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                      </span>
-                      Live
-                    </span>
-                  </span>
-                </div>
-                <div className={cn('bg-background/40 p-5')}>{role.ui}</div>
-              </div>
             </motion.div>
           </AnimatePresence>
         </div>

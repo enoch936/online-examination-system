@@ -76,7 +76,7 @@ export function LifecycleSection() {
           sub="A connected pipeline that carries every exam from creation through monitoring to results."
         />
 
-        <div className="mt-14 grid gap-10 lg:-mt-8 lg:grid-cols-[1fr_1.05fr] lg:gap-8 lg:items-center">
+        <div className="mt-14 grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:gap-8 lg:items-center">
           {/* Pipeline */}
           <div className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
             {/* Progress rail */}
