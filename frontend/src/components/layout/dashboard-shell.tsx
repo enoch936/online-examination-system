@@ -245,6 +245,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const initials = user ? `${user.firstName[0] ?? ''}${user.lastName[0] ?? ''}`.toUpperCase() : '';
   const primaryRole = user?.roles[0] ?? '';
 
+  // Exam-taking screens run full-width and must never be covered by the sidebar,
+  // whether in fullscreen or windowed mode.
+  const isExamScreen = /\/student\/exams\/[^/]+\/(take|resume)(\/|$)/.test(pathname);
+  if (isExamScreen) {
+    return <div className="min-h-screen bg-background">{children}</div>;
+  }
+
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Desktop sidebar */}
