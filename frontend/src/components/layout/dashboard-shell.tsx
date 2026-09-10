@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils';
 import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/store/auth.store';
 import { disconnectSocket } from '@/services/socket.service';
+import { NotificationsBell } from '@/features/notifications/notifications-bell';
 import { useHasPermission } from '@/hooks/use-permissions';
 import type { RoleName } from '@/types/api';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,7 @@ const nav: NavGroup[] = [
       { href: '/instructor/classes', label: 'Classes', icon: School, permission: 'classes.manage' },
       { href: '/instructor/courses', label: 'Courses', icon: GraduationCap, permission: 'courses.manage' },
       { href: '/instructor/messages', label: 'Messages', icon: Mail },
+      { href: '/notifications', label: 'Notifications', icon: Bell },
       { href: '/instructor/reports', label: 'Reports', icon: BarChart3, permission: 'reports.read' },
     ],
   },
@@ -94,6 +96,7 @@ const nav: NavGroup[] = [
       { href: '/admin/analytics', label: 'Analytics', icon: Activity, permission: 'reports.read' },
       { href: '/admin/audit-logs', label: 'Audit Logs', icon: Shield, permission: 'audit.read' },
       { href: '/admin/instructors', label: 'Instructors', icon: UserRoundCog, permission: 'users.read' },
+      { href: '/notifications', label: 'Notifications', icon: Bell },
     ],
   },
 ];
@@ -316,11 +319,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="icon" asChild aria-label="Notifications">
-              <Link href={user?.roles.includes('STUDENT') ? '/student/notifications' : '/instructor/messages'}>
-                <Bell className="h-4 w-4" />
-              </Link>
-            </Button>
+            <NotificationsBell />
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Logout">
               <LogOut className="h-4 w-4" />

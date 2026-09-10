@@ -9,6 +9,7 @@ import {
 } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { distributePoints } from '../submissions/scoring.util';
 import { CreateExamDto } from './dto/create-exam.dto';
@@ -22,6 +23,7 @@ export class ExamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findMany(user: AuthenticatedUser) {
@@ -873,7 +875,7 @@ export class ExamsService {
   }
 
   async assignStudents(examId: string, studentIds: string[]) {
-    await this.findOne(examId);
+    const exam = await this.findOne(examId);
     const existing = await this.prisma.examAssignment.findMany({
       where: { examId, studentId: { in: studentIds } },
       select: { studentId: true },
@@ -885,6 +887,13 @@ export class ExamsService {
       await this.prisma.examAssignment.createMany({
         data: newIds.map((studentId) => ({ examId, studentId })),
       });
+      await this.notifications.notifyMany(
+        newIds,
+        'New exam assigned',
+        `You have been assigned the exam "${exam.title}".`,
+        'INFO',
+        { link: '/student/exams' },
+      );
     }
 
     return { assigned: newIds.length, alreadyAssigned: existing.length };
@@ -908,6 +917,7 @@ export class ExamsService {
   }
 
   async assignClasses(examId: string, classIds: string[]) {
+    const exam = await this.findOne(examId);
     const classes = await this.prisma.class.findMany({
       where: { id: { in: classIds } },
       select: { id: true },
@@ -916,10 +926,31 @@ export class ExamsService {
       throw new NotFoundException('One or more classes were not found');
     }
 
-    await this.prisma.examClassAssignment.createMany({
-      data: classIds.map((classId) => ({ examId, classId })),
-      skipDuplicates: true,
+    const existing = await this.prisma.examClassAssignment.findMany({
+      where: { examId, classId: { in: classIds } },
+      select: { classId: true },
     });
+    const existingIds = new Set(existing.map((a) => a.classId));
+    const newClassIds = classIds.filter((id) => !existingIds.has(id));
+
+    if (newClassIds.length > 0) {
+      await this.prisma.examClassAssignment.createMany({
+        data: newClassIds.map((classId) => ({ examId, classId })),
+      });
+
+      const enrollments = await this.prisma.classEnrollment.findMany({
+        where: { classId: { in: newClassIds } },
+        select: { studentId: true },
+      });
+      const studentIds = [...new Set(enrollments.map((e) => e.studentId))];
+      await this.notifications.notifyMany(
+        studentIds,
+        'New exam available',
+        `You have access to the exam "${exam.title}" through your class.`,
+        'INFO',
+        { link: '/student/exams' },
+      );
+    }
 
     const result = await this.prisma.examClassAssignment.findMany({
       where: { examId, classId: { in: classIds } },

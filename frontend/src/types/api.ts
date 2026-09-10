@@ -291,6 +291,7 @@ export type Notification = {
   title: string;
   message: string;
   readAt?: string | null;
+  metadata?: string | null;
   createdAt: string;
 };
 

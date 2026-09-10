@@ -8,4 +8,10 @@ export const notificationsService = {
   async markRead(id: string) {
     return unwrap(await api.patch(`/notifications/${id}/read`));
   },
+  async markAllRead() {
+    return unwrap(await api.patch('/notifications/read-all'));
+  },
+  async unreadCount() {
+    return unwrap<number>(await api.get('/notifications/unread-count'));
+  },
 };
