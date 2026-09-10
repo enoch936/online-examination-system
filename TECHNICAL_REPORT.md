@@ -72,6 +72,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | `services/requests.service.ts` (new) | `requestRetake`, `requestResume`, `listPending`, `listForExam`, `decide` against `/requests/*` |
 | `hooks/use-proctoring.ts` | Exports `ProctoringStatus`; adds `retry()` + `retryNonce` to recover from transient start failures |
 | `features/exams/exam-taking-client.tsx` | Proctoring status banner (starting / active / denied / unavailable + Retry); consent card shows enforced policy (`fullscreen REQUIRED`, strictness) and auto-requests fullscreen on consent; retake UI on `RETAKE_REQUIRED`/`RETAKE_PENDING`; "Request instructor approval now" button on `RESUME_PENDING` and on the auto-pause overlay (`exam:control` pause with `approval:true`); passes monitoring `requirements` (copy/paste restrictions) to the monitoring hook |
+| `app/(dashboard)/student/exams/[examId]/take/page.tsx` + `resume/page.tsx` | Wrap the exam in a fixed fullscreen-only shell (`inset-0`, opaque bg) so the dashboard sidebar/topbar are covered — the student sees only the question room on take and resume/approval screens |
 | `hooks/use-exam-monitoring.ts` | `ProctorControl` pause carries `approval`/`reason`/`message`; **blocks copy/cut when `disableCopy`, paste when `disablePaste`** (`preventDefault` on clipboard events + Ctrl+C/V/X), logging attempts |
 | `app/(dashboard)/instructor/exams/create/page.tsx` | `connectionLossPolicy` / `resumePolicy` / `retakePolicy` selects default to strict (`APPROVAL_REQUIRED` / `INSTRUCTOR_APPROVAL` / `INSTRUCTOR_APPROVAL`) |
 | `app/(dashboard)/instructor/exams/manage/page.tsx` | Same policy selects wired into edit payload (defaults to strict) |
@@ -127,6 +128,7 @@ Supporting pieces already present and re-used: `ExamAccessService.assertCanAct/a
 | Retake/resume request lifecycle (submit → notify → decide → approve → resume/retakePermitted → socket control) | PASS (code review; no local e2e) |
 | Student blocked on interruption (blur/tab-switch/fullscreen-exit auto-pause + approval) | PASS (code review; enforced now that `connectionLossPolicy: APPROVAL_REQUIRED` is default & backfilled) |
 | Copy/paste blocked in the exam browser (disableCopy/disablePaste) + attempts still logged | PASS (code review + bundle marker) |
+| Exam room is fullscreen-only (no sidebar/topbar visible) during take/resume | PASS (code review + live RSC payload marker) |
 | Webcam proctoring in production | DEPENDS on §7.1 env config |
 | Production migration + strict-policy backfill applied + verified via direct DB read | PASS |
 | Production smoke (deployed routes) | PENDING — manual after deploy |
