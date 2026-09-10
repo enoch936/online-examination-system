@@ -11,6 +11,7 @@ import {
 import { AuditService } from '../common/audit.service';
 import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
 
@@ -23,6 +24,7 @@ export class RequestsService {
     private readonly access: ExamAccessService,
     private readonly gateway: RealtimeGateway,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Student asks for a retake of an exam they have already submitted. */
@@ -352,20 +354,9 @@ export class RequestsService {
     for (const admin of admins) staffIds.add(admin.id);
 
     for (const userId of staffIds) {
-      await this.prisma.notification.create({
-        data: {
-          userId,
-          type,
-          title,
-          message,
-          metadata: JSON.stringify({ ...metadata, examTitle: exam.title }),
-        },
-      });
-      this.gateway.emitNotification(userId, {
-        type,
-        title,
-        message,
-        metadata: { ...metadata, examTitle: exam.title },
+      await this.notifications.create(userId, title, message, type, {
+        ...metadata,
+        examTitle: exam.title,
       });
     }
   }
@@ -377,9 +368,6 @@ export class RequestsService {
     message: string,
     metadata: Record<string, unknown>,
   ) {
-    await this.prisma.notification.create({
-      data: { userId: studentId, type, title, message, metadata: JSON.stringify(metadata) },
-    });
-    this.gateway.emitNotification(studentId, { type, title, message, metadata });
+    await this.notifications.create(studentId, title, message, type, metadata);
   }
 }

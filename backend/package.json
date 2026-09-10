@@ -35,6 +35,7 @@
     "@nestjs/websockets": "latest",
     "@prisma/client": "6.5.0",
     "@socket.io/redis-adapter": "^8.3.0",
+    "@types/web-push": "^3.6.4",
     "bcrypt": "latest",
     "bullmq": "^6.2.2",
     "class-transformer": "latest",
@@ -50,6 +51,7 @@
     "reflect-metadata": "latest",
     "rxjs": "latest",
     "socket.io": "latest",
+    "web-push": "^3.6.7",
     "zod": "latest"
   },
   "devDependencies": {

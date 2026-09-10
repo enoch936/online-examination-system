@@ -246,6 +246,7 @@ model User {
   examAssignments        ExamAssignment[] @relation("ExamAssignments")
   answers                StudentAnswer[]  @relation("AnswerGrader")
   notifications          Notification[]
+pushSubscriptions      PushSubscription[]
   activityLogs           ActivityLog[]    @relation("ActorActivity")
   auditLogs              AuditLog[]       @relation("ActorAudit")
   examEvents             ExamEvent[]      @relation("StudentEvents")
@@ -747,6 +748,21 @@ model Notification {
   @@index([userId, readAt])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 model ActivityLog {

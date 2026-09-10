@@ -23,6 +23,7 @@ import { MessagesModule } from './messages/messages.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PushModule } from './push-notifications/push.module';
 import { QuestionBanksModule } from './question-banks/question-banks.module';
 import { QuestionsModule } from './questions/questions.module';
 import { ReportsModule } from './reports/reports.module';
@@ -59,6 +60,7 @@ import { QueueModule } from './queue/queue.module';
     RedisConfigModule,
     QueueModule.forRoot(),
     PrismaModule,
+    PushModule,
     AuthModule,
     UsersModule,
     RolesModule,

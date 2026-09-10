@@ -6,7 +6,7 @@ const publicPaths = ['/', '/login', '/register', '/forgot-password', '/reset-pas
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (publicPaths.some((p) => pathname.startsWith(p))) {
+  if (pathname === '/sw.js' || publicPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 

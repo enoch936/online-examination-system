@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getNotificationLink, useNotifications } from '@/hooks/use-notifications';
 import { NotificationCard } from './notification-card';
+import { PushPreferences } from './push-preferences';
 
 export function NotificationsPage() {
   const { notifications, unreadCount, isLoading, error, markRead, markAllRead } = useNotifications();
@@ -77,6 +78,8 @@ export function NotificationsPage() {
           ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
           : 'All caught up'}
       </p>
+
+      <PushPreferences />
 
       {notifications.length === 0 ? (
         <Card>

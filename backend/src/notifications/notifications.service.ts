@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PushService } from '../push-notifications/push.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateway: RealtimeGateway,
+    private readonly push: PushService,
   ) {}
 
   findForUser(userId: string) {
@@ -39,6 +41,7 @@ export class NotificationsService {
       },
     });
     this.gateway.emitNotification(userId, { ...record, metadata: metadata ?? null });
+    void this.push.sendToUser(userId, title, message, metadata);
     return record;
   }
 
@@ -69,6 +72,7 @@ export class NotificationsService {
         createdAt: new Date().toISOString(),
         metadata: metadata ?? null,
       });
+      void this.push.sendToUser(userId, title, message, metadata);
     }
     return { count: created.count };
   }

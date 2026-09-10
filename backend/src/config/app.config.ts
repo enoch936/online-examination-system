@@ -40,6 +40,12 @@ const schema = z.object({
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional().default(''),
   DB_POOL_SIZE: z.coerce.number().min(1).max(100).default(20),
+  // Web Push (VAPID). Optional: when unset the backend serves subscribe
+  // endpoints but PushService is disabled (sendToUser becomes a no-op), so
+  // deployments that have not configured push keep working normally.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
   // Initial SUPER_ADMIN bootstrap credentials (optional here). They are read
   // ONLY on the server side by SuperAdminBootstrapService when no SUPER_ADMIN
   // exists yet. Empty values are treated as unset so a dev .env without them
