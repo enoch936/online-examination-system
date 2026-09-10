@@ -199,6 +199,13 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     return { subscribed: user ? body.userId === user.sub : false };
   }
 
+  @SubscribeMessage('staff:subscribe')
+  subscribeStaff(@ConnectedSocket() client: Socket) {
+    const user = this.getUser(client);
+    if (this.isMonitor(user)) client.join('staff');
+    return { subscribed: this.isMonitor(user) };
+  }
+
   @SubscribeMessage('exam:join')
   async joinExam(@MessageBody() body: { sessionId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
@@ -367,5 +374,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   emitNotification(userId: string, payload: unknown) {
     this.server.to(`user:${userId}`).emit('notification:new', payload);
+  }
+
+  emitToStaff(event: string, payload: unknown) {
+    this.server.to('staff').emit(event, payload);
   }
 }

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   BarChart3,
@@ -20,6 +21,7 @@ import {
   Mail,
   Menu,
   Monitor,
+  RefreshCw,
   School,
   Settings,
   Shield,
@@ -107,6 +109,27 @@ const roleLabel: Record<string, string> = {
   INSTRUCTOR: 'Instructor',
   STUDENT: 'Student',
 };
+
+function RefreshButton() {
+  const queryClient = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Refresh data"
+      disabled={refreshing}
+      onClick={() => {
+        setRefreshing(true);
+        void queryClient.invalidateQueries().finally(() => {
+          window.setTimeout(() => setRefreshing(false), 600);
+        });
+      }}
+    >
+      <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+    </Button>
+  );
+}
 
 function pageTitle(pathname: string): string {
   const segments = pathname.split('/').filter(Boolean);
@@ -319,6 +342,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <RefreshButton />
             <NotificationsBell />
             <ThemeToggle />
             <Button variant="ghost" size="icon" onClick={handleLogout} aria-label="Logout">

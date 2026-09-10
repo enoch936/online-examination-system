@@ -1,13 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RealtimeGateway } from '../websocket/realtime.gateway';
 import { CreateContactMessageDto } from './dto/create-contact-message.dto';
 
 @Injectable()
 export class ContactService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gateway: RealtimeGateway,
+  ) {}
 
   create(dto: CreateContactMessageDto) {
-    return this.prisma.contactMessage.create({
+    const created = this.prisma.contactMessage.create({
       data: {
         name: dto.name,
         email: dto.email,
@@ -23,6 +27,10 @@ export class ContactService {
         createdAt: true,
       },
     });
+    created.then((message) => {
+      this.gateway.emitToStaff('message:new', { source: 'CONTACT', ...message });
+    }).catch(() => undefined);
+    return created;
   }
 
   findMany(status?: string) {

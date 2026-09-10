@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MESSAGES_QUERY_KEY, useInboxLive } from '@/hooks/use-inbox';
 import { CheckCheck, ClipboardList, Inbox, Loader2, Mail, MailOpen } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -50,9 +51,10 @@ function MessageSkeleton() {
 export default function InstructorMessagesPage() {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState('');
+  useInboxLive();
 
   const { data: messages, isLoading, error, refetch } = useQuery({
-    queryKey: ['messages'],
+    queryKey: MESSAGES_QUERY_KEY,
     queryFn: () => messagesService.list(),
     refetchInterval: 15000,
   });
@@ -64,7 +66,7 @@ export default function InstructorMessagesPage() {
     mutationFn: ({ id, source, next }: { id: string; source: 'CONTACT' | 'EXAM_REPORT'; next: string }) =>
       messagesService.updateStatus(id, source, next),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      queryClient.invalidateQueries({ queryKey: MESSAGES_QUERY_KEY });
       toast.success('Message updated');
     },
     onError: () => toast.error('Failed to update message'),

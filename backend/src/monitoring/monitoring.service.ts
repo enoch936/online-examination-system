@@ -371,6 +371,16 @@ export class MonitoringService {
     await this.recomputeSessionRisk(session.id, config);
     this.emitEvent(session.examId, session.id, session.student, input.type, event, points, severity, config);
 
+    if (input.type === ExamEventType.MANUAL_FLAG && (input.metadata as { message?: string } | null)?.message) {
+      this.gateway.emitToStaff('message:new', {
+        source: 'EXAM_REPORT',
+        id: event.id,
+        studentName: [session.student.firstName, session.student.lastName].filter(Boolean).join(' '),
+        studentEmail: session.student.email,
+        examId: session.examId,
+      });
+    }
+
     await this.eventQueue.addRiskScoring({ sessionId: session.id, incremental: true }).catch(() => {});
 
     if (
