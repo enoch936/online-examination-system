@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
-  AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, Grid3X3,
+  AlignLeft, Bookmark, CheckCircle2, ChevronLeft, ChevronRight, FileText, Flag, GraduationCap, Grid3X3,
   LayoutList, ListChecks, Loader2, Maximize, Mic, Minimize, Send, ShieldAlert, Type, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -646,6 +646,18 @@ const resumeErrorPolicy = (
 
   return (
     <div ref={fullscreenRef} className="relative flex min-h-full w-full flex-col gap-5 overflow-y-auto bg-background">
+      <header className="sticky -top-6 -mx-4 z-20 flex shrink-0 items-center justify-between gap-3 border-b bg-background/90 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-indigo-500 text-primary-foreground shadow-md shadow-primary/25">
+            <GraduationCap className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold tracking-tight">OES Platform</p>
+            <p className="truncate text-[11px] text-muted-foreground">Secure examination in progress</p>
+          </div>
+        </div>
+        <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">Proctored environment</Badge>
+      </header>
       {proctoringBanner && (
         <div
           className={`flex items-center justify-between gap-4 rounded-lg border px-4 py-3 text-sm ${
