@@ -353,7 +353,7 @@ export function LandingHero() {
     <section
       ref={ref}
       id="home"
-      className="relative overflow-hidden pb-24 pt-16 sm:pt-20 md:pb-32"
+      className="relative overflow-hidden pb-24 pt-20 lg:pt-[5.1875rem] md:pb-32"
       onMouseMove={(e) => {
         if (reduce) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -372,7 +372,7 @@ export function LandingHero() {
         <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto grid max-w-6xl gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-8">
+      <div className="mx-auto grid max-w-6xl gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-8">
         {/* LEFT — message */}
         <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-xl">
           <motion.div
