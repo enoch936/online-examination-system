@@ -63,30 +63,36 @@ const EASE = [0.16, 1, 0.3, 1] as const;
 /* elements nested under transformed/framer subtrees (the "reveals     */
 /* never fire" bug that leaves content stuck at opacity 0 — full UI    */
 /* only ever appears in Firefox). Instead of trusting IO, we watch the */
-/* element's position on scroll and reveal once it gets within `lead`  */
-/* viewport-heights of the fold. Deterministic in every browser.       */
+/* element's position on scroll. Whereas un re-animates every block    */
+/* once, reversible mode keeps a section "on" while it is on screen    */
+/* and animates it back out once it scrolls past — the in-and-out      */
+/* scroll effect, deterministic in every browser.                      */
 /* ------------------------------------------------------------------ */
-export function useRevealGate(lead = 2.2) {
+export function useRevealGate(lead = 2.2, reversible = false) {
   const ref = useRef<HTMLElement | null>(null);
   const reduce = useReducedMotion() ?? false;
   const [forced, setForced] = useState(false);
+  const [intersecting, setIntersecting] = useState(false);
+
+  const shown = reduce ? true : reversible ? intersecting : forced;
 
   useEffect(() => {
-    if (reduce) {
-      setForced(true);
-      return;
-    }
+    if (reduce) return;
     let raf = 0;
     const check = () => {
       raf = 0;
-      if (forced) return;
       const el = ref.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      if (r.top - window.innerHeight * lead < 0) setForced(true);
+      if (reversible) {
+        const vh = window.innerHeight;
+        setIntersecting(r.top < vh * 1.15 && r.bottom > vh * -0.05);
+        return;
+      }
+      if (!forced && r.top - window.innerHeight * lead < 0) setForced(true);
     };
     const onScroll = () => {
-      if (raf === 0 && !forced) raf = requestAnimationFrame(check);
+      if (raf === 0) raf = requestAnimationFrame(check);
     };
     const first = requestAnimationFrame(check);
     window.addEventListener('scroll', onScroll, { passive: true });
@@ -97,9 +103,9 @@ export function useRevealGate(lead = 2.2) {
       cancelAnimationFrame(first);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [reduce, forced, lead]);
+  }, [reduce, reversible, forced, lead]);
 
-  return { ref, shown: forced, reduce };
+  return { ref, shown, reduce };
 }
 
 export const MOTION = {
@@ -687,7 +693,7 @@ export function SectionReveal({
   onMouseEnter?: HTMLAttributes<HTMLElement>['onMouseEnter'];
   onMouseLeave?: HTMLAttributes<HTMLElement>['onMouseLeave'];
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const { ref, shown, reduce } = useRevealGate(2.2, true);
 
   const initial: TargetAndTransition =
     mode === 'wipe-left'
