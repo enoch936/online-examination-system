@@ -31,7 +31,9 @@ const nextConfig = {
   async rewrites() {
     // Same-origin API proxy so the backend's host-only httpOnly
     // access_token/refresh_token cookies work from this domain.
-    return [{ source: '/api/:path*', destination: `${backendOrigin}/api/v1/:path*` }];
+    // `:path*` captures "v1/monitoring/health" for a /api/v1/... request, so
+    // the destination echoes the full /api prefix back onto the origin.
+    return [{ source: '/api/:path*', destination: `${backendOrigin}/api/:path*` }];
   },
   async headers() {
     // CSP is set per-request in middleware.ts (nonce-based). These headers are
