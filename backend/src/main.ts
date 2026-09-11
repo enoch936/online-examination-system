@@ -26,6 +26,9 @@ async function bootstrap() {
 
   app.use(helmet());
   app.use(cookieParser());
+  // Trust the first hop of X-Forwarded-For so req.ip reflects the real
+  // client behind Render/Vercel proxies (used by throttling + audit logs).
+  (app.getHttpAdapter().getInstance() as { set: (key: string, value: number) => void }).set('trust proxy', 1);
   app.enableCors({
     origin: corsOrigins,
     credentials: true,

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { RoleName, User, UserStatus } from '@prisma/client';
@@ -7,6 +13,12 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { passwordPolicyProblem } from '../common/utils/password.util';
 import { durationToMs } from '../common/utils/duration.util';
+import {
+  DUMMY_BCRYPT_HASH,
+  isPasswordBreached,
+  normalizeEmail,
+  verifyTurnstile,
+} from '../common/utils/auth-hardening.util';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
@@ -55,12 +67,27 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const email = normalizeEmail(dto.email);
+    const turnstileOk = await verifyTurnstile(
+      dto.turnstileToken,
+      this.config.get<string | undefined>('TURNSTILE_SECRET_KEY'),
+    );
+    if (!turnstileOk) {
+      throw new ForbiddenException('CAPTCHA verification failed. Please try again.');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
+      // Consume bcrypt time so a duplicate-email response is not faster than a
+      // fresh registration (prevents email-enumeration by timing).
+      await bcrypt.compare(dto.password, DUMMY_BCRYPT_HASH);
       throw new ConflictException('Email is already registered');
     }
 
     const passwordHash = await bcrypt.hash(dto.password, this.config.get<number>('BCRYPT_ROUNDS', 12));
+    if (await isPasswordBreached(dto.password)) {
+      throw new BadRequestException('This password has appeared in a data breach. Choose a different password.');
+    }
     const studentRole = await this.prisma.role.upsert({
       where: { name: RoleName.STUDENT },
       update: {},
@@ -69,7 +96,7 @@ export class AuthService {
 
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email.toLowerCase(),
+        email,
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName,
@@ -80,23 +107,58 @@ export class AuthService {
       include: this.userInclude(),
     });
 
+    this.recordAudit({
+      action: 'REGISTER',
+      entity: 'USER',
+      entityId: user.id,
+      actorId: user.id,
+      deviceInfo,
+    });
+
     return this.issueTokens(user, deviceInfo);
   }
 
   async login(dto: LoginDto, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {
+    const email = normalizeEmail(dto.email);
+    const turnstileOk = await verifyTurnstile(
+      dto.turnstileToken,
+      this.config.get<string | undefined>('TURNSTILE_SECRET_KEY'),
+    );
+    if (!turnstileOk) {
+      throw new ForbiddenException('CAPTCHA verification failed. Please try again.');
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email },
       include: this.userInclude(),
     });
 
-    const validPassword = user ? await bcrypt.compare(dto.password, user.passwordHash) : false;
+    // Always run a full bcrypt compare (dummy hash for unknown emails) so
+    // success/failure/unknown-account responses all take the same time.
+    const validPassword = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_BCRYPT_HASH);
     if (!user || !validPassword || user.status !== UserStatus.ACTIVE) {
+      this.recordAudit({
+        action: 'LOGIN_FAILED',
+        entity: 'AUTH',
+        entityId: user?.id,
+        actorId: undefined,
+        deviceInfo,
+        metadata: { email },
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     await this.prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
+    });
+
+    this.recordAudit({
+      action: 'LOGIN',
+      entity: 'USER',
+      entityId: user.id,
+      actorId: user.id,
+      deviceInfo,
     });
 
     return this.issueTokens(user, deviceInfo);
@@ -156,8 +218,11 @@ export class AuthService {
   }
 
   async forgotPassword(dto: ForgotPasswordDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const email = normalizeEmail(dto.email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
+      // Consume bcrypt time so unknown emails are not distinguishable by timing.
+      await bcrypt.compare('timing-equalizer-dummy', DUMMY_BCRYPT_HASH);
       return { sent: true };
     }
     await this.jwt.signAsync(
@@ -186,6 +251,9 @@ export class AuthService {
     const problem = passwordPolicyProblem(dto.newPassword, { email: user.email });
     if (problem) {
       throw new BadRequestException(problem);
+    }
+    if (await isPasswordBreached(dto.newPassword)) {
+      throw new BadRequestException('This password has appeared in a data breach. Choose a different password.');
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, this.config.get<number>('BCRYPT_ROUNDS', 12));
@@ -218,6 +286,9 @@ export class AuthService {
       if (payload.type !== 'reset') {
         throw new UnauthorizedException('Invalid reset token');
       }
+      if (await isPasswordBreached(dto.password)) {
+        throw new BadRequestException('This password has appeared in a data breach. Choose a different password.');
+      }
       const passwordHash = await bcrypt.hash(dto.password, this.config.get<number>('BCRYPT_ROUNDS', 12));
       await this.prisma.user.update({
         where: { id: payload.sub },
@@ -245,8 +316,9 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
-    if (dto.email && dto.email.toLowerCase() !== user.email) {
-      const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } });
+    const email = dto.email ? normalizeEmail(dto.email) : undefined;
+    if (email && email !== user.email) {
+      const existing = await this.prisma.user.findUnique({ where: { email } });
       if (existing) {
         throw new ConflictException('Email is already taken');
       }
@@ -256,7 +328,7 @@ export class AuthService {
       data: {
         ...(dto.firstName !== undefined && { firstName: dto.firstName }),
         ...(dto.lastName !== undefined && { lastName: dto.lastName }),
-        ...(dto.email !== undefined && { email: dto.email.toLowerCase() }),
+        ...(email !== undefined && { email }),
         ...(dto.phone !== undefined && { phone: dto.phone }),
         ...(dto.avatarUrl !== undefined && { avatarUrl: dto.avatarUrl }),
       },
@@ -364,6 +436,29 @@ export class AuthService {
       }
     }
     return { revoked: true };
+  }
+
+  private recordAudit(input: {
+    action: string;
+    entity: string;
+    entityId?: string;
+    actorId?: string;
+    deviceInfo?: { userAgent?: string; ipAddress?: string };
+    metadata?: Record<string, unknown>;
+  }) {
+    void this.prisma.auditLog
+      .create({
+        data: {
+          action: input.action,
+          entity: input.entity,
+          entityId: input.entityId,
+          actor: input.actorId ? { connect: { id: input.actorId } } : undefined,
+          ipAddress: input.deviceInfo?.ipAddress ?? null,
+          userAgent: input.deviceInfo?.userAgent ?? null,
+          after: input.metadata ? JSON.stringify(input.metadata) : undefined,
+        },
+      })
+      .catch(() => undefined);
   }
 
   private async issueTokens(user: UserWithRoles, deviceInfo?: { userAgent?: string; ipAddress?: string }): Promise<TokenPair> {

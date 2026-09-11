@@ -73,6 +73,11 @@ services:
         value: https://oes-proctoring.onrender.com
       - key: PROCTORING_API_KEY
         sync: false
+      # Cloudflare Turnstile captcha secret. Set to enforce a captcha on
+      # /auth/login and /auth/register (requires the matching frontend site key).
+      # Currently NOT set in production — set it here to activate.
+      - key: TURNSTILE_SECRET_KEY
+        sync: false
       # Web Push (VAPID). Enables the browser-notification pipeline
       # (GET /push/vapid-key + POST /push/subscriptions). All three must be
       # present or PushService stays disabled (vapid-key returns null).

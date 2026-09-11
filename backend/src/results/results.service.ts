@@ -98,7 +98,7 @@ export class ResultsService {
     const percentage = maxScore > 0 ? Number(((totalScore / maxScore) * 100).toFixed(2)) : 0;
     const passed = totalScore >= Number(result.exam.passingMarks);
 
-    return this.prisma.result.update({
+    const updated = await this.prisma.result.update({
       where: { id },
       data: {
         score: totalScore,
@@ -107,6 +107,27 @@ export class ResultsService {
         publishedAt: result.publishedAt ?? new Date(),
       },
     });
+
+    void this.prisma.auditLog
+      .create({
+        data: {
+          actorId: graderId,
+          action: 'GRADE_MODIFIED',
+          entity: 'RESULT',
+          entityId: id,
+          before: JSON.stringify({ score: Number(result.score), percentage: Number(result.percentage), passed: result.passed }),
+          after: JSON.stringify({
+            score: totalScore,
+            percentage,
+            passed,
+            updatedAnswers: toUpdate.length,
+            publishedAt: updated.publishedAt?.toISOString(),
+          }),
+        },
+      })
+      .catch(() => undefined);
+
+    return updated;
   }
 
   async findOne(user: AuthenticatedUser, id: string) {

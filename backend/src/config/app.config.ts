@@ -33,8 +33,14 @@ const schema = z.object({
   COOKIE_PATH: z.string().default('/'),
   SWAGGER_ENABLED: boolEnv(true),
   BCRYPT_ROUNDS: z.coerce.number().min(10).default(12),
+  // RATE_LIMIT_TTL is expressed in SECONDS (default 60). @nestjs/throttler v6
+  // converts via the `seconds()` helper in app.module.ts.
   RATE_LIMIT_TTL: z.coerce.number().default(60),
   RATE_LIMIT_LIMIT: z.coerce.number().default(120),
+  // Cloudflare Turnstile. Optional: when TURNSTILE_SECRET_KEY is unset the
+  // auth endpoints do not enforce a captcha (dev/test). When set, /auth/login
+  // and /auth/register require a valid token and reject bots with 403.
+  TURNSTILE_SECRET_KEY: z.string().optional(),
   REDIS_URL: z.string().url().optional().default(''),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),

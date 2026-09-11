@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Throttle } from '@nestjs/throttler';
+import { Throttle, minutes, seconds } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
@@ -32,7 +32,7 @@ export class AuthController {
   ) {}
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 3, ttl: minutes(60) } })
   @Post('register')
   async register(
     @Body() dto: RegisterDto,
@@ -46,7 +46,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
   @Post('login')
   async login(
     @Body() dto: LoginDto,
@@ -60,7 +60,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Throttle({ default: { limit: 20, ttl: seconds(60) } })
   @Post('refresh')
   async refresh(
     @Body() dto: RefreshTokenDto,
@@ -84,18 +84,21 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: minutes(60) } })
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.forgotPassword(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: minutes(60) } })
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto);
   }
 
   @Public()
+  @Throttle({ default: { limit: 10, ttl: minutes(60) } })
   @Post('verify-email')
   async verifyEmail(@Body() dto: VerifyEmailDto) {
     return this.auth.verifyEmail(dto);
@@ -114,7 +117,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth()
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 5, ttl: minutes(60) } })
   @Post('change-password')
   async changePassword(@CurrentUser() currentUser: AuthenticatedUser, @Body() dto: ChangePasswordDto) {
     return this.auth.changePassword(currentUser.sub, dto);

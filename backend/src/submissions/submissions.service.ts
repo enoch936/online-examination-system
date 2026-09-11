@@ -207,6 +207,24 @@ export class SubmissionsService implements OnModuleInit {
       include: { result: true },
     });
 
+    void this.prisma.auditLog
+      .create({
+        data: {
+          actorId: session.studentId,
+          action: 'EXAM_SUBMITTED',
+          entity: 'SUBMISSION',
+          entityId: submission.id,
+          after: JSON.stringify({
+            examId: session.examId,
+            sessionId: session.id,
+            autoSubmitted,
+            score: finalScore,
+            status,
+          }),
+        },
+      })
+      .catch(() => undefined);
+
     await this.prisma.examSession.update({
       where: { id: session.id },
       data: {
