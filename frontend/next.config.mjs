@@ -46,7 +46,13 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()' },
+          // NOTE: Permissions-Policy is NOT set here. It is emitted per-route in
+          // proxy.ts because Permissions-Policy header values cannot target URL
+          // paths — the proctoring pages (/student/exams/...) need
+          // camera=(self), microphone=(self) while every other page must be
+          // fully denied. Emitting both here and in the proxy could produce two
+          // Permissions-Policy headers that browsers intersect, killing camera
+          // access even on the proctoring routes.
         ],
       },
     ];

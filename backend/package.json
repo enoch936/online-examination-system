@@ -42,6 +42,7 @@
     "class-validator": "latest",
     "cookie-parser": "latest",
     "exceljs": "latest",
+    "express-rate-limit": "^8.7.0",
     "helmet": "latest",
     "ioredis": "^6.0.0",
     "passport": "latest",

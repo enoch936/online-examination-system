@@ -48,6 +48,19 @@ const socketOrigins = [
 
 const turnstileSrc = 'https://challenges.cloudflare.com';
 
+// Proctoring is a real feature: the exam-taking flow under /student/exams/
+// (take/resume pages) uses the webcam + microphone for face/audio monitoring.
+// Permissions-Policy cannot restrict camera/mic by URL path inside the header
+// value, so the header is emitted per-route here: globally denied, allowed only
+// on the proctoring route prefix. proctoring the whole route group is fine
+// because the camera never runs outside of the exam flow.
+function permissionsPolicyHeader(pathname: string): string {
+  const proctoringAllowed = pathname.startsWith('/student/exams/');
+  return proctoringAllowed
+    ? 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()'
+    : 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+}
+
 // Next.js injects an inline bootstrap script per request; the per-request nonce
 // in the x-nonce header is auto-applied by Next to its own inline scripts, so no
 // 'unsafe-inline'/'unsafe-eval' is needed in production. style-src keeps
@@ -106,6 +119,7 @@ export function proxy(request: NextRequest) {
     loginUrl.searchParams.set('redirect', pathname);
     const response = NextResponse.redirect(loginUrl);
     response.headers.set('Content-Security-Policy', buildCsp(randomNonce()));
+    response.headers.set('Permissions-Policy', permissionsPolicyHeader(pathname));
     return response;
   }
 
@@ -117,6 +131,7 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('Content-Security-Policy', buildCsp(nonce));
+  response.headers.set('Permissions-Policy', permissionsPolicyHeader(pathname));
   return response;
 }
 

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Throttle, minutes, seconds } from '@nestjs/throttler';
+import { SkipThrottle, Throttle, minutes, seconds } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
@@ -46,7 +46,7 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: minutes(15) } })
+  @SkipThrottle()
   @Post('login')
   async login(
     @Body() dto: LoginDto,

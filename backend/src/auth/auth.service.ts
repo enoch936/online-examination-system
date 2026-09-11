@@ -177,7 +177,7 @@ export class AuthService {
       const stored = await this.prisma.refreshToken.findUnique({ where: { jti: payload.jti } });
 
       if (!stored) {
-        throw new UnauthorizedException('Refresh token not found');
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
       if (stored.revokedAt) {
@@ -186,16 +186,16 @@ export class AuthService {
           where: { userId: payload.sub, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        throw new UnauthorizedException('Refresh token has been revoked; all sessions invalidated');
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
       if (stored.expiresAt < new Date()) {
-        throw new UnauthorizedException('Refresh token has expired');
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
       const matches = await bcrypt.compare(refreshToken, stored.tokenHash);
       if (!matches) {
-        throw new UnauthorizedException('Refresh token mismatch');
+        throw new UnauthorizedException('Invalid refresh token');
       }
 
       await this.prisma.refreshToken.update({
@@ -217,19 +217,19 @@ export class AuthService {
     }
   }
 
-  async forgotPassword(dto: ForgotPasswordDto) {
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {
     const email = normalizeEmail(dto.email);
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      // Consume bcrypt time so unknown emails are not distinguishable by timing.
-      await bcrypt.compare('timing-equalizer-dummy', DUMMY_BCRYPT_HASH);
-      return { sent: true };
-    }
+    // Identical work whether or not the account exists: the lookup above, a
+    // full bcrypt compare against the real hash or an equal-cost dummy, and a
+    // reset-token signature (discarded for unknown emails). No branch returns
+    // early and nothing observable differs between the two outcomes.
+    await bcrypt.compare('timing-equalizer-dummy', user?.passwordHash ?? DUMMY_BCRYPT_HASH);
     await this.jwt.signAsync(
-      { sub: user.id, type: 'reset' },
+      { sub: user?.id ?? randomUUID(), type: 'reset' },
       { secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'), expiresIn: '15m' },
     );
-    return { sent: true };
+    return { message: 'If the account exists, a reset email was sent.' };
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ changed: true }> {
@@ -399,7 +399,7 @@ export class AuthService {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
       });
       if (payload.type !== 'verify') {
-        throw new UnauthorizedException('Invalid verification token');
+        throw new UnauthorizedException('Invalid or expired verification token');
       }
       await this.prisma.user.update({
         where: { id: payload.sub },
