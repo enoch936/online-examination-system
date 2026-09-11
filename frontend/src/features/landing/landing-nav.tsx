@@ -41,7 +41,7 @@ export function LandingNav() {
   }, []);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-5 sm:pt-4">
+    <header className="fixed inset-x-0 top-0 z-50 px-3 sm:px-5">
       {/* Scroll progress hairline */}
       {!reduce && (
         <motion.div

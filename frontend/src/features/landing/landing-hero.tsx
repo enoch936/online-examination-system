@@ -353,7 +353,7 @@ export function LandingHero() {
     <section
       ref={ref}
       id="home"
-      className="relative overflow-hidden pb-24 pt-20 lg:pt-[5.1875rem] md:pb-32"
+      className="relative overflow-hidden pb-24 pt-[4.1875rem] md:pb-32"
       onMouseMove={(e) => {
         if (reduce) return;
         const rect = e.currentTarget.getBoundingClientRect();
