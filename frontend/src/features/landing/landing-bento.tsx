@@ -3,7 +3,6 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock, CheckCircle2 } from 'lucide-react';
 import { Reveal, SectionHeader, SectionReveal, TiltCard, Parallax, useRevealGate } from './landing-primitives';
-import { NetworkOrb } from './landing-art';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -201,7 +200,6 @@ export function BentoSection() {
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={150} className="absolute -right-24 top-16 h-80 w-80 rounded-full bg-primary/15 blur-3xl" />
         <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
-        <NetworkOrb className="absolute right-10 top-32 hidden h-40 w-44 text-primary/35 md:block" />
       </div>
 
       <div className="mx-auto max-w-6xl px-5 sm:px-6">

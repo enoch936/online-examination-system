@@ -27,7 +27,6 @@ import {
 import { TypingText, TypeLoop, ScrambleText, MaskedReveal, WrapUpText, MOTION } from './landing-primitives';
 import { TypeCycler } from './landing-typewriter';
 import { OrbitObjects, Pencil, Book, TimerObject, Webcam, Certificate } from './landing-objects';
-import { NetworkOrb } from './landing-art';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -371,7 +370,6 @@ export function LandingHero() {
         />
         <div className="absolute right-[-6%] top-40 h-64 w-64 rounded-full bg-gold/10 blur-3xl" />
         <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
-        <NetworkOrb className="absolute bottom-10 left-0 hidden h-40 w-44 text-primary/30 md:block" />
       </div>
 
       <div className="mx-auto grid max-w-6xl gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-8">

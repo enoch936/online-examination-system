@@ -1,5 +1,6 @@
 import { LandingNav } from './landing-nav';
 import { LandingHero } from './landing-hero';
+import { PlatformStats } from './landing-stats';
 import { CapabilitiesStrip, BentoSection } from './landing-bento';
 import { LandingInterlude } from './landing-interlude';
 import { LifecycleSection } from './landing-lifecycle';
@@ -16,6 +17,7 @@ export function LandingPage() {
       <LandingNav />
       <main>
         <LandingHero />
+        <PlatformStats />
         <CapabilitiesStrip />
         <BentoSection />
         <LandingInterlude />
