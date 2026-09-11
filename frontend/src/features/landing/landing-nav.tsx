@@ -41,7 +41,7 @@ export function LandingNav() {
   }, []);
 
   return (
-    <header className="fixed inset-x-0 top-0 z-50 px-3 sm:px-5">
+    <header className="fixed inset-x-0 top-0 z-50">
       {/* Scroll progress hairline */}
       {!reduce && (
         <motion.div
@@ -55,7 +55,7 @@ export function LandingNav() {
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className={cn(
-          'mx-auto flex max-w-6xl items-center justify-between gap-4 rounded-2xl border px-4 transition-all duration-300',
+          'flex w-full items-center justify-between gap-4 rounded-none border px-4 transition-all duration-300',
           scrolled
             ? 'border-border/60 bg-background/75 py-2 shadow-lg shadow-black/5 backdrop-blur-xl dark:shadow-white/5'
             : 'border-transparent bg-transparent py-3',
