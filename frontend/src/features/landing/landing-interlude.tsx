@@ -50,7 +50,7 @@ export function LandingInterlude() {
             </h2>
           </Reveal>
           <Reveal style="none" delay={0.1}>
-            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+            <p className="max-w-none text-sm leading-relaxed text-muted-foreground">
               From the first click to the final certificate, every moment of an exam is covered on a single
               live surface.
             </p>

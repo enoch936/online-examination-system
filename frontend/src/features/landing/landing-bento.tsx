@@ -144,7 +144,7 @@ export function CapabilitiesStrip() {
               <h2 className="mt-5 text-[1.7rem] font-semibold leading-[1.15] tracking-tight text-foreground sm:text-3xl">
                 Six capabilities, one live surface
               </h2>
-              <p className="mt-4 max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">
+              <p className="mt-4 max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">
                 Everything an exam needs runs together during every session — from proctoring to grading —
                 connected by a single real-time state.
               </p>

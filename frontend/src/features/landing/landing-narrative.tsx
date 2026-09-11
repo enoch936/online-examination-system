@@ -124,7 +124,7 @@ export function NarrativeSection() {
       </div>
 
       <div className="w-full">
-        <div className="max-w-2xl">
+        <div className="max-w-none">
           <Reveal style="none">
             <span className="eyebrow">
               <span className="eyebrow-dot-gold" />

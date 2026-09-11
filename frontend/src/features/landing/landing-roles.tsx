@@ -414,7 +414,7 @@ export function RolesSection() {
         </div>
 
         {/* Active role — copy */}
-        <div className="mx-auto mt-14 max-w-xl text-center">
+        <div className="mx-auto mt-14 max-w-none text-center">
           <AnimatePresence mode="wait">
             <motion.div
               key={role.id}
@@ -433,7 +433,7 @@ export function RolesSection() {
               <h3 className="mt-5 text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-[1.7rem]">
                 {role.title}
               </h3>
-              <p className="mx-auto mt-3 max-w-lg text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
+              <p className="mx-auto mt-3 max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
               <ul className="mt-6 flex flex-wrap justify-center gap-2">
                 {role.points.map((p) => (
                   <li

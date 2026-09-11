@@ -619,7 +619,7 @@ export function SectionHeader({
     <Reveal
       style={reveal}
       className={cn(
-        'max-w-2xl',
+        'max-w-none',
         align === 'center' ? 'mx-auto text-center' : align === 'right' ? 'ml-auto text-right' : 'text-left',
         className,
       )}

@@ -167,16 +167,16 @@ export function CTASection() {
             <div className="h-full w-full rounded-3xl bg-background/60 backdrop-blur-xl" />
           </motion.div>
 
-          <div className="glass-edge flex flex-col items-center gap-6 px-6 py-16 text-center sm:px-12 sm:py-20">
+          <div className="glass-edge flex flex-col items-center gap-6 px-0 py-16 text-center sm:py-20">
             <span className="eyebrow">
               <span className="eyebrow-dot-gold" />
               Get started
             </span>
-            <h2 className="max-w-2xl text-[1.9rem] font-semibold leading-[1.12] tracking-tight text-foreground sm:text-[2.4rem]">
+            <h2 className="max-w-none text-[1.9rem] font-semibold leading-[1.12] tracking-tight text-foreground sm:text-[2.4rem]">
               Run your next exam{' '}
               <span className="text-gold-gradient">with confidence.</span>
             </h2>
-            <p className="max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">
+            <p className="max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">
               Create, schedule, monitor, and grade in one surface — no complex deployment required.
             </p>
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3">

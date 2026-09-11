@@ -374,7 +374,7 @@ export function LandingHero() {
 
       <div className="grid w-full gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-8">
         {/* LEFT — message */}
-        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-xl">
+        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-none">
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -397,7 +397,7 @@ export function LandingHero() {
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: MOTION.normal, delay: 0.25, ease: MOTION.ease }}
-            className="mt-5 max-w-md text-[0.98rem] leading-relaxed text-muted-foreground"
+            className="mt-5 max-w-none text-[0.98rem] leading-relaxed text-muted-foreground"
           >
             A secure platform for <TypeCycler words={['students', 'instructors', 'administrators', 'proctors']} /> —
             from exam creation to live proctoring and instant results.
