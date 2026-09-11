@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Ip, Param, Patch, Post, Req, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle, Throttle, minutes, seconds } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -85,6 +85,7 @@ export class AuthController {
 
   @Public()
   @Throttle({ default: { limit: 3, ttl: minutes(60) } })
+  @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.forgotPassword(dto);
