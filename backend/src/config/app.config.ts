@@ -46,6 +46,11 @@ const schema = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
+  // Proctoring signal service. The backend is the ONLY caller of /analyze and
+  // /audio (the browser goes through the authenticated API); PROCTORING_API_KEY
+  // is the shared secret required in production.
+  PROCTORING_URL: z.string().url().optional().default('http://127.0.0.1:8000'),
+  PROCTORING_API_KEY: z.string().optional(),
   // Initial SUPER_ADMIN bootstrap credentials (optional here). They are read
   // ONLY on the server side by SuperAdminBootstrapService when no SUPER_ADMIN
   // exists yet. Empty values are treated as unset so a dev .env without them

@@ -3,22 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSocket } from '@/services/socket.service';
 import { getIceServers } from '@/services/webrtc';
+import { api } from '@/services/api';
+import type { ApiEnvelope } from '@/types/api';
 
 type ProctoringStatus = 'idle' | 'starting' | 'active' | 'denied' | 'error';
 
 export type { ProctoringStatus };
-
-function resolveProctoringBase(): { url: string; configured: boolean } {
-  const raw = process.env.NEXT_PUBLIC_PROCTORING_URL;
-  const value = raw?.trim().replace(/\/$/, '') ?? '';
-  return { url: value || 'http://127.0.0.1:8000', configured: value.length > 0 };
-}
-
-function isLoopbackHost(): boolean {
-  if (typeof window === 'undefined') return true;
-  const { hostname } = window.location;
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-}
 
 function waitForSocketConnect(timeoutMs = 5000): Promise<void> {
   const socket = getSocket();
@@ -215,13 +205,6 @@ export function useProctoring(input: {
       stopAll();
       return;
     }
-    const { url: proctoringBase, configured: proctoringConfigured } = resolveProctoringBase();
-    if (!proctoringConfigured && !isLoopbackHost()) {
-      stopAll();
-      setStatus('error');
-      setError('Proctoring service is not configured for this environment (set NEXT_PUBLIC_PROCTORING_URL)');
-      return;
-    }
     let cancelled = false;
 
     const start = async () => {
@@ -283,12 +266,17 @@ export function useProctoring(input: {
             try {
               const fd = new FormData();
               fd.append('file', blob, 'frame.jpg');
-              const res = await fetch(
-                `${proctoringBase}/analyze?session_id=${encodeURIComponent(sessionId)}`,
-                { method: 'POST', body: fd },
-              );
-              if (!res.ok) return;
-              const data = await res.json();
+              fd.append('sessionId', sessionId);
+              // Analyzer access is proxied through the authenticated API so the
+              // backend can verify session ownership before forwarding the frame.
+              const res = await api.post<ApiEnvelope<{
+                multipleFaces: boolean;
+                faceDetected: boolean;
+                confidence: number;
+                motionDetected: boolean;
+                motionScore: number;
+              }>>('/monitoring/analyze', fd, { headers: { 'Content-Type': undefined } });
+              const data = res.data.data;
               if (!data) return;
               const faceSignal = data.multipleFaces
                 ? 'multiple'
@@ -323,17 +311,12 @@ export function useProctoring(input: {
           for (let i = 0; i < data.length; i++) sum += data[i];
           const rms = sum / data.length;
           try {
-            const res = await fetch(
-              `${proctoringBase}/audio`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId, rms }),
-              },
-            );
-            if (!res.ok) return;
-            const dataRes = await res.json();
-            const active = !!dataRes.audioActivity;
+            const res = await api.post<ApiEnvelope<{ audioActivity: boolean }>>('/monitoring/audio', {
+              sessionId,
+              rms,
+            });
+            if (!res.data.data) return;
+            const active = !!res.data.data.audioActivity;
             if (active !== lastAudioRef.current) {
               lastAudioRef.current = active;
               if (active) emitSignal('AUDIO_ACTIVITY', { rms });

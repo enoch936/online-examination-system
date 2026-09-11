@@ -15,15 +15,13 @@ export type ProctorControl =
 export function useExamMonitoring(input: {
   examId: string;
   sessionId: string;
-  remainingSeconds: number;
+  remainingSeconds?: number;
   onControl?: (control: ProctorControl) => void;
   restrictions?: { disableCopy?: boolean; disablePaste?: boolean } | null;
 }) {
-  const { examId, sessionId, remainingSeconds, onControl, restrictions } = input;
+  const { examId, sessionId, onControl, restrictions } = input;
   const onControlRef = useRef(onControl);
   onControlRef.current = onControl;
-  const remainingRef = useRef(remainingSeconds);
-  remainingRef.current = remainingSeconds;
   const restrictionsRef = useRef(restrictions);
   restrictionsRef.current = restrictions;
 
@@ -59,7 +57,9 @@ export function useExamMonitoring(input: {
     joinSession();
 
     const heartbeat = window.setInterval(() => {
-      socket.emit('exam:heartbeat', { sessionId, remainingSeconds: remainingRef.current });
+      // remainingSeconds is intentionally not sent: the server derives it
+      // authoritatively from expiresAt/duration.
+      socket.emit('exam:heartbeat', { sessionId });
     }, 10000);
 
     const onControl = (control: ProctorControl) => onControlRef.current?.(control);

@@ -17,10 +17,14 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient, RedisClientType } from 'redis';
 import { MonitoringService, STUDENT_GENERATED_EVENTS } from '../monitoring/monitoring.service';
 import { parseOrigins } from '../config/app.config';
+import { PrismaService } from '../prisma/prisma.service';
 
 const MAX_CONNECTIONS_PER_USER = 5;
 const MAX_TOTAL_CONNECTIONS = 50000;
 const RATE_LIMIT_CLEANUP_INTERVAL_MS = 60_000;
+const MAX_SDP_BYTES = 128_000;
+const MAX_CANDIDATE_BYTES = 16_000;
+const MAX_MANUAL_FLAG_MESSAGE_LENGTH = 500;
 
 interface SocketUser {
   sub: string;
@@ -36,6 +40,25 @@ const CORS_ORIGINS = parseOrigins(process.env.CORS_ORIGIN ?? process.env.FRONTEN
 
 function isValidId(value: unknown, max = 64): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= max && !/\s/.test(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function estimatedBytes(value: unknown): number {
+  try {
+    return JSON.stringify(value).length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+/** Bound the size/shape of client-supplied event metadata (8 KiB, plain object). */
+function sanitizeEventMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (!isPlainObject(value)) return undefined;
+  if (estimatedBytes(value) > 8_000) return undefined;
+  return value;
 }
 
 @Injectable()
@@ -66,6 +89,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     @Inject(forwardRef(() => MonitoringService)) private readonly monitoring: MonitoringService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async afterInit(server: Server) {
@@ -80,15 +104,41 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       console.warn('Socket.IO: Redis adapter failed, running single-process mode:', (err as Error).message);
     }
 
-    server.use((socket, next) => {
+    server.use(async (socket, next) => {
       const token = this.extractToken(socket);
       if (!token) {
         next(new Error('unauthorized'));
         return;
       }
+      let payload: SocketUser;
       try {
-        const payload = this.jwt.verify(token) as SocketUser;
-        socket.data.user = { sub: payload.sub, email: payload.email, roles: payload.roles ?? [] };
+        payload = this.jwt.verify(token) as SocketUser;
+      } catch {
+        next(new Error('unauthorized'));
+        return;
+      }
+      // Mirror JwtStrategy: re-resolve the account and its current roles from
+      // the database on every connection, so suspended/demoted users are
+      // rejected immediately instead of using stale (privileged) claims.
+      try {
+        const user = await this.prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: {
+            id: true,
+            email: true,
+            status: true,
+            roles: { select: { role: { select: { name: true } } } },
+          },
+        });
+        if (!user || user.status !== 'ACTIVE') {
+          next(new Error('unauthorized'));
+          return;
+        }
+        socket.data.user = {
+          sub: user.id,
+          email: user.email,
+          roles: user.roles.map((userRole) => userRole.role.name),
+        };
         next();
       } catch {
         next(new Error('unauthorized'));
@@ -160,12 +210,26 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       else this.userConnections.set(user.sub, count);
     }
 
+    // socketSessions only tracks sessions where this socket was the OWNER (see
+    // joinExam), so monitor sockets never corrupt a student's state here.
     const sessions = this.socketSessions.get(client.id);
     if (sessions) {
-      for (const sessionId of sessions) {
-        void this.monitoring.setConnection(sessionId, 'DISCONNECTED', 'socket disconnected');
-      }
       this.socketSessions.delete(client.id);
+      for (const sessionId of sessions) {
+        // A user may legitimately hold the same session from another tab/socket
+        // (or reconnect before this disconnect processes). Only mark the session
+        // DISCONNECTED when no other live socket of the same owner is still in
+        // the session room.
+        const room = this.server.sockets.adapter.rooms.get(`session:${sessionId}`);
+        const hasOtherOwnerSocket =
+          !!room && [...room].some((socketId) => {
+            if (socketId === client.id) return false;
+            return this.server.sockets.sockets.get(socketId)?.data.user?.sub === user?.sub;
+          });
+        if (!hasOtherOwnerSocket) {
+          void this.monitoring.setConnection(sessionId, 'DISCONNECTED', 'socket disconnected');
+        }
+      }
     }
   }
 
@@ -192,6 +256,35 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     return MONITOR_ROLES.some((role) => roles.includes(role));
   }
 
+  /**
+   * Resolve a caller's relationship to an exam session. Returns null when the
+   * user has no rights; otherwise whether they own the session and/or may
+   * monitor its exam.
+   */
+  private async sessionAccess(
+    sessionId: string,
+    user: SocketUser,
+  ): Promise<{ examId: string; owner: boolean; canMonitor: boolean } | null> {
+    if (!isValidId(sessionId)) return null;
+    const access = await this.monitoring.assertSessionAccess(sessionId, user.sub, user.roles);
+    if (!access) return null;
+    const canMonitor = this.isMonitor(user)
+      ? await this.monitoring.assertCanMonitorExam(access.examId, {
+          sub: user.sub,
+          roles: user.roles,
+          permissions: [],
+          email: user.email,
+        })
+      : false;
+    return { examId: access.examId, owner: access.studentId === user.sub, canMonitor };
+  }
+
+  /** Whether a live socket with the given id is a member of `room`. */
+  private isRoomMember(socketId: string, room: string): boolean {
+    const roomSet = this.server.sockets.adapter.rooms.get(room);
+    return !!roomSet && roomSet.has(socketId);
+  }
+
   @SubscribeMessage('notifications:subscribe')
   subscribeNotifications(@MessageBody() body: { userId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
@@ -212,7 +305,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     // Authorization: only the session owner (or staff who can monitor the exam)
     // may join a session room — joining also flips connection state, so an
     // unauthorized join would corrupt another student's live status.
-    if (!user || !isValidId(body?.sessionId)) return { denied: true };
+    if (!user || this.isRateLimited(client, `${user.sub}:join`, 30) || !isValidId(body?.sessionId)) {
+      return { denied: true };
+    }
     const access = await this.monitoring.assertSessionAccess(body.sessionId, user.sub, user.roles);
     if (!access) return { denied: true };
     if (await this.isMonitorRole(user.roles)) {
@@ -225,9 +320,13 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       if (!canMonitor) return { denied: true };
     }
     client.join(`session:${body.sessionId}`);
-    const sessions = this.socketSessions.get(client.id) ?? new Set<string>();
-    sessions.add(body.sessionId);
-    this.socketSessions.set(client.id, sessions);
+    // Only the session OWNER is tracked for disconnect handling — monitor
+    // observers joining the room must never trigger a DISCONNECTED write.
+    if (access.studentId === user.sub) {
+      const sessions = this.socketSessions.get(client.id) ?? new Set<string>();
+      sessions.add(body.sessionId);
+      this.socketSessions.set(client.id, sessions);
+    }
     void this.monitoring.setConnection(body.sessionId, 'CONNECTED', 'socket joined');
     return { joined: body.sessionId };
   }
@@ -235,7 +334,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   @SubscribeMessage('monitor:join')
   async joinMonitor(@MessageBody() body: { examId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
-    if (!this.isMonitor(user) || !isValidId(body?.examId)) return { denied: true };
+    if (!this.isMonitor(user) || this.isRateLimited(client, `${user!.sub}:join`, 30) || !isValidId(body?.examId)) {
+      return { denied: true };
+    }
     // Authorization: monitors may only join exam rooms they can actually monitor.
     const canMonitor = await this.monitoring.assertCanMonitorExam(body.examId, {
       sub: user!.sub,
@@ -250,14 +351,15 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   @SubscribeMessage('exam:heartbeat')
   heartbeat(
-    @MessageBody() body: { sessionId: string; remainingSeconds?: number; currentQuestionId?: string; currentQuestionIndex?: number },
+    @MessageBody() body: { sessionId: string; currentQuestionId?: string; currentQuestionIndex?: number },
     @ConnectedSocket() client: Socket,
   ) {
     const user = this.getUser(client);
     if (!user || this.isRateLimited(client, `${user.sub}:hb`, 60)) return { ok: false };
     if (!isValidId(body?.sessionId)) return { ok: false };
+    // remainingSeconds is intentionally NOT accepted from the client and is
+    // computed server-side from expiresAt/duration in MonitoringService.
     void this.monitoring.recordHeartbeat(body.sessionId, {
-      remainingSeconds: typeof body.remainingSeconds === 'number' && Number.isFinite(body.remainingSeconds) ? Math.max(0, Math.floor(body.remainingSeconds)) : undefined,
       currentQuestionId: isValidId(body.currentQuestionId) ? body.currentQuestionId : undefined,
       currentQuestionIndex: typeof body.currentQuestionIndex === 'number' && Number.isInteger(body.currentQuestionIndex) ? body.currentQuestionIndex : undefined,
       studentId: user.sub,
@@ -295,12 +397,17 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     if (!isValidId(body?.sessionId) || !STUDENT_GENERATED_EVENTS.has(body.type as ExamEventType)) {
       return { ok: false };
     }
+    let metadata: Record<string, unknown> | undefined = sanitizeEventMetadata(body.metadata);
+    if (metadata && body.type === ExamEventType.MANUAL_FLAG) {
+      const message = metadata.message;
+      metadata = typeof message === 'string' && message.length <= MAX_MANUAL_FLAG_MESSAGE_LENGTH ? { message } : {};
+    }
     void this.monitoring
       .recordEvent({
         sessionId: body.sessionId,
         studentId: user.sub,
         type: body.type as ExamEventType,
-        metadata: body.metadata,
+        metadata,
         riskScore: typeof body.riskScore === 'number' && Number.isFinite(body.riskScore) ? body.riskScore : undefined,
         asStudent: true,
       })
@@ -311,14 +418,18 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   @SubscribeMessage('proctoring:offer')
   async offer(@MessageBody() body: { sessionId: string; examId: string; offer: unknown }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
-    // Only the session owner may publish their webcam offer to monitors.
+    const access = user ? await this.sessionAccess(body?.sessionId, user) : null;
+    // Only the session OWNER may publish their webcam offer, and the declared
+    // examId must match the session's exam.
     if (
       !user ||
-      !isValidId(body?.sessionId) ||
+      this.isRateLimited(client, `${user.sub}:offer`, 30) ||
+      !access ||
+      !access.owner ||
       !isValidId(body.examId) ||
-      body.offer === null ||
-      typeof body.offer !== 'object' ||
-      !(await this.monitoring.assertSessionAccess(body.sessionId, user.sub, user.roles))
+      access.examId !== body.examId ||
+      !isPlainObject(body.offer) ||
+      estimatedBytes(body.offer) > MAX_SDP_BYTES
     ) {
       return { ok: false };
     }
@@ -333,13 +444,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   @SubscribeMessage('proctoring:answer')
-  answer(
+  async answer(
     @MessageBody() body: { sessionId: string; answer: unknown; peerSocketId: string },
     @ConnectedSocket() client: Socket,
   ) {
     const user = this.getUser(client);
-    // SDP answers are only ever sent by proctors back to students.
-    if (!this.isMonitor(user) || !isValidId(body?.sessionId) || !isValidId(body.peerSocketId) || body.answer === null || typeof body.answer !== 'object') {
+    const access = user ? await this.sessionAccess(body?.sessionId, user) : null;
+    // SDP answers are only sent by proctors of THIS exam back to the session's
+    // student. The target socket must be a live member of the session room, so
+    // unrelated staff cannot inject answers into another exam's WebRTC plane.
+    if (
+      !user ||
+      this.isRateLimited(client, `${user.sub}:answ`, 30) ||
+      !access ||
+      !access.canMonitor ||
+      !isValidId(body.peerSocketId) ||
+      !this.isRoomMember(body.peerSocketId, `session:${body.sessionId}`) ||
+      !isPlainObject(body.answer) ||
+      estimatedBytes(body.answer) > MAX_SDP_BYTES
+    ) {
       return { ok: false };
     }
     this.server.to(`peer:${body.peerSocketId}`).emit('proctoring:answer', {
@@ -351,10 +474,26 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   }
 
   @SubscribeMessage('proctoring:ice')
-  ice(@MessageBody() body: { sessionId: string; candidate: unknown; peerSocketId: string }, @ConnectedSocket() client: Socket) {
+  async ice(@MessageBody() body: { sessionId: string; candidate: unknown; peerSocketId: string }, @ConnectedSocket() client: Socket) {
     const user = this.getUser(client);
-    if (!user || this.isRateLimited(client, `ice:${client.id}`, 120)) return { ok: false };
-    if (!isValidId(body?.sessionId) || !isValidId(body.peerSocketId) || body.candidate === null || typeof body.candidate !== 'object') {
+    const access = user ? await this.sessionAccess(body?.sessionId, user) : null;
+    if (
+      !user ||
+      this.isRateLimited(client, `ice:${client.id}`, 120) ||
+      !access ||
+      !isValidId(body.peerSocketId) ||
+      !isPlainObject(body.candidate) ||
+      estimatedBytes(body.candidate) > MAX_CANDIDATE_BYTES
+    ) {
+      return { ok: false };
+    }
+    if (access.owner) {
+      // Student relays ICE only to proctors of their exam (live, in the monitor room).
+      if (!this.isRoomMember(body.peerSocketId, `monitor:${access.examId}`)) return { ok: false };
+    } else if (access.canMonitor) {
+      // Proctor relays ICE only to the session's own student.
+      if (!this.isRoomMember(body.peerSocketId, `session:${body.sessionId}`)) return { ok: false };
+    } else {
       return { ok: false };
     }
     this.server.to(`peer:${body.peerSocketId}`).emit('proctoring:ice', {

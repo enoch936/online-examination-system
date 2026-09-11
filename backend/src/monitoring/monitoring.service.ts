@@ -486,17 +486,30 @@ export class MonitoringService {
 
   async recordHeartbeat(
     sessionId: string,
-    payload: { remainingSeconds?: number; currentQuestionId?: string; currentQuestionIndex?: number; studentId?: string },
+    payload: { currentQuestionId?: string; currentQuestionIndex?: number; studentId?: string },
   ) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
       include: {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
-        exam: { select: { id: true, status: true } },
+        exam: { select: { id: true, status: true, durationMinutes: true } },
       },
     });
     if (!session) return null;
     if (payload.studentId && session.studentId !== payload.studentId) return null;
+
+    // remainingSeconds is ALWAYS derived server-side; the client's reported
+    // value is never trusted (the REST extend action keeps expiresAt in sync).
+    const nowMs = Date.now();
+    let remainingSeconds: number | undefined;
+    if (session.expiresAt) {
+      remainingSeconds = Math.max(0, Math.floor((session.expiresAt.getTime() - nowMs) / 1000));
+    } else if (session.startedAt && session.exam.durationMinutes) {
+      remainingSeconds = Math.max(
+        0,
+        Math.floor((session.startedAt.getTime() + session.exam.durationMinutes * 60_000 - nowMs) / 1000),
+      );
+    }
 
     await this.prisma.examSession.update({
       where: { id: sessionId },
@@ -505,7 +518,7 @@ export class MonitoringService {
         heartbeatCount: { increment: 1 },
         lastActivityAt: new Date(),
         connectionState: 'CONNECTED',
-        remainingSeconds: payload.remainingSeconds ?? session.remainingSeconds,
+        remainingSeconds: remainingSeconds ?? session.remainingSeconds,
         currentQuestionId: payload.currentQuestionId ?? session.currentQuestionId,
         currentQuestionIndex: payload.currentQuestionIndex ?? session.currentQuestionIndex,
       },

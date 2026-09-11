@@ -64,6 +64,15 @@ services:
         value: "60"
       - key: RATE_LIMIT_LIMIT
         value: "120"
+      # Proctoring analyzer. Browser clients call /monitoring/analyze and
+      # /monitoring/audio on THIS backend, which verifies session ownership and
+      # forwards the request to the trusted proctoring URL using PROCTORING_API_KEY.
+      # Set PROCTORING_URL and the matching PROCTORING_API_KEY on the
+      # oes-proctoring service below.
+      - key: PROCTORING_URL
+        value: https://oes-proctoring.onrender.com
+      - key: PROCTORING_API_KEY
+        sync: false
       # Web Push (VAPID). Enables the browser-notification pipeline
       # (GET /push/vapid-key + POST /push/subscriptions). All three must be
       # present or PushService stays disabled (vapid-key returns null).
@@ -105,7 +114,9 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: ALLOWED_ORIGINS
-        sync: false          # e.g. https://oes.vercel.app
+        sync: false          # e.g. https://oes.vercel.app (browser never calls this service directly; keep it private)
+      - key: PROCTORING_API_KEY
+        sync: false          # Secret, must match oes-backend PROCTORING_API_KEY. When set, /analyze and /audio reject unauthenticated callers.
 
 # The Next.js frontend deploys on Vercel (Root Directory: frontend):
 #   Build Command: cd .. && corepack enable && pnpm install --frozen-lockfile && pnpm --filter frontend build
@@ -113,4 +124,5 @@ services:
 # Env vars (set BEFORE building - they are inlined into the bundle):
 #   NEXT_PUBLIC_API_URL       https://<oes-backend>.onrender.com/api/v1
 #   NEXT_PUBLIC_SOCKET_URL    https://<oes-backend>.onrender.com/realtime
-#   NEXT_PUBLIC_PROCTORING_URL https://<oes-proctoring>.onrender.com
+# (Analyzer frames/audio now travel through the authenticated API proxy, so
+#  NEXT_PUBLIC_PROCTORING_URL is no longer required by the frontend.)
