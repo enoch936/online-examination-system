@@ -104,7 +104,10 @@ function isExpiredToken(token: string): boolean {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isPublic = pathname === '/sw.js' || publicPaths.some((p) => pathname.startsWith(p));
+  // "/" must match exactly — startsWith("/") is true for EVERY path, which
+  // previously made every route public and silently disabled the redirect gate.
+  const isPublic =
+    pathname === '/sw.js' || publicPaths.some((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p)));
 
   // httpOnly cookies set by the backend (readable server-side). Access token
   // validates freshness; a present refresh token lets the client restore the
