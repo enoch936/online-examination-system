@@ -51,12 +51,12 @@ export function PlatformStats() {
   const stats = usePublicStats();
 
   return (
-    <section aria-label="Live platform statistics" className="relative isolate py-10 md:py-12">
+    <section aria-label="Live platform statistics" className="relative isolate pb-10 md:pb-12">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border/80 to-transparent" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <div className="glass-edge grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl sm:grid-cols-4">
           {METRICS.map(({ key, label, icon: Icon }) => {
             const value = stats?.[key];

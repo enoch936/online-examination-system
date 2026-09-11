@@ -63,7 +63,7 @@ export function CapabilitiesStrip() {
         <Parallax speed={60} className="absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 py-16 sm:px-6 md:py-20">
+      <div className="w-full pb-16 md:pb-20">
         <div className="grid items-center gap-14 lg:grid-cols-[minmax(0,26rem)_1fr] lg:gap-20">
           {/* Left — circular capability cluster with overlay */}
           <div className="relative mx-auto h-[19rem] w-[19rem] sm:h-[21rem] sm:w-[21rem]">
@@ -196,13 +196,13 @@ function MiniBars() {
 
 export function BentoSection() {
   return (
-    <SectionReveal id="product" mode="expand-in" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="product" mode="expand-in" className="relative isolate pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={150} className="absolute -right-24 top-16 h-80 w-80 rounded-full bg-primary/15 blur-3xl" />
         <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           align="left"
           reveal="blur"

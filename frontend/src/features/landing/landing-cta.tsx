@@ -50,14 +50,14 @@ export function SecuritySection() {
     <SectionReveal
       id="security"
       mode="rise-impact"
-      className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
+      className="relative isolate border-y border-border/60 bg-card/20 pb-20 md:pb-28"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={120} className="absolute -right-28 top-16 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
         <Parallax speed={60} className="absolute -left-28 bottom-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           align="left"
           reveal="fade-left"
@@ -125,7 +125,7 @@ export function CTASection() {
   const { ref, shown, reduce } = useRevealGate();
 
   return (
-    <SectionReveal mode="expand-in" className="relative overflow-hidden py-24 md:py-32">
+    <SectionReveal mode="expand-in" className="relative overflow-hidden pb-24 md:pb-32">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <AuroraBand />
         <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-3xl" />
@@ -133,7 +133,7 @@ export function CTASection() {
         <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-4xl px-5 sm:px-6">
+      <div className="w-full">
         <div ref={ref as React.Ref<HTMLDivElement>} className="relative">
           {/* Floating chips framing the CTA panel */}
           <div

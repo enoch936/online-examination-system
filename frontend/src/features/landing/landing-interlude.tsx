@@ -32,13 +32,13 @@ export function LandingInterlude() {
   const reduce = useReducedMotion() ?? false;
 
   return (
-    <SectionReveal mode="wipe-up" className="relative isolate py-20 md:py-28">
+    <SectionReveal mode="wipe-up" className="relative isolate pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={130} className="absolute -right-24 top-10 h-72 w-72 rounded-full bg-gold/8 blur-3xl" />
         <Parallax speed={60} className="absolute -left-24 bottom-10 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <Reveal style="fade-right">
             <span className="eyebrow">

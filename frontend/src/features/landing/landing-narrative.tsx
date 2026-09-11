@@ -117,13 +117,13 @@ export function NarrativeSection() {
   const step = STEPS[active];
 
   return (
-    <section id="narrative" className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28">
+    <section id="narrative" className="relative isolate border-y border-border/60 bg-card/20 pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={130} className="absolute -right-32 bottom-0 h-80 w-80 rounded-full bg-gold/8 blur-3xl" />
         <Parallax speed={70} className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <div className="max-w-2xl">
           <Reveal style="none">
             <span className="eyebrow">

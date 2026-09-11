@@ -280,12 +280,12 @@ export function RolesSection() {
   });
 
   return (
-    <SectionReveal id="roles" mode="fade-scale" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="roles" mode="fade-scale" className="relative isolate pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={100} className="absolute inset-x-0 top-8 mx-auto h-96 w-[48rem] rounded-full bg-primary/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           eyebrow="Who it's for"
           title={<WrapUpText lines={['One platform,', 'five workspaces']} />}

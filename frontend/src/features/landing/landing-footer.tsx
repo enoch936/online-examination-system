@@ -58,7 +58,7 @@ const columns = [
 export function LandingFooter() {
   return (
     <footer className="hairline-top border-t border-border/60 bg-card/20">
-      <div className="mx-auto max-w-6xl px-5 py-14 sm:px-6">
+      <div className="w-full pb-14">
         <div className="grid gap-10 md:grid-cols-[1.3fr_repeat(6,1fr)]">
           <div className="max-w-xs space-y-4">
             <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
