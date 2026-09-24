@@ -31,9 +31,23 @@ const VIOLATION_TO_EVENT: Record<ViolationType, ExamEventType> = {
   COPY_PASTE: ExamEventType.COPY_ATTEMPT,
   MULTIPLE_FACE_READY: ExamEventType.MULTIPLE_FACES_DETECTED,
   NO_FACE_READY: ExamEventType.FACE_NOT_DETECTED,
+  MOTION: ExamEventType.MOTION_DETECTED,
+  AUDIO_ACTIVITY: ExamEventType.AUDIO_ACTIVITY,
   HEARTBEAT_MISSED: ExamEventType.CONNECTION_LOST,
   NETWORK_INTERRUPTION: ExamEventType.CONNECTION_LOST,
   MANUAL_FLAG: ExamEventType.MANUAL_FLAG,
+};
+
+/**
+ * Student-generated events produced by the proctoring analyzer (face, motion
+ * and audio) that represent detected misconduct and must also be recorded as
+ * violations so they surface in the monitor feed/counts, not just as events.
+ */
+const AI_EVENT_TO_VIOLATION: Partial<Record<ExamEventType, ViolationType>> = {
+  [ExamEventType.MULTIPLE_FACES_DETECTED]: ViolationType.MULTIPLE_FACE_READY,
+  [ExamEventType.FACE_NOT_DETECTED]: ViolationType.NO_FACE_READY,
+  [ExamEventType.MOTION_DETECTED]: ViolationType.MOTION,
+  [ExamEventType.AUDIO_ACTIVITY]: ViolationType.AUDIO_ACTIVITY,
 };
 
 export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
@@ -383,6 +397,32 @@ export class MonitoringService {
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       },
     });
+
+    // AI-detected signals (face/motion/audio) must surface as violations in the
+    // monitor feed and counts, not just as plain events.
+    if (input.asStudent && session.status === SessionStatus.IN_PROGRESS) {
+      const violationType = AI_EVENT_TO_VIOLATION[input.type];
+      if (violationType) {
+        const violation = await this.prisma.examViolation.create({
+          data: {
+            sessionId: session.id,
+            type: violationType,
+            severity: this.severityNumber(severity),
+            details: input.metadata ? JSON.stringify(input.metadata) : null,
+          },
+        });
+        await this.prisma.examEvent.update({
+          where: { id: event.id },
+          data: {
+            metadata: JSON.stringify({
+              ...(this.tryParse(event.metadata) ?? {}),
+              violationId: violation.id,
+              violationType: violation.type,
+            }),
+          },
+        });
+      }
+    }
 
     await this.recomputeSessionRisk(session.id, config);
     this.emitEvent(session.examId, session.id, session.student, input.type, event, points, severity, config);
@@ -1205,6 +1245,20 @@ export class MonitoringService {
       return JSON.parse(value);
     } catch {
       return value;
+    }
+  }
+
+  /** Map a risk level to the 1..5 numeric severity stored on exam_violations. */
+  private severityNumber(level: RiskLevel): number {
+    switch (level) {
+      case RiskLevel.CRITICAL:
+        return 5;
+      case RiskLevel.HIGH:
+        return 4;
+      case RiskLevel.MEDIUM:
+        return 3;
+      default:
+        return 2;
     }
   }
 }
