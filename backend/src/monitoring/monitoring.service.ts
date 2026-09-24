@@ -136,7 +136,16 @@ export class MonitoringService {
   }
 
   async getStudentRequirements(examId: string) {
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId }, select: { fullscreenRequired: true } });
+    if (!exam) throw new NotFoundException('Exam not found');
     const config = await this.getConfig(examId);
+    const effectiveFullscreenPolicy =
+      config.fullscreenPolicy && config.fullscreenPolicy !== 'DISABLED'
+        ? config.fullscreenPolicy
+        : exam.fullscreenRequired
+          ? 'REQUIRED'
+          : 'OPTIONAL';
+
     return {
       examId,
       webcamEnabled: config.webcamEnabled,
@@ -148,7 +157,7 @@ export class MonitoringService {
       requireConsent: config.requireConsent,
       webcamMode: config.webcamMode,
       micMode: config.micMode,
-      fullscreenPolicy: config.fullscreenPolicy,
+      fullscreenPolicy: effectiveFullscreenPolicy,
       trackTabSwitches: config.trackTabSwitches,
       trackWindowBlur: config.trackWindowBlur,
       disableCopy: config.disableCopy,
@@ -182,6 +191,13 @@ export class MonitoringService {
     const micMode = (dto.micMode as MicMode | undefined) ?? (micEnabled ? MicMode.REQUIRED : MicMode.DISABLED);
     const fullscreenPolicy = (dto.fullscreenPolicy as FullscreenPolicy | undefined) ?? (stored?.fullscreenPolicy as FullscreenPolicy | undefined) ?? FullscreenPolicy.OPTIONAL;
     const strictness = (dto.strictness as MonitoringStrictness | undefined) ?? (stored?.strictness as MonitoringStrictness | undefined) ?? MonitoringStrictness.STANDARD;
+
+    if (dto.fullscreenPolicy !== undefined) {
+      await this.prisma.exam.update({
+        where: { id: examId },
+        data: { fullscreenRequired: fullscreenPolicy === 'REQUIRED' },
+      }).catch(() => undefined);
+    }
 
     const data = {
       webcamEnabled,
