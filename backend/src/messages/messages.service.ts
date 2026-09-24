@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { ExamEventType } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ExamEventType, RoleName } from '@prisma/client';
+import { ExamAccessService } from '../common/exam-access.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type MessageSource = 'CONTACT' | 'EXAM_REPORT';
@@ -23,12 +25,15 @@ const KNOWN_STATUSES: MessageStatus[] = ['NEW', 'READ', 'RESOLVED'];
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ExamAccessService,
+  ) {}
 
-  async findMany(filters: { examId?: string; source?: MessageSource }) {
+  async findMany(filters: { examId?: string; source?: MessageSource }, user: AuthenticatedUser) {
     const [contacts, reports] = await Promise.all([
       this.findContacts(),
-      this.findExamReports(filters.examId),
+      this.findExamReports(filters.examId, user),
     ]);
 
     let messages: StudentMessage[];
@@ -43,7 +48,7 @@ export class MessagesService {
     return messages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  async updateStatus(id: string, source: MessageSource, status: string, actorId?: string) {
+  async updateStatus(id: string, source: MessageSource, status: string, user: AuthenticatedUser) {
     const normalized: MessageStatus = KNOWN_STATUSES.includes(status as MessageStatus)
       ? (status as MessageStatus)
       : 'READ';
@@ -56,7 +61,11 @@ export class MessagesService {
 
     const event = await this.prisma.examEvent.findUnique({ where: { id } });
     if (!event) throw new NotFoundException('Message not found');
+    if (!(await this.access.canMonitor(event.examId, user))) {
+      throw new ForbiddenException('You do not have access to this exam report');
+    }
 
+    const actorId = user.sub;
     const data =
       normalized === 'NEW'
         ? { acknowledgedAt: null, acknowledgedBy: null, note: null }
@@ -80,11 +89,28 @@ export class MessagesService {
     }));
   }
 
-  private async findExamReports(examId?: string): Promise<StudentMessage[]> {
+  private async findExamReports(examId: string | undefined, user: AuthenticatedUser): Promise<StudentMessage[]> {
+    const isAdmin = user.roles.some(
+      (role) => role === RoleName.SUPER_ADMIN || role === RoleName.ADMIN,
+    );
+    const examScope = isAdmin
+      ? {}
+      : {
+          exam: {
+            is: {
+              OR: [
+                { createdById: user.sub },
+                { examShares: { some: { instructorId: user.sub } } },
+              ],
+            },
+          },
+        };
+
     const events = await this.prisma.examEvent.findMany({
       where: {
         type: ExamEventType.MANUAL_FLAG,
         ...(examId ? { examId } : {}),
+        ...examScope,
       },
       include: {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
