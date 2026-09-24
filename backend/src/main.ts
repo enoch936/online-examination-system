@@ -38,9 +38,12 @@ async function bootstrap() {
     next();
   });
   app.use(cookieParser());
-  // Trust the first hop of X-Forwarded-For so req.ip reflects the real
-  // client behind Render/Vercel proxies (used by throttling + audit logs).
-  (app.getHttpAdapter().getInstance() as { set: (key: string, value: number) => void }).set('trust proxy', 1);
+  // Trust the configured number of X-Forwarded-For hops so req.ip reflects the
+  // real client behind Render/Vercel proxies (used by throttling + audit logs).
+  // Default 1 = single trusted proxy hop. Set TRUST_PROXY_HOPS=0 when the API
+  // is exposed directly to clients (no proxy) to prevent XFF spoofing.
+  const trustProxyHops = config.get<number>('TRUST_PROXY_HOPS', 1);
+  (app.getHttpAdapter().getInstance() as { set: (key: string, value: number) => void }).set('trust proxy', trustProxyHops);
   app.enableCors({
     origin: corsOrigins,
     credentials: true,

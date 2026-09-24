@@ -37,6 +37,10 @@ const schema = z.object({
   // converts via the `seconds()` helper in app.module.ts.
   RATE_LIMIT_TTL: z.coerce.number().default(60),
   RATE_LIMIT_LIMIT: z.coerce.number().default(120),
+  // Number of reverse-proxy hops to trust for X-Forwarded-For (used by
+  // rate limiting + audit logs). 0 disables proxy trust (safe when the API is
+  // reachable directly); Render/Vercel setups should keep 1.
+  TRUST_PROXY_HOPS: z.coerce.number().min(0).default(1),
   // Cloudflare Turnstile. Optional: when TURNSTILE_SECRET_KEY is unset the
   // auth endpoints do not enforce a captcha (dev/test). When set, /auth/login
   // and /auth/register require a valid token and reject bots with 403.

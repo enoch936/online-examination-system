@@ -380,7 +380,10 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     void this.monitoring
       .recordViolation(body.examId, body.sessionId, user.sub, {
         type: body.type as ViolationType,
-        severity: typeof body.severity === 'number' && Number.isFinite(body.severity) ? body.severity : undefined,
+        severity:
+          typeof body.severity === 'number' && Number.isFinite(body.severity)
+            ? Math.min(Math.max(body.severity, 1), 5)
+            : undefined,
         details: body.details,
       })
       .catch(() => undefined);

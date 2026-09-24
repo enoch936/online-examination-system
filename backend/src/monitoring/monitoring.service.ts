@@ -450,12 +450,24 @@ export class MonitoringService {
     const points = this.risk.weight(eventType, config.weights);
     const severity = this.risk.classify(points, config.thresholds);
 
+    // Client-supplied severity is untrusted: clamp it defensively and drop
+    // oversized detail payloads so the DB/audit trail cannot be spammed.
+    const suppliedSeverity =
+      typeof payload.severity === 'number' && Number.isFinite(payload.severity)
+        ? Math.min(Math.max(payload.severity, 1), 5)
+        : undefined;
+    let details: string | null = null;
+    if (payload.details !== undefined && payload.details !== null) {
+      const serialized = JSON.stringify(payload.details);
+      details = serialized && serialized.length <= 8000 ? serialized : null;
+    }
+
     const violation = await this.prisma.examViolation.create({
       data: {
         sessionId,
         type: payload.type,
-        severity: payload.severity ?? 1,
-        details: payload.details ? JSON.stringify(payload.details) : null,
+        severity: suppliedSeverity ?? 1,
+        details,
       },
     });
 
@@ -470,7 +482,7 @@ export class MonitoringService {
         metadata: JSON.stringify({
           violationId: violation.id,
           violationType: payload.type,
-          details: payload.details ?? null,
+          details: details ? JSON.parse(details) : null,
         }),
       },
     });

@@ -36,6 +36,7 @@ export class InstructorsController {
   }
 
   @Patch(':id/status')
+  @Permissions('users.write')
   updateStatus(@Param('id') id: string, @Body('status') status: string, @CurrentUser() user: AuthenticatedUser) {
     return this.instructors.updateStatus(user.sub, id, status);
   }
