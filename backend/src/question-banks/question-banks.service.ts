@@ -12,7 +12,6 @@ import { CreateQuestionBankDto } from './dto/create-question-bank.dto';
 import { BankImportQuestionDto } from './dto/import-questions.dto';
 import { UpdateQuestionBankDto } from './dto/update-question-bank.dto';
 
-const DEFAULT_PAGE_SIZE = 100;
 const MAX_PAGE_SIZE = 500;
 
 @Injectable()

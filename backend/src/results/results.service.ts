@@ -209,7 +209,7 @@ export class ResultsService {
 
     if (isStudentOnly) {
       const stripKey = (options: Array<Record<string, unknown>>) =>
-        options.map(({ isCorrect, ...rest }) => rest);
+        options.map(({ isCorrect: _isCorrect, ...rest }) => rest);
       for (const entry of result.exam?.questions ?? []) {
         if (entry.question) {
           (entry.question as Record<string, unknown>).options = stripKey(entry.question.options as Array<Record<string, unknown>>);
