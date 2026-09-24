@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { RoleName } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { ExamAccessService } from '../common/exam-access.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { GradeAnswerItemDto } from './dto/grade-answers.dto';
 
 type FindManyOptions = {
   examId?: string;
@@ -9,19 +11,41 @@ type FindManyOptions = {
   limit?: number;
 };
 
+const MAX_GRADE_ITEMS = 1000;
+
 @Injectable()
 export class ResultsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly examAccess: ExamAccessService,
+  ) {}
+
+  private resultScope(user: AuthenticatedUser): { OR?: Array<Record<string, unknown>> } {
+    const isAdmin = user.roles.includes(RoleName.SUPER_ADMIN) || user.roles.includes(RoleName.ADMIN);
+    const isInstructor = user.roles.includes(RoleName.INSTRUCTOR);
+    const isStudent = user.roles.includes(RoleName.STUDENT);
+
+    const orClauses: Array<Record<string, unknown>> = [];
+    if (isInstructor && !isAdmin) {
+      orClauses.push({
+        exam: {
+          OR: [{ createdById: user.sub }, { shares: { some: { instructorId: user.sub } } }],
+        },
+      });
+    }
+    if (isStudent) {
+      orClauses.push({ studentId: user.sub });
+    }
+    return orClauses.length ? { OR: orClauses } : {};
+  }
 
   async findMany(user: AuthenticatedUser, options: FindManyOptions = {}) {
-    const isStudentOnly = user.roles.includes(RoleName.STUDENT) && !user.roles.includes(RoleName.INSTRUCTOR) && !user.roles.includes(RoleName.ADMIN) && !user.roles.includes(RoleName.SUPER_ADMIN);
-
     const page = options.page ?? 1;
     const limit = Math.min(options.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
     const where = {
-      ...(isStudentOnly ? { studentId: user.sub } : {}),
+      ...this.resultScope(user),
       ...(options.examId ? { examId: options.examId } : {}),
     };
 
@@ -64,10 +88,11 @@ export class ResultsService {
     };
   }
 
-  async publish(id: string) {
-    const result = await this.prisma.result.findUnique({ where: { id } });
+  async publish(id: string, user: AuthenticatedUser) {
+    const result = await this.prisma.result.findUnique({ where: { id }, select: { id: true, examId: true, publishedAt: true } });
     if (!result) throw new NotFoundException('Result not found');
-    if (result.publishedAt) return result;
+    await this.examAccess.assertCanManage(result.examId, user);
+    if (result.publishedAt) return this.prisma.result.findUnique({ where: { id } });
 
     return this.prisma.result.update({
       where: { id },
@@ -75,13 +100,19 @@ export class ResultsService {
     });
   }
 
-  async gradeManually(id: string, graderId: string, answers: Array<{ answerId: string; score: number; feedback?: string }>) {
+  async gradeManually(id: string, user: AuthenticatedUser, answers: GradeAnswerItemDto[]) {
     const result = await this.prisma.result.findUnique({
       where: { id },
       include: { exam: true, submission: { include: { session: { include: { answers: true } } } } },
     });
     if (!result) throw new NotFoundException('Result not found');
+    await this.examAccess.assertCanManage(result.examId, user);
 
+    if (!Array.isArray(answers) || answers.length > MAX_GRADE_ITEMS) {
+      throw new BadRequestException('Invalid grade payload');
+    }
+
+    const graderId = user.sub;
     const toUpdate = answers
       .filter((g) => result.submission?.session.answers.some((a) => a.id === g.answerId))
       .map((g) => this.prisma.studentAnswer.update({
@@ -131,12 +162,13 @@ export class ResultsService {
   }
 
   async findOne(user: AuthenticatedUser, id: string) {
-    const isStudentOnly = user.roles.includes(RoleName.STUDENT) && !user.roles.includes(RoleName.INSTRUCTOR) && !user.roles.includes(RoleName.ADMIN) && !user.roles.includes(RoleName.SUPER_ADMIN);
+    const isAdmin = user.roles.includes(RoleName.SUPER_ADMIN) || user.roles.includes(RoleName.ADMIN);
+    const isStudentOnly = user.roles.includes(RoleName.STUDENT) && !user.roles.includes(RoleName.INSTRUCTOR) && !isAdmin;
 
     const result = await this.prisma.result.findFirst({
       where: {
         id,
-        ...(isStudentOnly ? { studentId: user.sub } : {}),
+        ...this.resultScope(user),
       },
       include: {
         exam: {
@@ -173,6 +205,21 @@ export class ResultsService {
 
     if (!result) {
       throw new NotFoundException('Result not found');
+    }
+
+    if (isStudentOnly) {
+      const stripKey = (options: Array<Record<string, unknown>>) =>
+        options.map(({ isCorrect, ...rest }) => rest);
+      for (const entry of result.exam?.questions ?? []) {
+        if (entry.question) {
+          (entry.question as Record<string, unknown>).options = stripKey(entry.question.options as Array<Record<string, unknown>>);
+        }
+      }
+      for (const answer of result.submission?.session?.answers ?? []) {
+        if (answer.question) {
+          (answer.question as Record<string, unknown>).options = stripKey(answer.question.options as Array<Record<string, unknown>>);
+        }
+      }
     }
 
     return result;
