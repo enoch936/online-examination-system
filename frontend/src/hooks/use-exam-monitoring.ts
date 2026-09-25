@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { getSocket } from '@/services/socket.service';
+import { monitoringService } from '@/services/monitoring.service';
+import { examsService } from '@/services/exams.service';
 
 export type ProctorControl =
   | { type: 'pause'; approval?: boolean; reason?: string; message?: string }
@@ -37,6 +39,14 @@ export function useExamMonitoring(input: {
     (type: string, severity = 1) => {
       if (!sessionId) return;
       getSocket().emit('exam:violation', { examId, sessionId, type, severity });
+      // REST mirror (fire-and-forget). The deployed Socket.IO gateway can drop
+      // every handler while the REST monitoring pipeline persists correctly,
+      // so record the violation over REST too and never let the live instructor
+      // timeline silently miss it. Failures are swallowed — socket stays the
+      // primary real-time path.
+      examsService
+        .logViolation(sessionId, { type, severity })
+        .catch(() => undefined);
     },
     [examId, sessionId],
   );
@@ -45,6 +55,11 @@ export function useExamMonitoring(input: {
     (type: string, metadata?: Record<string, unknown>) => {
       if (!sessionId) return;
       getSocket().emit('exam:event', { sessionId, type, metadata });
+      // REST mirror so question activity (viewed / answered / prev-next / flag)
+      // reaches the live monitor even when the socket gateway is unhealthy.
+      monitoringService
+        .recordEvent(sessionId, { type, metadata })
+        .catch(() => undefined);
     },
     [sessionId],
   );
