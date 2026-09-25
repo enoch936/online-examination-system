@@ -7,10 +7,75 @@ import { cn } from '@/lib/utils';
    Landing art — premium abstract education-tech scenes built as inline SVG
    + layered gradients. Server-rendered, zero assets, fully theme-aware.
 
+   NetworkOrb  — a constellation of nodes & arcs for tech/analytics backdrops
    ScanRings   — radar/scanning rings for proctoring & security scenes
    AuroraBand  — a soft atmospheric gradient field for full-bleed backdrops
    HashPanel   — a stylized glass "image" card with a floating gradient grid
    ========================================================================= */
+
+/* ------------------------- Network constellation ------------------------- */
+export function NetworkOrb({ className }: { className?: string }) {
+  const reduce = useReducedMotion() ?? false;
+  const nodes: Array<[number, number, number]> = [
+    [120, 40, 3.5],
+    [60, 90, 2.5],
+    [170, 70, 3],
+    [30, 160, 2.5],
+    [150, 145, 3.5],
+    [95, 175, 2.5],
+    [190, 180, 3],
+    [210, 110, 2.5],
+  ];
+  const links: Array<[number, number, number, number]> = [
+    [60, 90, 120, 40],
+    [120, 40, 170, 70],
+    [60, 90, 30, 160],
+    [30, 160, 95, 175],
+    [95, 175, 150, 145],
+    [170, 70, 150, 145],
+    [150, 145, 190, 180],
+    [120, 40, 150, 145],
+    [210, 110, 190, 180],
+    [170, 70, 210, 110],
+  ];
+  return (
+    <svg
+      viewBox="0 0 240 220"
+      className={cn('h-40 w-44 text-primary', className)}
+      aria-hidden
+      role="img"
+      aria-label="Network constellation"
+    >
+      {links.map(([x1, y1, x2, y2], i) => (
+        <motion.line
+          key={i}
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="currentColor"
+          strokeOpacity="0.35"
+          strokeDasharray="3 5"
+          initial={reduce ? false : { pathLength: 0 }}
+          animate={reduce ? undefined : { pathLength: 1 }}
+          transition={{ duration: 1.4, delay: i * 0.08, ease: [0.16, 1, 0.3, 1] }}
+        />
+      ))}
+      {nodes.map(([cx, cy, r], i) => (
+        <motion.circle
+          key={i}
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="hsl(var(--primary) / 0.8)"
+          animate={reduce ? undefined : { opacity: [1, 0.35, 1], r: [r, r * 1.5, r] }}
+          transition={{ duration: 3 + i * 0.35, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 }}
+        />
+      ))}
+      <circle cx="120" cy="40" r="5.5" fill="hsl(var(--gold))" />
+    </svg>
+  );
+}
 
 /* ------------------------- Radar / scanning rings ------------------------- */
 export function ScanRings({ className }: { className?: string }) {
@@ -93,17 +158,17 @@ export function AuroraBand({ className }: { className?: string }) {
       aria-label="Atmospheric gradient field"
     >
       <motion.div
-        className="absolute -top-32 left-1/4 h-[420px] w-[620px] rounded-full bg-primary/15 blur-3xl"
+        className="absolute -top-32 left-1/4 h-[420px] w-[620px] rounded-full bg-primary/15 blur-[130px]"
         animate={reduce ? undefined : { x: [0, 40, 0], y: [0, -24, 0] }}
         transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
       />
       <motion.div
-        className="absolute -bottom-24 right-1/5 h-[380px] w-[520px] rounded-full bg-gold/12 blur-3xl"
+        className="absolute -bottom-24 right-1/5 h-[380px] w-[520px] rounded-full bg-gold/12 blur-[120px]"
         animate={reduce ? undefined : { x: [0, -36, 0], y: [0, 28, 0] }}
         transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
       />
       <motion.div
-        className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/10 blur-3xl"
+        className="absolute left-1/2 top-1/2 h-[300px] w-[300px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/10 blur-[110px]"
         animate={reduce ? undefined : { scale: [1, 1.18, 1], opacity: [0.7, 1, 0.7] }}
         transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
       />

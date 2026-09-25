@@ -2,9 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ThrottlerModule, seconds } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
-import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { AuthModule } from './auth/auth.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -51,9 +50,7 @@ import { QueueModule } from './queue/queue.module';
       useFactory: (config: ConfigService) => ({
         throttlers: [
           {
-            // v6 ttl is milliseconds. RATE_LIMIT_TTL is expressed in seconds
-            // (default 60) in .env — convert here so the env file stays sane.
-            ttl: seconds(config.get<number>('RATE_LIMIT_TTL', 60)),
+            ttl: config.get<number>('RATE_LIMIT_TTL', 60),
             limit: config.get<number>('RATE_LIMIT_LIMIT', 120),
           },
         ],
@@ -91,7 +88,7 @@ import { QueueModule } from './queue/queue.module';
     InstructorsModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: AppThrottlerGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

@@ -1,37 +1,18 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Difficulty, QuestionBankStatus, QuestionType, RoleName } from '@prisma/client';
-import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { Difficulty, QuestionBankStatus, QuestionType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuestionDto } from '../questions/dto/create-question.dto';
 import { CreateQuestionBankDto } from './dto/create-question-bank.dto';
 import { BankImportQuestionDto } from './dto/import-questions.dto';
 import { UpdateQuestionBankDto } from './dto/update-question-bank.dto';
 
-const MAX_PAGE_SIZE = 500;
-
 @Injectable()
 export class QuestionBanksService {
   constructor(private readonly prisma: PrismaService) {}
-
-  private isAdmin(user: AuthenticatedUser): boolean {
-    return user.roles.includes(RoleName.SUPER_ADMIN) || user.roles.includes(RoleName.ADMIN);
-  }
-
-  private async assertCanMutateBank(user: AuthenticatedUser, id: string) {
-    const bank = await this.prisma.questionBank.findUnique({
-      where: { id },
-      select: { id: true, createdById: true },
-    });
-    if (!bank) throw new NotFoundException('Question bank not found');
-    if (!this.isAdmin(user) && bank.createdById !== user.sub) {
-      throw new ForbiddenException('You can only modify question banks you created');
-    }
-  }
 
   private readonly bankInclude = {
     course: { include: { subject: true } },
@@ -57,7 +38,6 @@ export class QuestionBanksService {
       },
       include: this.bankInclude,
       orderBy: { name: 'asc' },
-      take: MAX_PAGE_SIZE,
     });
   }
 
@@ -86,8 +66,8 @@ export class QuestionBanksService {
     });
   }
 
-  async update(id: string, dto: UpdateQuestionBankDto, user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async update(id: string, dto: UpdateQuestionBankDto) {
+    await this.findOne(id);
     if (dto.courseId !== undefined && dto.categoryId !== undefined) {
       await this.assertCourseCategoryMatch(dto.courseId, dto.categoryId);
     }
@@ -106,14 +86,13 @@ export class QuestionBanksService {
     });
   }
 
-  async remove(id: string, user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async remove(id: string) {
+    await this.findOne(id);
     await this.prisma.questionBank.delete({ where: { id } });
     return { success: true };
   }
 
-  async duplicate(id: string, user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async duplicate(id: string, createdById: string) {
     const bank = await this.findOne(id);
     const questions = await this.prisma.question.findMany({
       where: { questionBankId: id },
@@ -125,7 +104,7 @@ export class QuestionBanksService {
       data: {
         courseId: bank.courseId,
         categoryId: bank.categoryId,
-        createdById: user.sub,
+        createdById,
         name: `${bank.name} (Copy)`,
         description: bank.description,
         difficulty: bank.difficulty,
@@ -162,10 +141,9 @@ export class QuestionBanksService {
 
   async getQuestions(
     id: string,
-    user: AuthenticatedUser,
     filters?: { search?: string; type?: QuestionType; difficulty?: Difficulty; topic?: string },
   ) {
-    await this.assertCanMutateBank(user, id);
+    await this.findOne(id);
     const where = {
       questionBankId: id,
       ...(filters?.type && { type: filters.type }),
@@ -195,8 +173,7 @@ export class QuestionBanksService {
     };
   }
 
-  async duplicateQuestion(id: string, questionId: string, user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async duplicateQuestion(id: string, questionId: string) {
     const bank = await this.findOne(id);
     const question = await this.prisma.question.findFirst({
       where: { id: questionId, questionBankId: id },
@@ -234,8 +211,8 @@ export class QuestionBanksService {
     });
   }
 
-  async bulkDeleteQuestions(id: string, ids: string[], user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async bulkDeleteQuestions(id: string, ids: string[]) {
+    await this.findOne(id);
     const result = await this.prisma.question.updateMany({
       where: { id: { in: ids }, questionBankId: id },
       data: { isActive: false },
@@ -243,8 +220,8 @@ export class QuestionBanksService {
     return { deleted: result.count };
   }
 
-  async reorderQuestions(id: string, questionIds: string[], user: AuthenticatedUser) {
-    await this.assertCanMutateBank(user, id);
+  async reorderQuestions(id: string, questionIds: string[]) {
+    await this.findOne(id);
     await this.prisma.$transaction(
       questionIds.map((questionId, index) =>
         this.prisma.question.updateMany({

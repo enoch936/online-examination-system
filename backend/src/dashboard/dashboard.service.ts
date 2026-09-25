@@ -34,46 +34,16 @@ export class DashboardService {
     }
 
     if (isInstructor) {
-      const canSeeAll =
-        roles.includes(RoleName.SUPER_ADMIN) ||
-        roles.includes(RoleName.ADMIN) ||
-        roles.includes(RoleName.SUPER_ADMIN);
-      const examScope = canSeeAll
-        ? {}
-        : {
-            OR: [
-              { createdById: user.sub },
-              { examShares: { some: { instructorId: user.sub } } },
-            ],
-          };
-      const sessionScope = canSeeAll ? {} : { exam: examScope };
-
       const [
         u, s, e, sub, pg, rs,
       ] = await Promise.all([
-        canSeeAll
-          ? this.prisma.user.count({ where: { status: 'ACTIVE' } })
-          : this.prisma.examSession
-              .findMany({
-                where: { exam: examScope },
-                select: { studentId: true },
-                distinct: ['studentId'],
-              })
-              .then((rows) => rows.length),
+        this.prisma.user.count({ where: { status: 'ACTIVE' } }),
+        this.prisma.examSession.count({ where: { status: 'IN_PROGRESS' } }),
+        this.prisma.exam.count({ where: { status: 'PUBLISHED' } }),
+        this.prisma.submission.count(),
+        this.prisma.submission.count({ where: { status: 'NEEDS_MANUAL_GRADING' } }),
         this.prisma.examSession.count({
-          where: { status: 'IN_PROGRESS', ...sessionScope },
-        }),
-        this.prisma.exam.count({
-          where: { status: 'PUBLISHED', ...examScope },
-        }),
-        this.prisma.submission.count({
-          where: { session: { exam: examScope } },
-        }),
-        this.prisma.submission.count({
-          where: { status: 'NEEDS_MANUAL_GRADING', session: { exam: examScope } },
-        }),
-        this.prisma.examSession.count({
-          where: { exam: { ...examScope, createdById: user.sub }, status: { in: ['IN_PROGRESS', 'SUBMITTED'] } },
+          where: { exam: { createdById: user.sub }, status: { in: ['IN_PROGRESS', 'SUBMITTED'] } },
         }),
       ]);
       totalUsers = u;

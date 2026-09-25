@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { motion, useReducedMotion } from 'framer-motion';
 import { GraduationCap, Code2, BookOpen } from 'lucide-react';
-import { Reveal, SectionReveal, Parallax, useRevealGate } from './landing-primitives';
+import { Reveal, SectionReveal, Parallax } from './landing-primitives';
 
 const shots = [
   {
@@ -32,13 +32,13 @@ export function LandingInterlude() {
   const reduce = useReducedMotion() ?? false;
 
   return (
-    <SectionReveal mode="wipe-up" className="relative isolate pb-20 md:pb-28">
+    <SectionReveal mode="wipe-up" className="relative isolate py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={130} className="absolute -right-24 top-10 h-72 w-72 rounded-full bg-gold/8 blur-3xl" />
         <Parallax speed={60} className="absolute -left-24 bottom-10 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <Reveal style="fade-right">
             <span className="eyebrow">
@@ -50,7 +50,7 @@ export function LandingInterlude() {
             </h2>
           </Reveal>
           <Reveal style="none" delay={0.1}>
-            <p className="max-w-none text-sm leading-relaxed text-muted-foreground">
+            <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
               From the first click to the final certificate, every moment of an exam is covered on a single
               live surface.
             </p>
@@ -92,25 +92,19 @@ export function LandingInterlude() {
 
         <div className="mt-12 flex flex-wrap items-center justify-center gap-2">
           {strips.map((t, i) => (
-            <StripChip key={t} label={t} index={i} />
+            <motion.span
+              key={t}
+              initial={reduce ? false : { opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-60px' }}
+              transition={{ delay: 0.25 + i * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              className="rounded-full border border-border/60 bg-card/40 px-3.5 py-1.5 text-xs font-medium text-muted-foreground"
+            >
+              {t}
+            </motion.span>
           ))}
         </div>
       </div>
     </SectionReveal>
-  );
-}
-
-function StripChip({ label, index }: { label: string; index: number }) {
-  const { ref, shown, reduce } = useRevealGate();
-  return (
-    <motion.span
-      ref={ref as React.Ref<HTMLSpanElement>}
-      initial={reduce ? false : { opacity: 0, y: 12 }}
-      animate={shown ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
-      transition={{ delay: reduce ? 0 : 0.25 + index * 0.06, duration: reduce ? 0 : 0.45, ease: [0.16, 1, 0.3, 1] }}
-      className="rounded-full border border-border/60 bg-card/40 px-3.5 py-1.5 text-xs font-medium text-muted-foreground"
-    >
-      {label}
-    </motion.span>
   );
 }

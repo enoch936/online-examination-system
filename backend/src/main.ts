@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
-import { Request, Response } from 'express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
@@ -25,25 +24,8 @@ async function bootstrap() {
     corsOrigins.push('http://localhost:3000');
   }
 
-  // Lock down camera/microphone/etc. platform-wide. Proctoring clients talk to
-  // the dedicated proctoring service directly; this API never needs them.
-  // (helmet 8.x dropped the built-in permissionsPolicy option, so it is applied
-  // here as a custom middleware.)
   app.use(helmet());
-  app.use((_req: Request, res: Response, next: () => void) => {
-    res.setHeader(
-      'Permissions-Policy',
-      'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
-    );
-    next();
-  });
   app.use(cookieParser());
-  // Trust the configured number of X-Forwarded-For hops so req.ip reflects the
-  // real client behind Render/Vercel proxies (used by throttling + audit logs).
-  // Default 1 = single trusted proxy hop. Set TRUST_PROXY_HOPS=0 when the API
-  // is exposed directly to clients (no proxy) to prevent XFF spoofing.
-  const trustProxyHops = config.get<number>('TRUST_PROXY_HOPS', 1);
-  (app.getHttpAdapter().getInstance() as { set: (key: string, value: number) => void }).set('trust proxy', trustProxyHops);
   app.enableCors({
     origin: corsOrigins,
     credentials: true,

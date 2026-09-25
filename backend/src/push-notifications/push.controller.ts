@@ -1,6 +1,5 @@
 import { Body, Controller, Delete, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -19,7 +18,6 @@ export class PushController {
   }
 
   @ApiBearerAuth()
-  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('subscriptions')
   subscribe(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreatePushSubscriptionDto) {
     return this.push.saveSubscription(user.sub, dto);

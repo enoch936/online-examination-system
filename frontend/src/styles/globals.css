@@ -405,13 +405,8 @@ body {
     hsl(var(--background));
   color: hsl(var(--foreground));
   font-feature-settings: "rlig" 1, "calt" 1;
-  text-rendering: auto;
-  /* Note: do NOT force -webkit-font-smoothing: antialiased and do NOT set
-     text-rendering: optimizeLegibility on body. On Windows Chromium both
-     disable LCD subpixel antialiasing and make text look thin and blurry,
-     while Firefox ignores -webkit-font-smoothing and (for UI text) treats
-     optimizeLegibility as a no-op — the two properties behind the
-     "crisp in Firefox, fuzzy in Chrome/Edge" mismatch. */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 ::selection {

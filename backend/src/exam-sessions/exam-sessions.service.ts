@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import {
   ExamConnectionLossPolicy,
   ExamEventType,
@@ -321,35 +321,13 @@ export class ExamSessionsService {
     const session = await this.prisma.examSession.findFirst({
       where: { id: sessionId, studentId },
       include: {
-        exam: {
-          select: {
-            status: true,
-            resumeApprovalRequired: true,
-            resumePolicy: true,
-            connectionLossPolicy: true,
-          },
-        },
+        exam: { select: { resumeApprovalRequired: true, resumePolicy: true, connectionLossPolicy: true } },
       },
     });
     if (!session || !([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
       throw new ForbiddenException('Session is not active');
     }
     await this.assertResumeAllowed(session);
-    if (session.expiresAt && Date.now() > session.expiresAt.getTime()) {
-      throw new ForbiddenException('Exam time has expired');
-    }
-    if (session.exam.status === ExamStatus.CLOSED || session.exam.status === ExamStatus.ARCHIVED) {
-      throw new ForbiddenException('Exam is no longer active');
-    }
-    // Answers must reference a question that actually belongs to this exam,
-    // otherwise a student could plant rows for questions they never answered.
-    const examQuestion = await this.prisma.examQuestion.findFirst({
-      where: { examId: session.examId, questionId: dto.questionId },
-      select: { id: true },
-    });
-    if (!examQuestion) {
-      throw new BadRequestException('Question is not part of this exam');
-    }
 
     const answer = await this.prisma.studentAnswer.upsert({
       where: { sessionId_questionId: { sessionId, questionId: dto.questionId } },

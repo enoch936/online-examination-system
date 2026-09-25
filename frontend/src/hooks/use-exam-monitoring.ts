@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { getSocket } from '@/services/socket.service';
-import { monitoringService } from '@/services/monitoring.service';
-import { examsService } from '@/services/exams.service';
 
 export type ProctorControl =
   | { type: 'pause'; approval?: boolean; reason?: string; message?: string }
@@ -17,21 +15,15 @@ export type ProctorControl =
 export function useExamMonitoring(input: {
   examId: string;
   sessionId: string;
-  remainingSeconds?: number;
+  remainingSeconds: number;
   onControl?: (control: ProctorControl) => void;
-  restrictions?: {
-    disableCopy?: boolean;
-    disablePaste?: boolean;
-    trackTabSwitches?: boolean;
-    trackWindowBlur?: boolean;
-    fullscreenPolicy?: string;
-    strictness?: string;
-    detectShortcuts?: boolean;
-  } | null;
+  restrictions?: { disableCopy?: boolean; disablePaste?: boolean } | null;
 }) {
-  const { examId, sessionId, onControl, restrictions } = input;
+  const { examId, sessionId, remainingSeconds, onControl, restrictions } = input;
   const onControlRef = useRef(onControl);
   onControlRef.current = onControl;
+  const remainingRef = useRef(remainingSeconds);
+  remainingRef.current = remainingSeconds;
   const restrictionsRef = useRef(restrictions);
   restrictionsRef.current = restrictions;
 
@@ -39,14 +31,6 @@ export function useExamMonitoring(input: {
     (type: string, severity = 1) => {
       if (!sessionId) return;
       getSocket().emit('exam:violation', { examId, sessionId, type, severity });
-      // REST mirror (fire-and-forget). The deployed Socket.IO gateway can drop
-      // every handler while the REST monitoring pipeline persists correctly,
-      // so record the violation over REST too and never let the live instructor
-      // timeline silently miss it. Failures are swallowed — socket stays the
-      // primary real-time path.
-      examsService
-        .logViolation(sessionId, { type, severity })
-        .catch(() => undefined);
     },
     [examId, sessionId],
   );
@@ -55,11 +39,6 @@ export function useExamMonitoring(input: {
     (type: string, metadata?: Record<string, unknown>) => {
       if (!sessionId) return;
       getSocket().emit('exam:event', { sessionId, type, metadata });
-      // REST mirror so question activity (viewed / answered / prev-next / flag)
-      // reaches the live monitor even when the socket gateway is unhealthy.
-      monitoringService
-        .recordEvent(sessionId, { type, metadata })
-        .catch(() => undefined);
     },
     [sessionId],
   );
@@ -80,99 +59,55 @@ export function useExamMonitoring(input: {
     joinSession();
 
     const heartbeat = window.setInterval(() => {
-      // remainingSeconds is intentionally not sent: the server derives it
-      // authoritatively from expiresAt/duration.
-      socket.emit('exam:heartbeat', { sessionId });
+      socket.emit('exam:heartbeat', { sessionId, remainingSeconds: remainingRef.current });
     }, 10000);
 
     const onControl = (control: ProctorControl) => onControlRef.current?.(control);
     socket.on('exam:control', onControl);
 
-    const onBlur = () => {
-      reportViolation('WINDOW_BLUR', 1);
-      reportEvent('WINDOW_BLURRED', {});
-    };
-    const onFocus = () => {
-      reportEvent('WINDOW_FOCUSED', {});
-      reportEvent('FOCUS_RESTORED', {});
-    };
+    const onBlur = () => reportViolation('WINDOW_BLUR', 1);
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        reportViolation('TAB_SWITCH', 2);
-        reportEvent('TAB_SWITCHED', {});
-      }
+      if (document.visibilityState === 'hidden') reportViolation('TAB_SWITCH', 2);
     };
     const onFullscreen = () => {
-      if (!document.fullscreenElement) {
-        reportViolation('FULLSCREEN_EXIT', 2);
-        reportEvent('FULLSCREEN_EXITED', {});
-      } else {
-        reportEvent('FULLSCREEN_ENTERED', {});
-      }
+      if (!document.fullscreenElement) reportViolation('FULLSCREEN_EXIT', 2);
     };
     const onCopy = (e: ClipboardEvent) => {
-      if (restrictionsRef.current?.disableCopy ?? true) e.preventDefault();
+      if (restrictionsRef.current?.disableCopy) e.preventDefault();
       reportEvent('COPY_ATTEMPT', { length: e.clipboardData?.getData('text/plain')?.length ?? 0 });
     };
     const onCut = (e: ClipboardEvent) => {
-      if (restrictionsRef.current?.disableCopy ?? true) e.preventDefault();
+      if (restrictionsRef.current?.disableCopy) e.preventDefault();
       reportEvent('CUT_ATTEMPT', {});
     };
     const onPaste = (e: ClipboardEvent) => {
-      if (restrictionsRef.current?.disablePaste ?? true) e.preventDefault();
+      if (restrictionsRef.current?.disablePaste) e.preventDefault();
       reportEvent('PASTE_ATTEMPT', {});
     };
-    const onContextMenu = (e: MouseEvent) => {
-      if (restrictionsRef.current?.disableCopy ?? true) {
-        e.preventDefault();
-      }
-      reportEvent('CONTEXT_MENU_ATTEMPT', {});
-    };
-    const onBeforePrint = (e: Event) => {
-      e.preventDefault();
-      reportEvent('PRINT_ATTEMPT', {});
-    };
-    const onMouseLeave = () => {
-      reportEvent('WINDOW_BLURRED', { reason: 'mouseleave' });
-    };
+    const onContextMenu = () => reportEvent('CONTEXT_MENU_ATTEMPT', {});
+    const onBeforePrint = () => reportEvent('PRINT_ATTEMPT', {});
     const onKeyDown = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      const ctrlOrMeta = e.ctrlKey || e.metaKey;
-      const isDevTools =
-        e.key === 'F12' ||
-        (ctrlOrMeta && e.shiftKey && ['i', 'j', 'c'].includes(key)) ||
-        (ctrlOrMeta && key === 'u');
-      const isForbiddenShortcut =
-        e.key === 'PrintScreen' ||
-        isDevTools ||
-        (ctrlOrMeta && ['p', 's'].includes(key));
-
-      if (isForbiddenShortcut) {
-        e.preventDefault();
-        reportEvent('SHORTCUT_ATTEMPT', { key: e.key, combination: `${ctrlOrMeta ? 'Ctrl+' : ''}${e.key}` });
+      if (e.key === 'PrintScreen' || e.key === 'F12') {
+        reportEvent('SHORTCUT_ATTEMPT', { key: e.key });
         return;
       }
-
-      if (ctrlOrMeta && ['c', 'v', 'x', 'a'].includes(key)) {
-        const disableCopy = restrictionsRef.current?.disableCopy ?? true;
-        const disablePaste = restrictionsRef.current?.disablePaste ?? true;
+      if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x'].includes(e.key.toLowerCase())) {
+        const key = e.key.toLowerCase();
         const blocked =
-          (key === 'v' && disablePaste) ||
-          ((key === 'c' || key === 'x' || key === 'a') && disableCopy);
+          (key === 'v' && restrictionsRef.current?.disablePaste) ||
+          ((key === 'c' || key === 'x') && restrictionsRef.current?.disableCopy);
         if (blocked) e.preventDefault();
-        reportEvent('SHORTCUT_ATTEMPT', { key: e.key });
+        reportEvent('SHORTCUT_ATTEMPT', { key });
       }
     };
 
     window.addEventListener('blur', onBlur);
-    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibility);
     document.addEventListener('fullscreenchange', onFullscreen);
     document.addEventListener('copy', onCopy);
     document.addEventListener('paste', onPaste);
     document.addEventListener('cut', onCut);
     document.addEventListener('contextmenu', onContextMenu);
-    document.addEventListener('mouseleave', onMouseLeave);
     window.addEventListener('beforeprint', onBeforePrint);
     window.addEventListener('keydown', onKeyDown, true);
 
@@ -181,14 +116,12 @@ export function useExamMonitoring(input: {
       socket.off('exam:control', onControl);
       socket.off('connect', joinSession);
       window.removeEventListener('blur', onBlur);
-      window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
       document.removeEventListener('fullscreenchange', onFullscreen);
       document.removeEventListener('copy', onCopy);
       document.removeEventListener('paste', onPaste);
       document.removeEventListener('cut', onCut);
       document.removeEventListener('contextmenu', onContextMenu);
-      document.removeEventListener('mouseleave', onMouseLeave);
       window.removeEventListener('beforeprint', onBeforePrint);
       window.removeEventListener('keydown', onKeyDown, true);
     };
@@ -196,4 +129,3 @@ export function useExamMonitoring(input: {
 
   return { reportEvent, reportViolation };
 }
-

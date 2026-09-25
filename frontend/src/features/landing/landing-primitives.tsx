@@ -2,6 +2,7 @@
 
 import {
   motion,
+  useInView,
   useMotionValue,
   useScroll,
   useSpring,
@@ -57,57 +58,6 @@ type RevealProps = {
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
-/* ------------------------------------------------------------------ */
-/* useRevealGate — scroll-driven reveal trigger with fallback.         */
-/* Chromium's IntersectionObserver can stay permanently false for      */
-/* elements nested under transformed/framer subtrees (the "reveals     */
-/* never fire" bug that leaves content stuck at opacity 0 — full UI    */
-/* only ever appears in Firefox). Instead of trusting IO, we watch the */
-/* element's position on scroll. Whereas un re-animates every block    */
-/* once, reversible mode keeps a section "on" while it is on screen    */
-/* and animates it back out once it scrolls past — the in-and-out      */
-/* scroll effect, deterministic in every browser.                      */
-/* ------------------------------------------------------------------ */
-export function useRevealGate(lead = 2.2, reversible = false) {
-  const ref = useRef<HTMLElement | null>(null);
-  const reduce = useReducedMotion() ?? false;
-  const [forced, setForced] = useState(false);
-  const [intersecting, setIntersecting] = useState(false);
-
-  const shown = reduce ? true : reversible ? intersecting : forced;
-
-  useEffect(() => {
-    if (reduce) return;
-    let raf = 0;
-    const check = () => {
-      raf = 0;
-      const el = ref.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      if (reversible) {
-        const vh = window.innerHeight;
-        setIntersecting(r.top < vh * 1.15 && r.bottom > vh * -0.05);
-        return;
-      }
-      if (!forced && r.top - window.innerHeight * lead < 0) setForced(true);
-    };
-    const onScroll = () => {
-      if (raf === 0) raf = requestAnimationFrame(check);
-    };
-    const first = requestAnimationFrame(check);
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-      cancelAnimationFrame(first);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [reduce, reversible, forced, lead]);
-
-  return { ref, shown, reduce };
-}
-
 export const MOTION = {
   fast: 0.18,
   normal: 0.35,
@@ -155,28 +105,27 @@ export function Reveal({
   duration = 0.7,
   once = true,
 }: RevealProps) {
-  const { ref, shown, reduce } = useRevealGate();
+  const reduce = useReducedMotion() ?? false;
   const s = STYLES[style];
-  const target: TargetAndTransition = {
-    opacity: 1,
-    x: 0,
-    y: 0,
-    scale: 1,
-    rotate: 0,
-    rotateX: 0,
-    filter: 'blur(0px)',
-    z: 0,
-    clipPath: 'inset(0 0 0 0)',
-  };
-  const hidden = reduce ? target : s.initial;
+  const initial = reduce ? { opacity: 0.001 } : s.initial;
 
   return (
     <motion.div
-      ref={ref as React.Ref<HTMLDivElement>}
       className={className}
-      initial={reduce ? false : hidden}
-      animate={shown ? target : hidden}
-      transition={{ duration: reduce ? 0 : duration, delay: reduce ? 0 : delay, ease: EASE }}
+      initial={initial}
+      whileInView={{
+        opacity: 1,
+        x: 0,
+        y: 0,
+        scale: 1,
+        rotate: 0,
+        rotateX: 0,
+        filter: 'blur(0px)',
+        z: 0,
+        clipPath: 'inset(0 0 0 0)',
+      }}
+      viewport={{ once, margin: '-70px' }}
+      transition={{ duration, delay, ease: EASE }}
     >
       {children}
     </motion.div>
@@ -197,18 +146,16 @@ export function OverlapReveal({
   delay?: number;
   from?: 'left' | 'right';
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const reduce = useReducedMotion() ?? false;
   const dir = from === 'right' ? 1 : -1;
-  const hidden: TargetAndTransition = { opacity: 0, x: dir * 60, scale: 0.96 };
-  const target: TargetAndTransition = { opacity: 1, x: 0, scale: 1 };
 
   return (
     <motion.div
-      ref={ref as React.Ref<HTMLDivElement>}
       className={className}
-      initial={reduce ? false : hidden}
-      animate={shown ? target : hidden}
-      transition={{ duration: reduce ? 0 : 0.8, delay: reduce ? 0 : delay, ease: [0.16, 1, 0.3, 1] }}
+      initial={reduce ? { opacity: 0.001 } : { opacity: 0, x: dir * 60, scale: 0.96 }}
+      whileInView={{ opacity: 1, x: 0, scale: 1 }}
+      viewport={{ once: true, margin: '-70px' }}
+      transition={{ duration: 0.8, delay, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
     </motion.div>
@@ -230,16 +177,17 @@ export function WrapUpText({
   delay?: number;
   once?: boolean;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const reduce = useReducedMotion() ?? false;
   return (
-    <span ref={ref as React.Ref<HTMLSpanElement>} className={className}>
+    <span className={className}>
       {lines.map((line, li) => (
         <span key={li} className="block overflow-hidden pb-[0.12em]">
           <motion.span
             className="block"
-            initial={reduce ? false : { y: '110%', rotate: 4 }}
-            animate={shown ? { y: '0%', rotate: 0 } : { y: '110%', rotate: 4 }}
-            transition={{ duration: reduce ? 0 : 0.7, delay: reduce ? 0 : delay + li * 0.1, ease: [0.16, 1, 0.3, 1] }}
+            initial={reduce ? { opacity: 0.001 } : { y: '110%', rotate: 4 }}
+            whileInView={{ y: '0%', rotate: 0 }}
+            viewport={{ once, margin: '-60px' }}
+            transition={{ duration: 0.7, delay: delay + li * 0.1, ease: [0.16, 1, 0.3, 1] }}
           >
             {line}
           </motion.span>
@@ -265,11 +213,13 @@ export function TypingText({
   startDelay?: number;
   caret?: boolean;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-80px' });
+  const reduce = useReducedMotion() ?? false;
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    if (!shown || reduce) return;
+    if (!inView || reduce) return;
     let i = 0;
     let raf = 0;
     let startedAt = 0;
@@ -287,14 +237,14 @@ export function TypingText({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [shown, reduce, text.length, speed, startDelay]);
+  }, [inView, reduce, text.length, speed, startDelay]);
 
   // Reduced motion: render the complete string immediately.
-  const shownText = reduce ? text : text.slice(0, count);
+  const shown = reduce ? text : text.slice(0, count);
 
   return (
-    <span ref={ref as React.Ref<HTMLSpanElement>} className={className}>
-      {shownText}
+    <span ref={ref} className={className}>
+      {shown}
       {caret && !reduce && count < text.length && (
         <span className="ml-0.5 inline-block w-[0.12em] animate-pulse bg-current align-[-0.08em]" />
       )}
@@ -323,14 +273,16 @@ export function TypeLoop({
   caret?: boolean;
   startDelay?: number;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-60px' });
+  const reduce = useReducedMotion() ?? false;
 
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<'type' | 'hold' | 'delete'>('type');
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    if (!shown || reduce || phrases.length === 0) return;
+    if (!inView || reduce || phrases.length === 0) return;
     let raf = 0;
     let startedAt = 0;
     let wait = startDelay;
@@ -370,13 +322,13 @@ export function TypeLoop({
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [shown, reduce, phrases, index, phase, text.length, typeMs, deleteMs, holdMs, startDelay]);
+  }, [inView, reduce, phrases, index, phase, text.length, typeMs, deleteMs, holdMs, startDelay]);
 
-  const shownText = reduce ? phrases[0] ?? '' : text;
+  const shown = reduce ? phrases[0] ?? '' : text;
 
   return (
-    <span ref={ref as React.Ref<HTMLSpanElement>} className={className}>
-      {shownText}
+    <span ref={ref} className={className}>
+      {shown}
       {caret && !reduce && (
         <span className="ml-0.5 inline-block w-[0.12em] animate-pulse bg-current align-[-0.08em]" />
       )}
@@ -399,13 +351,15 @@ export function ScrambleText({
   duration?: number;
   startDelay?: number;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-60px' });
+  const reduce = useReducedMotion() ?? false;
   const [chars, setChars] = useState<{ c: string; done: boolean }[]>(() =>
     text.split('').map((c) => ({ c, done: false })),
   );
 
   useEffect(() => {
-    if (!shown || reduce) return;
+    if (!inView || reduce) return;
     const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/*+=<!> ';
     let frame = 0;
     let raf = 0;
@@ -430,10 +384,10 @@ export function ScrambleText({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [shown, reduce, text, duration, startDelay]);
+  }, [inView, reduce, text, duration, startDelay]);
 
   return (
-    <span ref={ref as React.Ref<HTMLSpanElement>} className={className} aria-label={text}>
+    <span ref={ref} className={className} aria-label={text}>
       {reduce ? text : chars.map((ch, i) => <span key={i} data-done={ch.done}>{ch.c}</span>)}
     </span>
   );
@@ -452,15 +406,16 @@ export function MaskedReveal({
   className?: string;
   delay?: number;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const reduce = useReducedMotion() ?? false;
   return (
-    <span ref={ref as React.Ref<HTMLSpanElement>} className={className} aria-label={text}>
+    <span className={className} aria-label={text}>
       <span className="inline-block overflow-hidden align-bottom">
         <motion.span
           className="inline-block whitespace-pre"
           initial={reduce ? false : { clipPath: 'inset(0 100% 0 0)' }}
-          animate={shown ? { clipPath: 'inset(0 0 0 0)' } : { clipPath: 'inset(0 100% 0 0)' }}
-          transition={{ duration: reduce ? 0 : 0.7, delay: reduce ? 0 : delay, ease: EASE }}
+          whileInView={{ clipPath: 'inset(0 0 0 0)' }}
+          viewport={{ once: true, margin: '-40px' }}
+          transition={{ duration: 0.7, delay, ease: EASE }}
         >
           {text}
         </motion.span>
@@ -572,24 +527,28 @@ export function ScrollExit({
   kind?: 'fade' | 'zoom' | 'rotate' | 'blur';
   className?: string;
 }) {
-  const { ref, shown, reduce } = useRevealGate(0);
-  const gone = reduce ? false : !shown;
+  const ref = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion() ?? false;
+  const inView = useInView(ref, { margin: '-30% 0px -30% 0px' });
 
-  const hidden = kind === 'zoom'
-    ? { opacity: 0, scale: 0.85 }
-    : kind === 'rotate'
-      ? { opacity: 0, rotate: 14, scale: 0.92 }
-      : kind === 'blur'
-        ? { opacity: 0, filter: 'blur(12px)' }
-        : { opacity: 0.2, y: 20 };
-  const visible = { opacity: 1, scale: 1, rotate: 0, y: 0, filter: 'blur(0px)' };
+  const gone = reduce ? false : !inView;
 
   return (
     <motion.div
-      ref={ref as React.Ref<HTMLDivElement>}
+      ref={ref}
       className={className}
       initial={false}
-      animate={gone ? hidden : visible}
+      animate={
+        gone
+          ? kind === 'zoom'
+            ? { opacity: 0, scale: 0.85 }
+            : kind === 'rotate'
+              ? { opacity: 0, rotate: 14, scale: 0.92 }
+              : kind === 'blur'
+                ? { opacity: 0, filter: 'blur(12px)' }
+                : { opacity: 0.2, y: 20 }
+          : { opacity: 1, scale: 1, rotate: 0, y: 0, filter: 'blur(0px)' }
+      }
       transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
@@ -619,7 +578,7 @@ export function SectionHeader({
     <Reveal
       style={reveal}
       className={cn(
-        'max-w-none',
+        'max-w-2xl',
         align === 'center' ? 'mx-auto text-center' : align === 'right' ? 'ml-auto text-right' : 'text-left',
         className,
       )}
@@ -693,7 +652,7 @@ export function SectionReveal({
   onMouseEnter?: HTMLAttributes<HTMLElement>['onMouseEnter'];
   onMouseLeave?: HTMLAttributes<HTMLElement>['onMouseLeave'];
 }) {
-  const { ref, shown, reduce } = useRevealGate(2.2, true);
+  const reduce = useReducedMotion() ?? false;
 
   const initial: TargetAndTransition =
     mode === 'wipe-left'
@@ -706,16 +665,14 @@ export function SectionReveal({
             ? { opacity: 0.35, scale: 0.985 }
             : { clipPath: 'inset(0 0 100% 0)' };
 
-  const target: TargetAndTransition = { opacity: 1, y: 0, scale: 1, clipPath: 'inset(0 0 0 0)' };
-
   return (
     <motion.section
-      ref={ref as React.Ref<HTMLElement>}
       id={id}
       className={className}
       initial={reduce ? false : initial}
-      animate={shown ? target : initial}
-      transition={{ duration: reduce ? 0 : 0.7, ease: EASE }}
+      whileInView={{ opacity: 1, y: 0, scale: 1, clipPath: 'inset(0 0 0 0)' }}
+      viewport={{ once: true, amount: 0.15, margin: '-40px' }}
+      transition={{ duration: 0.7, ease: EASE }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
@@ -736,12 +693,14 @@ export function Counter({
   suffix?: string;
   duration?: number;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-40px' });
+  const reduce = useReducedMotion() ?? false;
   const mv = useMotionValue(0);
   const spring = useSpring(mv, { damping: 40, stiffness: 90 });
 
   useEffect(() => {
-    if (shown) {
+    if (inView) {
       if (reduce) {
         mv.set(value);
       } else {
@@ -757,7 +716,7 @@ export function Counter({
         return () => cancelAnimationFrame(raf);
       }
     }
-  }, [shown, value, reduce, duration, mv]);
+  }, [inView, value, reduce, duration, mv]);
 
   useEffect(() => {
     return spring.on('change', (latest) => {
@@ -765,9 +724,9 @@ export function Counter({
         ref.current.textContent = Math.round(latest).toLocaleString('en-US') + suffix;
       }
     });
-  }, [spring, suffix, ref]);
+  }, [spring, suffix]);
 
-  return <span ref={ref as React.Ref<HTMLSpanElement>}>0{suffix}</span>;
+  return <span ref={ref}>0{suffix}</span>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -842,14 +801,13 @@ export function Bar({
   className?: string;
   delay?: number;
 }) {
-  const { ref, shown, reduce } = useRevealGate();
-  const target = { height: `${value}%` };
+  const reduce = useReducedMotion() ?? false;
   return (
     <motion.div
-      ref={ref as React.Ref<HTMLDivElement>}
-      initial={reduce ? target : { height: 0 }}
-      animate={shown ? target : { height: 0 }}
-      transition={{ duration: reduce ? 0 : 0.9, delay: reduce ? 0 : delay, ease: [0.16, 1, 0.3, 1] }}
+      initial={reduce ? { height: `${value}%` } : { height: 0 }}
+      whileInView={{ height: `${value}%` }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.9, delay, ease: [0.16, 1, 0.3, 1] }}
       className={cn('w-full rounded-[3px]', className)}
     />
   );

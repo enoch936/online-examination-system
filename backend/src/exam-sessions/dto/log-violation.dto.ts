@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ViolationType } from '@prisma/client';
-import { IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, Min } from 'class-validator';
 
 export class LogViolationDto {
   @ApiProperty({ enum: ViolationType })
@@ -11,7 +11,6 @@ export class LogViolationDto {
   @IsOptional()
   @IsNumber()
   @Min(1)
-  @Max(5)
   severity?: number;
 
   @ApiPropertyOptional()

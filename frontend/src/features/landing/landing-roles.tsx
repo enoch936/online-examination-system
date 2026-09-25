@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
   GraduationCap,
   BookOpenCheck,
@@ -15,7 +15,8 @@ import {
   Radio,
   BarChart3,
 } from 'lucide-react';
-import { SectionHeader, Reveal, WrapUpText, Parallax, SectionReveal, useRevealGate } from './landing-primitives';
+import { SectionHeader, Reveal, WrapUpText, Parallax, SectionReveal } from './landing-primitives';
+import { NetworkOrb } from './landing-art';
 import { Webcam, Shield } from './landing-objects';
 import { cn } from '@/lib/utils';
 
@@ -267,7 +268,7 @@ const roles = [
 
 export function RolesSection() {
   const [active, setActive] = useState(0);
-  const { ref: orbitRef, shown, reduce } = useRevealGate();
+  const reduce = useReducedMotion() ?? false;
   const role = roles[active];
   const Icon = role.icon;
 
@@ -275,25 +276,25 @@ export function RolesSection() {
   const tiles = roles.map((_, i) => {
     const deg = (i / roles.length) * 360 - 90;
     const rad = (deg * Math.PI) / 180;
-    return {
-    x: Math.cos(rad), y: Math.sin(rad) };
+    return { x: Math.cos(rad), y: Math.sin(rad) };
   });
 
   return (
-    <SectionReveal id="roles" mode="fade-scale" className="relative isolate pb-20 md:pb-28">
+    <SectionReveal id="roles" mode="fade-scale" className="relative isolate py-20 md:py-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={100} className="absolute inset-x-0 top-8 mx-auto h-96 w-[48rem] rounded-full bg-primary/8 blur-3xl" />
+        <NetworkOrb className="absolute -left-6 top-40 hidden h-44 w-48 text-primary/35 lg:block" />
       </div>
 
-      <div className="w-full">
+      <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
           eyebrow="Who it's for"
           title={<WrapUpText lines={['One platform,', 'five workspaces']} />}
           sub="Every role gets its own tailored surface — switch between them to see how each team works."
         />
 
-{/* Orbital team selector */}
-          <div ref={orbitRef as React.Ref<HTMLDivElement>} className="relative mx-auto mt-14 h-[18rem] max-w-3xl [--r:7rem] sm:h-[22rem] sm:[--r:9rem] lg:h-[24rem] lg:[--r:9.5rem]">
+        {/* Orbital team selector */}
+        <div className="relative mx-auto mt-14 h-[18rem] max-w-3xl [--r:7rem] sm:h-[22rem] sm:[--r:9rem] lg:h-[24rem] lg:[--r:9.5rem]">
           {/* Dashed orbit + rotating arcs */}
           <div
             aria-hidden
@@ -330,8 +331,9 @@ export function RolesSection() {
           <motion.div
             className="absolute left-1/2 top-1/2 z-[2] w-44 -translate-x-1/2 -translate-y-1/2 sm:w-56"
             initial={reduce ? false : { opacity: 0, scale: 0.85 }}
-            animate={shown ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.85 }}
-            transition={{ duration: reduce ? 0 : 0.6, ease: [0.16, 1, 0.3, 1], delay: shown ? 0.15 : 0 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true, margin: '-80px' }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1], delay: 0.15 }}
           >
             <AnimatePresence mode="wait">
               <motion.div
@@ -387,8 +389,9 @@ export function RolesSection() {
                     aria-selected={isActive}
                     onClick={() => setActive(i)}
                     initial={reduce ? false : { scale: 0, opacity: 0 }}
-                    animate={shown ? { scale: 1, opacity: 1 } : { scale: 0, opacity: 0 }}
-                    transition={{ delay: shown ? 0.35 + i * 0.12 : 0, type: 'spring', stiffness: 300, damping: 20 }}
+                    whileInView={{ scale: 1, opacity: 1 }}
+                    viewport={{ once: true, margin: '-60px' }}
+                    transition={{ delay: 0.35 + i * 0.12, type: 'spring', stiffness: 300, damping: 20 }}
                     whileTap={reduce ? undefined : { scale: 0.92 }}
                     className={cn(
                       'flex cursor-pointer select-none flex-col items-center gap-1 rounded-2xl border px-3 py-2 backdrop-blur-xl transition-colors duration-300',
@@ -414,7 +417,7 @@ export function RolesSection() {
         </div>
 
         {/* Active role — copy */}
-        <div className="mx-auto mt-14 max-w-none text-center">
+        <div className="mx-auto mt-14 max-w-xl text-center">
           <AnimatePresence mode="wait">
             <motion.div
               key={role.id}
@@ -433,7 +436,7 @@ export function RolesSection() {
               <h3 className="mt-5 text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-[1.7rem]">
                 {role.title}
               </h3>
-              <p className="mx-auto mt-3 max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
+              <p className="mx-auto mt-3 max-w-lg text-[0.95rem] leading-relaxed text-muted-foreground">{role.body}</p>
               <ul className="mt-6 flex flex-wrap justify-center gap-2">
                 {role.points.map((p) => (
                   <li

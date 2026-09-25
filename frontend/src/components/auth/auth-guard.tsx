@@ -1,8 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
-import { restoreSession } from '@/services/api';
+import { useEffect } from 'react';
 import { useAuthStore } from '@/store/auth.store';
 import { useHasPermission } from '@/hooks/use-permissions';
 import type { RoleName } from '@/types/api';
@@ -43,19 +42,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useAuthStore((state) => state.user);
   const hasPermission = useHasPermission();
-  const bootstrapped = useRef(false);
-  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!bootstrapped.current) {
-      bootstrapped.current = true;
-      void restoreSession().finally(() => setReady(true));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!ready) return;
-
     if (!accessToken) {
       router.push('/login');
       return;
@@ -72,9 +60,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     if (required && user && !hasPermission(required)) {
       router.push(getDashboard(user.roles));
     }
-  }, [ready, accessToken, user, pathname, router, hasPermission]);
+  }, [accessToken, user, pathname, router, hasPermission]);
 
-  if (!ready || !accessToken) {
+  if (!accessToken) {
     return null;
   }
 

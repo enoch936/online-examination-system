@@ -15,11 +15,10 @@ export class MessagesController {
   @Get()
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   findMany(
-    @CurrentUser() user: AuthenticatedUser,
     @Query('examId') examId?: string,
     @Query('source') source?: MessageSource,
   ) {
-    return this.messages.findMany({ examId, source }, user);
+    return this.messages.findMany({ examId, source });
   }
 
   @Patch(':id/status')
@@ -29,6 +28,6 @@ export class MessagesController {
     @Body() body: { source?: MessageSource; status?: string },
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.messages.updateStatus(id, body.source === 'EXAM_REPORT' ? 'EXAM_REPORT' : 'CONTACT', body.status ?? 'READ', user);
+    return this.messages.updateStatus(id, body.source === 'EXAM_REPORT' ? 'EXAM_REPORT' : 'CONTACT', body.status ?? 'READ', user.sub);
   }
 }

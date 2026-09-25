@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, useReducedMotion, useInView } from 'framer-motion';
+import { useRef } from 'react';
 import { ShieldCheck, Radio, Cpu, Layers, ArrowRight, Lock, BadgeCheck, Video, ScrollText, KeyRound } from 'lucide-react';
-import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal, useRevealGate } from './landing-primitives';
+import { SectionHeader, Reveal, TiltCard, Parallax, SectionReveal } from './landing-primitives';
 import { AuroraBand } from './landing-art';
 import { cn } from '@/lib/utils';
 
@@ -50,14 +51,14 @@ export function SecuritySection() {
     <SectionReveal
       id="security"
       mode="rise-impact"
-      className="relative isolate border-y border-border/60 bg-card/20 pb-20 md:pb-28"
+      className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={120} className="absolute -right-28 top-16 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
         <Parallax speed={60} className="absolute -left-28 bottom-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="mx-auto max-w-6xl px-5 sm:px-6">
         <SectionHeader
           align="left"
           reveal="fade-left"
@@ -122,19 +123,21 @@ export function SecuritySection() {
 /* CTA — a large glass exam panel forms as you approach                 */
 /* ------------------------------------------------------------------ */
 export function CTASection() {
-  const { ref, shown, reduce } = useRevealGate();
+  const ref = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion() ?? false;
+  const inView = useInView(ref, { once: false, margin: '-20%' });
 
   return (
-    <SectionReveal mode="expand-in" className="relative overflow-hidden pb-24 md:pb-32">
+    <SectionReveal mode="expand-in" className="relative overflow-hidden py-24 md:py-32">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <AuroraBand />
-        <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-3xl" />
-        <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-3xl" />
+        <Parallax speed={90} className="absolute inset-x-0 bottom-0 top-0 mx-auto my-auto h-[420px] w-[720px] rounded-full bg-primary/10 blur-[140px]" />
+        <Parallax speed={150} className="absolute left-[62%] top-[30%] h-56 w-56 rounded-full bg-gold/10 blur-[120px]" />
         <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
       </div>
 
-      <div className="w-full">
-        <div ref={ref as React.Ref<HTMLDivElement>} className="relative">
+      <div className="mx-auto max-w-4xl px-5 sm:px-6">
+        <div ref={ref} className="relative">
           {/* Floating chips framing the CTA panel */}
           <div
             className="float-soft absolute -left-10 top-10 z-20 hidden items-center gap-2 rounded-xl border border-border/60 bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur-xl lg:flex"
@@ -161,22 +164,22 @@ export function CTASection() {
           <motion.div
             className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-gold/25 via-transparent to-primary/25 p-px"
             initial={reduce ? false : { opacity: 0, scale: 0.96, filter: 'blur(10px)' }}
-            animate={shown ? { opacity: 1, scale: 1, filter: 'blur(0px)' } : {}}
+            animate={inView ? { opacity: 1, scale: 1, filter: 'blur(0px)' } : {}}
             transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="h-full w-full rounded-3xl bg-background/60 backdrop-blur-xl" />
           </motion.div>
 
-          <div className="glass-edge flex flex-col items-center gap-6 px-0 py-16 text-center sm:py-20">
+          <div className="glass-edge flex flex-col items-center gap-6 px-6 py-16 text-center sm:px-12 sm:py-20">
             <span className="eyebrow">
               <span className="eyebrow-dot-gold" />
               Get started
             </span>
-            <h2 className="max-w-none text-[1.9rem] font-semibold leading-[1.12] tracking-tight text-foreground sm:text-[2.4rem]">
+            <h2 className="max-w-2xl text-[1.9rem] font-semibold leading-[1.12] tracking-tight text-foreground sm:text-[2.4rem]">
               Run your next exam{' '}
               <span className="text-gold-gradient">with confidence.</span>
             </h2>
-            <p className="max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">
+            <p className="max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">
               Create, schedule, monitor, and grade in one surface — no complex deployment required.
             </p>
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
