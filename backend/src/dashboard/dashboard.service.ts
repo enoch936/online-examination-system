@@ -43,7 +43,7 @@ export class DashboardService {
         : {
             OR: [
               { createdById: user.sub },
-              { examShares: { some: { instructorId: user.sub } } },
+              { shares: { some: { instructorId: user.sub } } },
             ],
           };
       const sessionScope = canSeeAll ? {} : { exam: examScope };

@@ -100,7 +100,7 @@ export class MessagesService {
             is: {
               OR: [
                 { createdById: user.sub },
-                { examShares: { some: { instructorId: user.sub } } },
+                { shares: { some: { instructorId: user.sub } } },
               ],
             },
           },
