@@ -19,6 +19,13 @@ export const ACTION_LEVEL: Record<string, ExamPermissionLevel> = {
   note: ExamPermissionLevel.VIEWER,
   pause: ExamPermissionLevel.PROCTOR,
   resume: ExamPermissionLevel.PROCTOR,
+  // Formal resume approval/denial overrides the exam's approval gate, so it is
+  // restricted to the exam owner / CO_OWNER share / admin — matching the
+  // request-based approval authority. Without these entries the monitor page's
+  // Approve/Deny buttons were rejected with 403 "Unknown monitoring action",
+  // leaving students permanently blocked at RESUME_PENDING.
+  approve_resume: ExamPermissionLevel.CO_OWNER,
+  deny_resume: ExamPermissionLevel.CO_OWNER,
   extend: ExamPermissionLevel.CO_OWNER,
   force_submit: ExamPermissionLevel.CO_OWNER,
   disconnect: ExamPermissionLevel.CO_OWNER,

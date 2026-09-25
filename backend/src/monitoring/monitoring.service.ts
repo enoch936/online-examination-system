@@ -1136,6 +1136,15 @@ export class MonitoringService {
           data: { status: SessionStatus.IN_PROGRESS, resumeApprovedAt: new Date(), resumeDeniedAt: null },
         });
         await this.recordInstructorEvent(session, 'RESUMED', { approved: true });
+        await this.prisma.notification.create({
+          data: {
+            userId: studentId,
+            type: NotificationType.RESUME_APPROVED,
+            title: 'Resume approved',
+            message: 'Your request to resume the exam was approved. You may continue.',
+            metadata: JSON.stringify({ examId: session.examId, sessionId, fromInstructorId: instructorId }),
+          },
+        });
         this.gateway.emitToSession(session.id, 'exam:control', { type: 'resume', approved: true });
         break;
       }
@@ -1146,6 +1155,15 @@ export class MonitoringService {
           data: { resumeDeniedAt: new Date(), resumeApprovedAt: null },
         });
         await this.recordInstructorEvent(session, 'PAUSED', { denied: true, message: message ?? null });
+        await this.prisma.notification.create({
+          data: {
+            userId: studentId,
+            type: NotificationType.RESUME_REJECTED,
+            title: 'Resume request rejected',
+            message: message ?? 'Your request to resume the exam was rejected.',
+            metadata: JSON.stringify({ examId: session.examId, sessionId, fromInstructorId: instructorId }),
+          },
+        });
         this.gateway.emitToSession(session.id, 'exam:control', { type: 'resume-denied', message: message ?? null });
         break;
       }
