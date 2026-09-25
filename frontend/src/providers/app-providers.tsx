@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Toaster } from 'sonner';
 import { SmoothScrollProvider } from './smooth-scroll-provider';
 
-export function AppProviders({ children }: { children: React.ReactNode }) {
+export function AppProviders({ children, nonce }: { children: React.ReactNode; nonce?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -20,7 +20,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="light" enableSystem={true} disableTransitionOnChange>
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="light"
+      enableSystem={true}
+      disableTransitionOnChange
+      nonce={nonce}
+    >
       <QueryClientProvider client={queryClient}>
         <SmoothScrollProvider>
           {children}

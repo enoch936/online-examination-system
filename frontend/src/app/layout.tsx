@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { Inter } from 'next/font/google';
 import '@/styles/globals.css';
 import { AppProviders } from '@/providers/app-providers';
@@ -15,11 +16,17 @@ export const metadata: Metadata = {
 // whole tree must not be statically prerendered.
 export const dynamic = 'force-dynamic';
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // proxy.ts generates a per-request nonce and forwards it on the x-nonce
+  // request header. Reading it here lets the ThemeProvider stamp next-themes'
+  // inline bootstrap script with the same nonce so the strict script-src CSP
+  // (no 'unsafe-inline') does not block it.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning data-scroll-behavior="smooth">
       <body className={inter.className}>
-        <AppProviders>{children}</AppProviders>
+        <AppProviders nonce={nonce}>{children}</AppProviders>
       </body>
     </html>
   );
