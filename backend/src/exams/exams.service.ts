@@ -336,12 +336,30 @@ export class ExamsService {
       where: {
         studentId,
         examId: { in: exams.map((e) => e.id) },
-        status: { in: ['IN_PROGRESS', 'SUBMITTED', 'AUTO_SUBMITTED'] },
+        // PAUSED is included so a session awaiting resume approval still shows
+        // up as a resumable session instead of a fresh "Start exam" (which used
+        // to 404 the request-approval flow because no session id was known).
+        status: { in: ['IN_PROGRESS', 'PAUSED', 'SUBMITTED', 'AUTO_SUBMITTED'] },
       },
-      select: { examId: true, status: true, id: true, attemptNumber: true },
+      select: {
+        examId: true,
+        status: true,
+        id: true,
+        attemptNumber: true,
+        retakePermitted: true,
+        retakeRequests: { where: { status: 'APPROVED' }, select: { id: true } },
+      },
+      orderBy: { attemptNumber: 'desc' },
     });
 
-    const sessionMap = new Map(sessions.map((s) => [s.examId, s]));
+    // Keep the highest attempt per exam (a retake supersedes the prior submit).
+    const sessionMap = new Map<string, (typeof sessions)[number]>();
+    for (const s of sessions) {
+      const prev = sessionMap.get(s.examId);
+      if (!prev || s.attemptNumber > prev.attemptNumber) {
+        sessionMap.set(s.examId, s);
+      }
+    }
 
     return exams.map((exam) => ({
       ...exam,

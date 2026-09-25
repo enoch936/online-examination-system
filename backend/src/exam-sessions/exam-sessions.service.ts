@@ -147,9 +147,10 @@ export class ExamSessionsService {
       const hasApprovedRetake = submittedSession.retakeRequests.some(
         (r) => r.status === RetakeRequestStatus.APPROVED,
       );
-      approvedRetake =
-        exam.retakePolicy !== ExamRetakePolicy.DISABLED &&
-        (submittedSession.retakePermitted || hasApprovedRetake);
+      // An explicit staff permit (permit-retake, or an approved retake request)
+      // authorises a new attempt even when the exam's default retake policy is
+      // DISABLED — the policy only governs the self-service / automatic flows.
+      approvedRetake = Boolean(submittedSession.retakePermitted || hasApprovedRetake);
       if (!approvedRetake) {
         if (exam.retakePolicy === ExamRetakePolicy.AUTO) {
           const attemptsUsed = await this.prisma.examSession.count({ where: { examId, studentId } });
@@ -251,6 +252,7 @@ export class ExamSessionsService {
    * server-side; denying leaves it PAUSED.
    */
   private async assertResumeAllowed(session: {
+    id: string;
     status: SessionStatus;
     exam: {
       resumeApprovalRequired: boolean;
@@ -265,6 +267,7 @@ export class ExamSessionsService {
         {
           code: 'RESUME_DISABLED',
           message: 'Resuming interrupted sessions is disabled for this exam. Contact your instructor for help.',
+          sessionId: session.id,
         },
         HttpStatus.LOCKED,
       );
@@ -274,6 +277,7 @@ export class ExamSessionsService {
         {
           code: 'SESSION_ENDED',
           message: 'Your session was ended after a connection loss. Contact your instructor for help.',
+          sessionId: session.id,
         },
         HttpStatus.LOCKED,
       );
@@ -290,6 +294,7 @@ export class ExamSessionsService {
         {
           code: 'RESUME_DENIED',
           message: 'Your resume request was denied by your instructor. Contact them for help.',
+          sessionId: session.id,
         },
         HttpStatus.LOCKED,
       );
@@ -298,6 +303,7 @@ export class ExamSessionsService {
       {
         code: 'RESUME_PENDING',
         message: 'Your session was interrupted and is paused. An instructor must approve you before you can resume.',
+        sessionId: session.id,
       },
       HttpStatus.LOCKED,
     );

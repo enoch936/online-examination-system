@@ -163,6 +163,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
   const [reportText, setReportText] = useState('');
   const [reporting, setReporting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const { refetch: refetchNotifications } = useNotifications();
 
   const handleRefresh = async () => {
@@ -192,12 +193,18 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     retry: false,
   });
 
-const resumeErrorCode = (
+  const resumeErrorCode = (
     query.error as { response?: { data?: { error?: { code?: string } | undefined } } | null }
   )?.response?.data?.error?.code;
-const resumeErrorPolicy = (
+  const resumeErrorPolicy = (
     query.error as { response?: { data?: { error?: { retakePolicy?: string } | undefined } } | null }
   )?.response?.data?.error?.retakePolicy;
+  // When the start call is blocked with RESUME_PENDING, the server echoes the
+  // paused session id back in the error so the request-approval call always has
+  // a real session id (previously it sent an empty string and 404'd).
+  const resumeErrorSessionId = (
+    query.error as { response?: { data?: { error?: { sessionId?: string } | undefined } } | null }
+  )?.response?.data?.error?.sessionId;
 
   const retakeMutation = useMutation({
     mutationFn: () => requestsService.requestRetake({ examId: examId ?? '' }),
@@ -209,7 +216,10 @@ const resumeErrorPolicy = (
   });
 
   const resumeRequestMutation = useMutation({
-    mutationFn: () => requestsService.requestResume({ sessionId: query.data?.id ?? sessionId ?? '' }),
+    mutationFn: () =>
+      requestsService.requestResume({
+        sessionId: query.data?.id ?? sessionId ?? resumeErrorSessionId ?? '',
+      }),
     onSuccess: () => {
       toast.success('Resume request sent to your instructor');
       void query.refetch();
@@ -472,6 +482,49 @@ const resumeErrorPolicy = (
   const answeredCount = useMemo(
     () => Object.values(answers).filter((a) => (a.selectedOptionIds?.length ?? 0) > 0 || (a.answerText?.length ?? 0) > 0).length,
     [answers],
+  );
+
+  const reviewItems = useMemo(
+    () =>
+      questions.map((question, index) => {
+        const draft = answers[question.question.id];
+        const selectedIds = draft?.selectedOptionIds ?? [];
+        const answerText = (draft?.answerText ?? '').trim();
+        const selectedLabels = question.question.options
+          .filter((o) => selectedIds.includes(o.id))
+          .map((o) => `${o.label}. ${o.text}`);
+        return {
+          index,
+          question,
+          isAnswered: selectedIds.length > 0 || answerText.length > 0,
+          isBookmarked: Boolean(draft?.isBookmarked),
+          answerText,
+          selectedLabels,
+        };
+      }),
+    [questions, answers],
+  );
+
+  const unansweredCount = reviewItems.filter((r) => !r.isAnswered).length;
+  const flaggedCount = reviewItems.filter((r) => r.isBookmarked).length;
+
+  const openReview = useCallback(() => {
+    void saveCurrentAnswer().catch(() => undefined);
+    setReviewOpen(true);
+  }, [saveCurrentAnswer]);
+
+  const confirmFinalSubmit = useCallback(() => {
+    void saveCurrentAnswer()
+      .catch(() => undefined)
+      .finally(() => submitMutation.mutate(false));
+  }, [saveCurrentAnswer, submitMutation]);
+
+  const jumpToReviewQuestion = useCallback(
+    (index: number) => {
+      goToQuestion(index);
+      setReviewOpen(false);
+    },
+    [goToQuestion],
   );
 
   if (query.isLoading) {
@@ -753,6 +806,101 @@ const resumeErrorPolicy = (
           </div>
         </div>
       )}
+      {reviewOpen && (
+        <div className="fixed inset-0 z-[60] overflow-y-auto bg-background/95 backdrop-blur-sm">
+          <div className="mx-auto max-w-3xl space-y-6 p-4 pb-10 sm:p-8">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-normal">Review your answers</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {query.data?.exam.title} &middot; Review each answer below. Once you submit, you cannot change
+                  your answers.
+                </p>
+              </div>
+              <Button variant="ghost" onClick={() => setReviewOpen(false)}>Close</Button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div className="rounded-lg border p-4 text-center">
+                <p className="text-xs text-muted-foreground">Questions</p>
+                <p className="text-2xl font-semibold">{questions.length}</p>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <p className="text-xs text-muted-foreground">Answered</p>
+                <p className="text-2xl font-semibold text-emerald-600">{questions.length - unansweredCount}</p>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <p className="text-xs text-muted-foreground">Unanswered</p>
+                <p className={`text-2xl font-semibold ${unansweredCount ? 'text-amber-600' : ''}`}>{unansweredCount}</p>
+              </div>
+              <div className="rounded-lg border p-4 text-center">
+                <p className="text-xs text-muted-foreground">Flagged</p>
+                <p className="text-2xl font-semibold">{flaggedCount}</p>
+              </div>
+            </div>
+
+            {unansweredCount > 0 && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
+                You still have {unansweredCount} unanswered question{unansweredCount === 1 ? '' : 's'}. Unanswered
+                questions receive zero marks. Click a question below to jump back and answer it.
+              </div>
+            )}
+
+            <div className="space-y-3">
+              {reviewItems.map((item) => (
+                <Card
+                  key={item.question.question.id}
+                  className="cursor-pointer transition-colors hover:bg-muted/40"
+                  onClick={() => jumpToReviewQuestion(item.index)}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <CardTitle className="text-sm leading-6">
+                          {item.index + 1}. {item.question.question.prompt}
+                        </CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {typeLabels[item.question.question.type] ?? item.question.question.type} &middot;{' '}
+                          {Number(item.question.points)} pts
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {item.isBookmarked && <Bookmark className="h-4 w-4 fill-current text-secondary" />}
+                        {item.isAnswered ? <Badge variant="success">Answered</Badge> : <Badge variant="warning">Unanswered</Badge>}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 text-sm">
+                    {item.selectedLabels.length > 0 && (
+                      <p className="text-muted-foreground">
+                        Selected: <span className="text-foreground">{item.selectedLabels.join('; ')}</span>
+                      </p>
+                    )}
+                    {item.answerText && (
+                      <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                        Your answer: <span className="text-foreground">{item.answerText}</span>
+                      </p>
+                    )}
+                    {!item.isAnswered && <p className="italic text-muted-foreground">No answer provided</p>}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="sticky bottom-0 -mx-4 flex flex-col gap-3 border-t bg-background/95 px-4 py-4 backdrop-blur sm:-mx-8 sm:flex-row sm:items-center sm:justify-between sm:px-8">
+              <Button variant="outline" onClick={() => setReviewOpen(false)}>Back to exam</Button>
+              <Button variant="destructive" onClick={confirmFinalSubmit} disabled={submitMutation.isPending}>
+                {submitMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Submit exam finally
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {(requirements?.fullscreenPolicy === 'REQUIRED' || Boolean(query.data?.exam?.fullscreenRequired)) &&
         !isFullscreen &&
         !submittedRef.current &&
@@ -815,7 +963,7 @@ const resumeErrorPolicy = (
           </Button>
           <Button
             variant="destructive"
-            onClick={() => { if (window.confirm('Are you sure you want to submit?')) submitMutation.mutate(false); }}
+            onClick={openReview}
             disabled={submitMutation.isPending}
           >
             <Send className="h-4 w-4" />
@@ -897,11 +1045,11 @@ const resumeErrorPolicy = (
             <Button
               size="lg"
               variant="destructive"
-              onClick={() => { if (window.confirm('Are you sure you want to submit?')) submitMutation.mutate(false); }}
+              onClick={openReview}
               disabled={submitMutation.isPending}
             >
               <Send className="mr-2 h-4 w-4" />
-              Submit all answers
+              Review &amp; submit
             </Button>
           </div>
         </div>

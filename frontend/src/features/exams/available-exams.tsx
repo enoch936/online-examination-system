@@ -12,7 +12,13 @@ import { api, unwrap } from '@/services/api';
 import type { ExamSummary } from '@/types/api';
 
 type AvailableExam = ExamSummary & {
-  session: { id: string; status: string; attemptNumber: number; retakePermitted?: boolean } | null;
+  session: {
+    id: string;
+    status: string;
+    attemptNumber: number;
+    retakePermitted?: boolean;
+    retakeRequests?: Array<{ id: string }>;
+  } | null;
 };
 
 function useNow(intervalMs = 1000) {
@@ -89,10 +95,15 @@ export function AvailableExams() {
         {exams.map((exam) => {
           const startsAt = new Date(exam.startsAt).getTime();
           const endsAt = new Date(exam.endsAt).getTime();
-          const inProgress = exam.session?.status === 'IN_PROGRESS';
+          const session = exam.session;
+          const inProgress = session?.status === 'IN_PROGRESS';
+          const paused = session?.status === 'PAUSED';
           const isLive = exam.status === 'LIVE';
           const isPublished = exam.status === 'PUBLISHED';
-          const hasSubmitted = exam.session?.status === 'SUBMITTED' || exam.session?.status === 'AUTO_SUBMITTED';
+          const hasSubmitted = session?.status === 'SUBMITTED' || session?.status === 'AUTO_SUBMITTED';
+          const canRetake =
+            hasSubmitted &&
+            Boolean(session?.retakePermitted || (session?.retakeRequests?.length ?? 0) > 0);
           const notStarted = now < startsAt;
           const inWindow = now >= startsAt && now <= endsAt;
 
@@ -108,7 +119,9 @@ export function AvailableExams() {
                 </div>
                 <div className="flex items-center gap-2">
                   {inProgress && <Badge variant="warning">In progress</Badge>}
+                  {paused && <Badge variant="warning">Awaiting approval</Badge>}
                   {hasSubmitted && <Badge variant="secondary">Submitted</Badge>}
+                  {canRetake && <Badge variant="outline">Retake allowed</Badge>}
                   {isPublished && <Badge variant="outline">Waiting to start</Badge>}
                   {isLive && <Badge variant="success">Live</Badge>}
                 </div>
@@ -142,10 +155,15 @@ export function AvailableExams() {
                       <Timer className="h-4 w-4" />Ends in <Countdown target={endsAt} />
                     </span>
                   ) : null}
-                  {inProgress ? (
-                    <Button onClick={() => router.push(`/student/exams/${exam.session!.id}/resume`)}>
+                  {inProgress || paused ? (
+                    <Button onClick={() => router.push(`/student/exams/${session!.id}/resume`)}>
                       <RotateCcw className="h-4 w-4" />
-                      Resume
+                      {paused ? 'Resume (awaiting approval)' : 'Resume'}
+                    </Button>
+                  ) : canRetake ? (
+                    <Button onClick={() => router.push(`/student/exams/${exam.id}/take`)}>
+                      <RotateCcw className="h-4 w-4" />
+                      Retake exam
                     </Button>
                   ) : hasSubmitted ? (
                     <Button disabled>

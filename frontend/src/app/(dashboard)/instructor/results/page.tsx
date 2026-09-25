@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { toast } from 'sonner';
-import { Trophy, Search, FileQuestion, Send, CheckCircle2, Loader2 } from 'lucide-react';
+import { Trophy, Search, FileQuestion, Send, CheckCircle2, Loader2, Eye } from 'lucide-react';
+import { SubmissionDetailSheet } from '@/features/results/submission-detail-sheet';
 
 const gradeColors: Record<string, string> = {
   A: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -77,6 +78,7 @@ export default function InstructorResultsPage() {
   const queryClient = useQueryClient();
   const [examFilter, setExamFilter] = useState('');
   const [gradingId, setGradingId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [gradeForm, setGradeForm] = useState<Record<string, { score: string; feedback: string }>>({});
 
   const { data: exams } = useQuery({
@@ -209,6 +211,15 @@ export default function InstructorResultsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="View submitted exam in detail"
+                            onClick={() => setDetailId(r.id)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
                           {!r.publishedAt && (
                             <Button
                               variant="ghost"
@@ -328,6 +339,12 @@ export default function InstructorResultsPage() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <SubmissionDetailSheet
+        resultId={detailId}
+        open={Boolean(detailId)}
+        onOpenChange={(o) => { if (!o) setDetailId(null); }}
+      />
     </div>
   );
 }

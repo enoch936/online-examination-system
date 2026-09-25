@@ -21,6 +21,7 @@ const routePermissionMap: Array<[RegExp, string]> = [
   [/^\/admin\/subjects/, 'subjects.manage'],
   [/^\/admin\/courses/, 'courses.manage'],
   [/^\/admin\/exams/, 'exams.manage'],
+  [/^\/admin\/results/, 'reports.read'],
   [/^\/admin\/analytics/, 'reports.read'],
   [/^\/admin\/audit-logs/, 'audit.read'],
   [/^\/instructor\/question-bank/, 'questions.manage'],
