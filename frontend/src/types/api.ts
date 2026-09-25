@@ -295,13 +295,27 @@ export type Notification = {
   createdAt: string;
 };
 
+export type CertificateResult = {
+  id: string;
+  score: number;
+  maxScore: number;
+  percentage: number;
+  grade?: string | null;
+  passed: boolean;
+  publishedAt?: string | null;
+  exam: { id: string; title: string; totalMarks?: number; passingMarks?: number };
+  submission?: { session?: { student?: { id: string; firstName: string; lastName: string; email: string } } };
+};
+
 export type Certificate = {
   id: string;
+  resultId: string;
   certificateNo: string;
   verificationCode: string;
   fileUrl?: string | null;
   issuedAt: string;
-  result?: { score: number; percentage: number; grade?: string; exam: { title: string } };
+  expiresAt?: string | null;
+  result?: CertificateResult;
 };
 
 export type Result = {

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
+  Award,
   BarChart3,
   Bell,
   BookOpen,
@@ -77,6 +78,8 @@ const nav: NavGroup[] = [
       { href: '/instructor/exams/create', label: 'Create Exam', icon: BookOpen, permission: 'exams.manage' },
       { href: '/instructor/exams/manage', label: 'Manage Exams', icon: ClipboardList, permission: 'exams.manage' },
       { href: '/instructor/exams/monitor', label: 'Monitor Exam', icon: Monitor, permission: 'sessions.monitor' },
+      { href: '/instructor/results', label: 'Submitted Exams', icon: Trophy, permission: 'reports.read' },
+      { href: '/instructor/certificates', label: 'Certificates', icon: Award, permission: 'reports.read' },
       { href: '/instructor/classes', label: 'Classes', icon: School, permission: 'classes.manage' },
       { href: '/instructor/courses', label: 'Courses', icon: GraduationCap, permission: 'courses.manage' },
       { href: '/instructor/messages', label: 'Messages', icon: Mail },
@@ -97,6 +100,7 @@ const nav: NavGroup[] = [
       { href: '/admin/classes', label: 'Classes', icon: School, permission: 'classes.manage' },
       { href: '/admin/exams', label: 'Exams', icon: ClipboardList, permission: 'exams.manage' },
       { href: '/admin/results', label: 'Submitted Exams', icon: Trophy, permission: 'reports.read' },
+      { href: '/admin/certificates', label: 'Certificates', icon: Award, permission: 'reports.read' },
       { href: '/admin/analytics', label: 'Analytics', icon: Activity, permission: 'reports.read' },
       { href: '/admin/audit-logs', label: 'Audit Logs', icon: Shield, permission: 'audit.read' },
       { href: '/admin/instructors', label: 'Instructors', icon: UserRoundCog, permission: 'users.read' },

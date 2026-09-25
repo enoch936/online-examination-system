@@ -1,14 +1,13 @@
 ﻿'use client';
 
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Award, Download, SearchX, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { certificatesService } from '@/services/certificates.service';
-import { resultsService } from '@/services/results.service';
-import type { Certificate, Result } from '@/types/api';
+import type { Certificate } from '@/types/api';
 
 function CertificateCard({ certificate }: { certificate: Certificate }) {
   return (
@@ -63,30 +62,13 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
 
 export default function CertificatesPage() {
   const certificatesQuery = useQuery({
-    queryKey: ['student-certificates'],
-    queryFn: certificatesService.list,
-    retry: false,
+    queryKey: ['certificates', 'student'],
+    queryFn: () => certificatesService.list({ limit: 100 }),
   });
 
-  const resultsQuery = useQuery({
-    queryKey: ['student-results-for-certificates'],
-    queryFn: () => resultsService.list(),
-    retry: false,
-    enabled: certificatesQuery.isError,
-  });
-
-  const isLoading = certificatesQuery.isLoading || resultsQuery.isLoading;
-  const hasError = certificatesQuery.isError && resultsQuery.isError;
-
-  let certificates: Certificate[] = [];
-
-  if (certificatesQuery.data && Array.isArray(certificatesQuery.data)) {
-    certificates = certificatesQuery.data;
-  } else if (resultsQuery.data?.data) {
-    certificates = resultsQuery.data.data
-      .filter((r: Result) => r.certificate)
-      .map((r: Result) => r.certificate!);
-  }
+  const isLoading = certificatesQuery.isLoading;
+  const hasError = certificatesQuery.isError;
+  const certificates: Certificate[] = certificatesQuery.data?.data ?? [];
 
   if (isLoading) {
     return (

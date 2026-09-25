@@ -22,12 +22,15 @@ const routePermissionMap: Array<[RegExp, string]> = [
   [/^\/admin\/courses/, 'courses.manage'],
   [/^\/admin\/exams/, 'exams.manage'],
   [/^\/admin\/results/, 'reports.read'],
+  [/^\/admin\/certificates/, 'reports.read'],
   [/^\/admin\/analytics/, 'reports.read'],
   [/^\/admin\/audit-logs/, 'audit.read'],
   [/^\/instructor\/question-bank/, 'questions.manage'],
   [/^\/instructor\/exams\/monitor/, 'sessions.monitor'],
   [/^\/instructor\/exams/, 'exams.manage'],
   [/^\/instructor\/courses/, 'courses.manage'],
+  [/^\/instructor\/results/, 'reports.read'],
+  [/^\/instructor\/certificates/, 'reports.read'],
   [/^\/instructor\/reports/, 'reports.read'],
 ];
 

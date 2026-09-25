@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaClient, RoleName, UserStatus, QuestionType, Difficulty, ExamStatus, QuestionBankStatus, SessionStatus, SubmissionStatus, NotificationType, ViolationType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { computeLetterGrade } from '../src/results/grading.util';
 
 // Guard: this seed only creates well-known demo STUDENT/INSTRUCTOR accounts and
 // course/exam content with public passwords. Never allow it to run against a
@@ -665,7 +666,7 @@ async function main() {
       const maxScore = examRec.totalMarks;
       const percentage = Math.round((totalScore / maxScore) * 100);
       const passed = totalScore >= examRec.passingMarks;
-      const grade = percentage >= 80 ? 'A' : percentage >= 65 ? 'B' : percentage >= 50 ? 'C' : 'D';
+      const grade = computeLetterGrade(percentage);
 
       const submission = await prisma.submission.upsert({
         where: { sessionId: session.id },

@@ -1,14 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
+import { Prisma, RoleName } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ExamAccessService } from '../common/exam-access.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { clampScore } from '../submissions/scoring.util';
 import { GradeAnswerItemDto } from './dto/grade-answers.dto';
+import { OverrideResultDto } from './dto/override-result.dto';
+import { computeLetterGrade, roundPercentage } from './grading.util';
 
 type FindManyOptions = {
   examId?: string;
   page?: number;
   limit?: number;
+  passed?: boolean;
+  certificateStatus?: 'issued' | 'none';
 };
 
 const MAX_GRADE_ITEMS = 1000;
@@ -47,6 +52,9 @@ export class ResultsService {
     const where = {
       ...this.resultScope(user),
       ...(options.examId ? { examId: options.examId } : {}),
+      ...(options.passed !== undefined ? { passed: options.passed } : {}),
+      ...(options.certificateStatus === 'issued' ? { certificate: { isNot: null } } : {}),
+      ...(options.certificateStatus === 'none' ? { certificate: { is: null } } : {}),
     };
 
     const [data, total] = await Promise.all([
@@ -103,7 +111,14 @@ export class ResultsService {
   async gradeManually(id: string, user: AuthenticatedUser, answers: GradeAnswerItemDto[]) {
     const result = await this.prisma.result.findUnique({
       where: { id },
-      include: { exam: true, submission: { include: { session: { include: { answers: true } } } } },
+      include: {
+        exam: true,
+        submission: {
+          include: {
+            session: { include: { answers: { include: { question: { select: { points: true } } } } } },
+          },
+        },
+      },
     });
     if (!result) throw new NotFoundException('Result not found');
     await this.examAccess.assertCanManage(result.examId, user);
@@ -112,22 +127,52 @@ export class ResultsService {
       throw new BadRequestException('Invalid grade payload');
     }
 
+    const existingAnswers = result.submission?.session.answers ?? [];
+    const answerById = new Map(existingAnswers.map((a) => [a.id, a]));
+
+    const unknownIds = answers.filter((g) => !answerById.has(g.answerId)).map((g) => g.answerId);
+    if (unknownIds.length > 0) {
+      throw new BadRequestException('Grade payload references answers outside this submission');
+    }
+
+    const seen = new Set<string>();
+    for (const item of answers) {
+      if (seen.has(item.answerId)) {
+        throw new BadRequestException('Grade payload contains duplicate answer entries');
+      }
+      seen.add(item.answerId);
+    }
+
     const graderId = user.sub;
-    const toUpdate = answers
-      .filter((g) => result.submission?.session.answers.some((a) => a.id === g.answerId))
-      .map((g) => this.prisma.studentAnswer.update({
+    const toUpdate = answers.map((g) => {
+      const answer = answerById.get(g.answerId) as (typeof existingAnswers)[number];
+      const rawMax = Number(answer.question?.points ?? Number.NaN);
+      const maxPoints = Number.isFinite(rawMax) && rawMax >= 0 ? rawMax : Number(result.exam.totalMarks);
+      return this.prisma.studentAnswer.update({
         where: { id: g.answerId },
-        data: { score: g.score, feedback: g.feedback, graderId },
-      }));
+        data: {
+          score: clampScore(g.score, maxPoints),
+          feedback: g.feedback === undefined ? undefined : g.feedback.trim() || null,
+          graderId,
+        },
+      });
+    });
     if (toUpdate.length > 0) {
       await this.prisma.$transaction(toUpdate);
     }
 
-    const allAnswers = result.submission?.session.answers ?? [];
+    const freshAnswers = existingAnswers.length
+      ? await this.prisma.studentAnswer.findMany({
+          where: { id: { in: existingAnswers.map((a) => a.id) } },
+          select: { id: true, score: true },
+        })
+      : [];
     const maxScore = Number(result.exam.totalMarks);
-    const totalScore = allAnswers.reduce((sum, a) => sum + Number(a.score ?? 0), 0);
-    const percentage = maxScore > 0 ? Number(((totalScore / maxScore) * 100).toFixed(2)) : 0;
+    const rawTotal = freshAnswers.reduce((sum, a) => sum + Number(a.score ?? 0), 0);
+    const totalScore = clampScore(rawTotal, maxScore);
+    const percentage = roundPercentage(totalScore, maxScore);
     const passed = totalScore >= Number(result.exam.passingMarks);
+    const grade = result.grade ?? computeLetterGrade(percentage);
 
     const updated = await this.prisma.result.update({
       where: { id },
@@ -135,6 +180,7 @@ export class ResultsService {
         score: totalScore,
         percentage,
         passed,
+        grade,
         publishedAt: result.publishedAt ?? new Date(),
       },
     });
@@ -146,14 +192,65 @@ export class ResultsService {
           action: 'GRADE_MODIFIED',
           entity: 'RESULT',
           entityId: id,
-          before: JSON.stringify({ score: Number(result.score), percentage: Number(result.percentage), passed: result.passed }),
+          before: JSON.stringify({
+            score: Number(result.score),
+            percentage: Number(result.percentage),
+            passed: result.passed,
+            grade: result.grade,
+          }),
           after: JSON.stringify({
             score: totalScore,
             percentage,
             passed,
+            grade,
             updatedAnswers: toUpdate.length,
             publishedAt: updated.publishedAt?.toISOString(),
           }),
+        },
+      })
+      .catch(() => undefined);
+
+    return updated;
+  }
+
+  /**
+   * Staff-driven edits that are deliberately kept out of the per-answer grading
+   * path: the letter grade (auto-filled from the percentage on first grading,
+   * then owned by staff until reset) and the overall result feedback.
+   */
+  async overrideResult(id: string, user: AuthenticatedUser, dto: OverrideResultDto) {
+    const result = await this.prisma.result.findUnique({ where: { id } });
+    if (!result) throw new NotFoundException('Result not found');
+    await this.examAccess.assertCanManage(result.examId, user);
+
+    const percentage = Number(result.percentage);
+    const data: Prisma.ResultUpdateInput = {};
+
+    if (dto.grade !== undefined) {
+      data.grade = dto.grade === null ? computeLetterGrade(percentage) : dto.grade;
+    } else if (dto.recomputeGrade) {
+      data.grade = computeLetterGrade(percentage);
+    }
+
+    if (dto.feedback !== undefined) {
+      data.feedback = dto.feedback === null ? null : dto.feedback.trim() || null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('No grade changes supplied');
+    }
+
+    const updated = await this.prisma.result.update({ where: { id }, data });
+
+    void this.prisma.auditLog
+      .create({
+        data: {
+          actorId: user.sub,
+          action: 'RESULT_OVERRIDDEN',
+          entity: 'RESULT',
+          entityId: id,
+          before: JSON.stringify({ grade: result.grade, feedback: result.feedback }),
+          after: JSON.stringify({ grade: updated.grade, feedback: updated.feedback }),
         },
       })
       .catch(() => undefined);
