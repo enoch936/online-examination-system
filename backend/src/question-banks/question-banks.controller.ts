@@ -49,20 +49,20 @@ export class QuestionBanksController {
 
   @Patch(':id')
   @Permissions('questions.manage')
-  update(@Param('id') id: string, @Body() dto: UpdateQuestionBankDto) {
-    return this.banks.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateQuestionBankDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.banks.update(id, dto, user);
   }
 
   @Delete(':id')
   @Permissions('questions.manage')
-  remove(@Param('id') id: string) {
-    return this.banks.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.banks.remove(id, user);
   }
 
   @Post(':id/duplicate')
   @Permissions('questions.manage')
   duplicate(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.banks.duplicate(id, user.sub);
+    return this.banks.duplicate(id, user);
   }
 
   @Get(':id/questions')
@@ -73,31 +73,32 @@ export class QuestionBanksController {
   @ApiQuery({ name: 'topic', type: String, required: false })
   getQuestions(
     @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query('search') search?: string,
     @Query('type') type?: QuestionType,
     @Query('difficulty') difficulty?: Difficulty,
     @Query('topic') topic?: string,
   ) {
-    return this.banks.getQuestions(id, { search, type, difficulty, topic });
+    return this.banks.getQuestions(id, user, { search, type, difficulty, topic });
   }
 
   @Post(':id/questions/bulk-delete')
   @Permissions('questions.manage')
-  bulkDelete(@Param('id') id: string, @Body() dto: QuestionIdsDto) {
-    return this.banks.bulkDeleteQuestions(id, dto.ids);
+  bulkDelete(@Param('id') id: string, @Body() dto: QuestionIdsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.banks.bulkDeleteQuestions(id, dto.ids, user);
   }
 
   @Post(':id/questions/reorder')
   @Permissions('questions.manage')
-  reorder(@Param('id') id: string, @Body() dto: ReorderQuestionsDto) {
-    return this.banks.reorderQuestions(id, dto.questionIds);
+  reorder(@Param('id') id: string, @Body() dto: ReorderQuestionsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.banks.reorderQuestions(id, dto.questionIds, user);
   }
 
   @Post(':id/questions/duplicate')
   @Permissions('questions.manage')
   @ApiBody({ type: QuestionIdsDto })
-  duplicateQuestion(@Param('id') id: string, @Body() dto: QuestionIdsDto) {
-    return this.banks.duplicateQuestion(id, dto.ids[0]);
+  duplicateQuestion(@Param('id') id: string, @Body() dto: QuestionIdsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.banks.duplicateQuestion(id, dto.ids[0], user);
   }
 
   @Post(':id/import')

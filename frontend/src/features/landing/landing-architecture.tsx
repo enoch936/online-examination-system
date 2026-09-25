@@ -47,12 +47,12 @@ const pipeline = ['Client', 'WebSocket', 'Redis', 'PostgreSQL', 'Workers'];
 
 export function ArchitectureSection() {
   return (
-    <SectionReveal id="architecture" mode="wipe-left" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="architecture" mode="wipe-left" className="relative isolate pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={140} className="absolute -left-32 top-24 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           align="right"
           reveal="fade-right"

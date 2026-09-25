@@ -4,6 +4,7 @@ import { RoleName } from '@prisma/client';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateContactMessageDto } from './dto/create-contact-message.dto';
+import { UpdateContactStatusDto } from './dto/update-contact-status.dto';
 import { ContactService } from './contact.service';
 
 @ApiTags('Contact')
@@ -31,7 +32,7 @@ export class ContactController {
 
   @Patch(':id/status')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
-  updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.contact.updateStatus(id, body.status);
+  updateStatus(@Param('id') id: string, @Body() dto: UpdateContactStatusDto) {
+    return this.contact.updateStatus(id, dto.status);
   }
 }

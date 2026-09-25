@@ -31,9 +31,23 @@ const VIOLATION_TO_EVENT: Record<ViolationType, ExamEventType> = {
   COPY_PASTE: ExamEventType.COPY_ATTEMPT,
   MULTIPLE_FACE_READY: ExamEventType.MULTIPLE_FACES_DETECTED,
   NO_FACE_READY: ExamEventType.FACE_NOT_DETECTED,
+  MOTION: ExamEventType.MOTION_DETECTED,
+  AUDIO_ACTIVITY: ExamEventType.AUDIO_ACTIVITY,
   HEARTBEAT_MISSED: ExamEventType.CONNECTION_LOST,
   NETWORK_INTERRUPTION: ExamEventType.CONNECTION_LOST,
   MANUAL_FLAG: ExamEventType.MANUAL_FLAG,
+};
+
+/**
+ * Student-generated events produced by the proctoring analyzer (face, motion
+ * and audio) that represent detected misconduct and must also be recorded as
+ * violations so they surface in the monitor feed/counts, not just as events.
+ */
+const AI_EVENT_TO_VIOLATION: Partial<Record<ExamEventType, ViolationType>> = {
+  [ExamEventType.MULTIPLE_FACES_DETECTED]: ViolationType.MULTIPLE_FACE_READY,
+  [ExamEventType.FACE_NOT_DETECTED]: ViolationType.NO_FACE_READY,
+  [ExamEventType.MOTION_DETECTED]: ViolationType.MOTION,
+  [ExamEventType.AUDIO_ACTIVITY]: ViolationType.AUDIO_ACTIVITY,
 };
 
 export const STUDENT_GENERATED_EVENTS = new Set<ExamEventType>([
@@ -136,7 +150,16 @@ export class MonitoringService {
   }
 
   async getStudentRequirements(examId: string) {
+    const exam = await this.prisma.exam.findUnique({ where: { id: examId }, select: { fullscreenRequired: true } });
+    if (!exam) throw new NotFoundException('Exam not found');
     const config = await this.getConfig(examId);
+    const effectiveFullscreenPolicy =
+      config.fullscreenPolicy && config.fullscreenPolicy !== 'DISABLED'
+        ? config.fullscreenPolicy
+        : exam.fullscreenRequired
+          ? 'REQUIRED'
+          : 'OPTIONAL';
+
     return {
       examId,
       webcamEnabled: config.webcamEnabled,
@@ -148,7 +171,7 @@ export class MonitoringService {
       requireConsent: config.requireConsent,
       webcamMode: config.webcamMode,
       micMode: config.micMode,
-      fullscreenPolicy: config.fullscreenPolicy,
+      fullscreenPolicy: effectiveFullscreenPolicy,
       trackTabSwitches: config.trackTabSwitches,
       trackWindowBlur: config.trackWindowBlur,
       disableCopy: config.disableCopy,
@@ -182,6 +205,13 @@ export class MonitoringService {
     const micMode = (dto.micMode as MicMode | undefined) ?? (micEnabled ? MicMode.REQUIRED : MicMode.DISABLED);
     const fullscreenPolicy = (dto.fullscreenPolicy as FullscreenPolicy | undefined) ?? (stored?.fullscreenPolicy as FullscreenPolicy | undefined) ?? FullscreenPolicy.OPTIONAL;
     const strictness = (dto.strictness as MonitoringStrictness | undefined) ?? (stored?.strictness as MonitoringStrictness | undefined) ?? MonitoringStrictness.STANDARD;
+
+    if (dto.fullscreenPolicy !== undefined) {
+      await this.prisma.exam.update({
+        where: { id: examId },
+        data: { fullscreenRequired: fullscreenPolicy === 'REQUIRED' },
+      }).catch(() => undefined);
+    }
 
     const data = {
       webcamEnabled,
@@ -368,6 +398,32 @@ export class MonitoringService {
       },
     });
 
+    // AI-detected signals (face/motion/audio) must surface as violations in the
+    // monitor feed and counts, not just as plain events.
+    if (input.asStudent && session.status === SessionStatus.IN_PROGRESS) {
+      const violationType = AI_EVENT_TO_VIOLATION[input.type];
+      if (violationType) {
+        const violation = await this.prisma.examViolation.create({
+          data: {
+            sessionId: session.id,
+            type: violationType,
+            severity: this.severityNumber(severity),
+            details: input.metadata ? JSON.stringify(input.metadata) : null,
+          },
+        });
+        await this.prisma.examEvent.update({
+          where: { id: event.id },
+          data: {
+            metadata: JSON.stringify({
+              ...(this.tryParse(event.metadata) ?? {}),
+              violationId: violation.id,
+              violationType: violation.type,
+            }),
+          },
+        });
+      }
+    }
+
     await this.recomputeSessionRisk(session.id, config);
     this.emitEvent(session.examId, session.id, session.student, input.type, event, points, severity, config);
 
@@ -434,12 +490,24 @@ export class MonitoringService {
     const points = this.risk.weight(eventType, config.weights);
     const severity = this.risk.classify(points, config.thresholds);
 
+    // Client-supplied severity is untrusted: clamp it defensively and drop
+    // oversized detail payloads so the DB/audit trail cannot be spammed.
+    const suppliedSeverity =
+      typeof payload.severity === 'number' && Number.isFinite(payload.severity)
+        ? Math.min(Math.max(payload.severity, 1), 5)
+        : undefined;
+    let details: string | null = null;
+    if (payload.details !== undefined && payload.details !== null) {
+      const serialized = JSON.stringify(payload.details);
+      details = serialized && serialized.length <= 8000 ? serialized : null;
+    }
+
     const violation = await this.prisma.examViolation.create({
       data: {
         sessionId,
         type: payload.type,
-        severity: payload.severity ?? 1,
-        details: payload.details ? JSON.stringify(payload.details) : null,
+        severity: suppliedSeverity ?? 1,
+        details,
       },
     });
 
@@ -454,7 +522,7 @@ export class MonitoringService {
         metadata: JSON.stringify({
           violationId: violation.id,
           violationType: payload.type,
-          details: payload.details ?? null,
+          details: details ? JSON.parse(details) : null,
         }),
       },
     });
@@ -486,17 +554,30 @@ export class MonitoringService {
 
   async recordHeartbeat(
     sessionId: string,
-    payload: { remainingSeconds?: number; currentQuestionId?: string; currentQuestionIndex?: number; studentId?: string },
+    payload: { currentQuestionId?: string; currentQuestionIndex?: number; studentId?: string },
   ) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
       include: {
         student: { select: { id: true, firstName: true, lastName: true, email: true } },
-        exam: { select: { id: true, status: true } },
+        exam: { select: { id: true, status: true, durationMinutes: true } },
       },
     });
     if (!session) return null;
     if (payload.studentId && session.studentId !== payload.studentId) return null;
+
+    // remainingSeconds is ALWAYS derived server-side; the client's reported
+    // value is never trusted (the REST extend action keeps expiresAt in sync).
+    const nowMs = Date.now();
+    let remainingSeconds: number | undefined;
+    if (session.expiresAt) {
+      remainingSeconds = Math.max(0, Math.floor((session.expiresAt.getTime() - nowMs) / 1000));
+    } else if (session.startedAt && session.exam.durationMinutes) {
+      remainingSeconds = Math.max(
+        0,
+        Math.floor((session.startedAt.getTime() + session.exam.durationMinutes * 60_000 - nowMs) / 1000),
+      );
+    }
 
     await this.prisma.examSession.update({
       where: { id: sessionId },
@@ -505,7 +586,7 @@ export class MonitoringService {
         heartbeatCount: { increment: 1 },
         lastActivityAt: new Date(),
         connectionState: 'CONNECTED',
-        remainingSeconds: payload.remainingSeconds ?? session.remainingSeconds,
+        remainingSeconds: remainingSeconds ?? session.remainingSeconds,
         currentQuestionId: payload.currentQuestionId ?? session.currentQuestionId,
         currentQuestionIndex: payload.currentQuestionIndex ?? session.currentQuestionIndex,
       },
@@ -1164,6 +1245,20 @@ export class MonitoringService {
       return JSON.parse(value);
     } catch {
       return value;
+    }
+  }
+
+  /** Map a risk level to the 1..5 numeric severity stored on exam_violations. */
+  private severityNumber(level: RiskLevel): number {
+    switch (level) {
+      case RiskLevel.CRITICAL:
+        return 5;
+      case RiskLevel.HIGH:
+        return 4;
+      case RiskLevel.MEDIUM:
+        return 3;
+      default:
+        return 2;
     }
   }
 }

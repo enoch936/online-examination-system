@@ -20,5 +20,18 @@
   "devDependencies": {
     "prettier": "^3.3.3",
     "typescript": "^5.5.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "socket.io-parser": "^4.2.7",
+      "multer": "^2.3.0",
+      "qs@<7": "^6.16.0",
+      "fast-uri@<4": "^3.1.6",
+      "nanoid@<4": "^3.3.18",
+      "postcss@<9": "^8.5.23",
+      "baseline-browser-mapping@<2.11.0": "^2.11.0",
+      "brace-expansion@<1.1.18": "1.1.18",
+      "brace-expansion@>=2.0.0 <2.1.4": "^2.1.4"
+    }
   }
 }

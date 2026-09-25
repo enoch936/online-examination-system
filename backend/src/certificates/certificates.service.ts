@@ -1,12 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { ExamAccessService } from '../common/exam-access.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class CertificatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly access: ExamAccessService,
+  ) {}
 
-  async issue(resultId: string) {
+  async issue(resultId: string, user: AuthenticatedUser) {
     const result = await this.prisma.result.findUnique({
       where: { id: resultId },
       include: { certificate: true },
@@ -14,6 +19,7 @@ export class CertificatesService {
     if (!result) {
       throw new NotFoundException('Result not found');
     }
+    await this.access.assertCanManage(result.examId, user);
     if (!result.passed) {
       throw new BadRequestException('Certificate can only be issued for passed results');
     }

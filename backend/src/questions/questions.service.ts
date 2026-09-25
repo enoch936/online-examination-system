@@ -1,17 +1,51 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Difficulty, QuestionType } from '@prisma/client';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Difficulty, QuestionType, RoleName } from '@prisma/client';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 500;
+const AUTHOR_SELECT = { id: true, firstName: true, lastName: true, email: true };
 
 @Injectable()
 export class QuestionsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private isAdmin(user: AuthenticatedUser): boolean {
+    return user.roles.includes(RoleName.SUPER_ADMIN) || user.roles.includes(RoleName.ADMIN);
+  }
+
+  private async assertCanMutateQuestion(user: AuthenticatedUser, questionId: string) {
+    const question = await this.prisma.question.findUnique({
+      where: { id: questionId },
+      select: { id: true, createdById: true },
+    });
+    if (!question) throw new NotFoundException('Question not found');
+    if (!this.isAdmin(user) && question.createdById !== user.sub) {
+      throw new ForbiddenException('You can only modify questions you created');
+    }
+  }
+
+  private async assertCanUseBank(user: AuthenticatedUser, questionBankId?: string) {
+    if (!questionBankId || this.isAdmin(user)) return;
+    const bank = await this.prisma.questionBank.findUnique({
+      where: { id: questionBankId },
+      select: { id: true, createdById: true },
+    });
+    if (!bank) throw new NotFoundException('Question bank not found');
+    if (bank.createdById !== user.sub) {
+      throw new ForbiddenException('You can only add questions to banks you created');
+    }
+  }
+
   findMany(filters?: {
     type?: QuestionType; difficulty?: Difficulty; subjectId?: string; questionBankId?: string;
     topic?: string; search?: string; skip?: number; take?: number;
   }) {
+    const take = Math.min(filters?.take ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+    const skip = Math.max(filters?.skip ?? 0, 0);
     return this.prisma.question.findMany({
       where: {
         ...(filters?.type && { type: filters.type }),
@@ -21,9 +55,10 @@ export class QuestionsService {
         ...(filters?.topic && { topic: filters.topic }),
         ...(filters?.search && { prompt: { contains: filters.search, mode: 'insensitive' } }),
       },
-      include: { subject: true, questionBank: { select: { id: true, name: true } }, options: { orderBy: { sortOrder: 'asc' } }, createdBy: true },
+      include: { subject: true, questionBank: { select: { id: true, name: true } }, options: { orderBy: { sortOrder: 'asc' } }, createdBy: { select: AUTHOR_SELECT } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
-      ...(filters?.take !== undefined ? { skip: filters.skip ?? 0, take: filters.take } : {}),
+      skip,
+      take,
     });
   }
 
@@ -46,13 +81,14 @@ export class QuestionsService {
   async findOne(id: string) {
     const question = await this.prisma.question.findUnique({
       where: { id },
-      include: { subject: true, questionBank: { select: { id: true, name: true } }, options: { orderBy: { sortOrder: 'asc' } }, createdBy: true },
+      include: { subject: true, questionBank: { select: { id: true, name: true } }, options: { orderBy: { sortOrder: 'asc' } }, createdBy: { select: AUTHOR_SELECT } },
     });
     if (!question) throw new NotFoundException('Question not found');
     return question;
   }
 
-  async create(dto: CreateQuestionDto, createdById: string) {
+  async create(dto: CreateQuestionDto, createdById: string, user: AuthenticatedUser) {
+    await this.assertCanUseBank(user, dto.questionBankId);
     const sortOrder = dto.questionBankId
       ? (await this.nextSortOrder(dto.questionBankId))
       : 0;
@@ -84,8 +120,8 @@ export class QuestionsService {
     });
   }
 
-  async update(id: string, dto: UpdateQuestionDto) {
-    await this.findOne(id);
+  async update(id: string, dto: UpdateQuestionDto, user: AuthenticatedUser) {
+    await this.assertCanMutateQuestion(user, id);
 
     const data: Record<string, unknown> = {};
     if (dto.subjectId !== undefined) data.subjectId = dto.subjectId;
@@ -131,16 +167,16 @@ export class QuestionsService {
     return (max._max.sortOrder ?? -1) + 1;
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(id: string, user: AuthenticatedUser) {
+    await this.assertCanMutateQuestion(user, id);
     return this.prisma.question.update({
       where: { id },
       data: { isActive: false },
     });
   }
 
-  async bulkImport(questions: CreateQuestionDto[], createdById: string) {
-    const created = await Promise.all(questions.map((q) => this.create(q, createdById)));
+  async bulkImport(questions: CreateQuestionDto[], user: AuthenticatedUser) {
+    const created = await Promise.all(questions.map((q) => this.create(q, user.sub, user)));
     return { count: created.length, questions: created };
   }
 }

@@ -1,5 +1,8 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { ExamPermissionLevel, RoleName } from '@prisma/client';
 import { AuditService } from '../common/audit.service';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -9,6 +12,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProctoringAudioDto } from './dto/proctoring-audio.dto';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RecordEventDto } from './dto/record-event.dto';
 import { UpdateMonitoringConfigDto } from './dto/update-monitoring-config.dto';
@@ -23,6 +27,7 @@ export class MonitoringController {
     private readonly access: ExamAccessService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
   ) {}
 
   @Public()
@@ -149,6 +154,79 @@ export class MonitoringController {
       riskScore: dto.riskScore,
       asStudent: true,
     });
+  }
+
+  @Post('analyze')
+  @Roles(RoleName.STUDENT)
+  @Throttle({ default: { limit: 12, ttl: 60_000 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 512 * 1024 } }))
+  async analyze(
+    @UploadedFile() file: { buffer: Buffer; originalname?: string; mimetype?: string } | undefined,
+    @Body() body: { sessionId?: string },
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    if (!file) throw new HttpException('frame file is required', HttpStatus.BAD_REQUEST);
+    if (typeof body.sessionId !== 'string' || body.sessionId.length === 0 || body.sessionId.length > 64) {
+      throw new HttpException('invalid sessionId', HttpStatus.BAD_REQUEST);
+    }
+    const access = await this.monitoring.assertSessionAccess(body.sessionId, user.sub, user.roles);
+    // A student analyzes only their OWN session's frames; ownership is checked
+    // server-side so no client can pollute another student's motion state.
+    if (!access || access.studentId !== user.sub) {
+      throw new HttpException('Session does not belong to this user', HttpStatus.FORBIDDEN);
+    }
+    const form = new FormData();
+    form.append('file', new Blob([file.buffer as unknown as ArrayBuffer]), file.originalname || 'frame.jpg');
+    return this.forwardToProctoring<Record<string, unknown>>('/analyze', {
+      form,
+      query: { session_id: body.sessionId },
+    });
+  }
+
+  @Post('audio')
+  @Roles(RoleName.STUDENT)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async audio(@Body() dto: ProctoringAudioDto, @CurrentUser() user: AuthenticatedUser) {
+    const access = await this.monitoring.assertSessionAccess(dto.sessionId, user.sub, user.roles);
+    if (!access || access.studentId !== user.sub) {
+      throw new HttpException('Session does not belong to this user', HttpStatus.FORBIDDEN);
+    }
+    return this.forwardToProctoring<Record<string, unknown>>('/audio', {
+      json: {
+        sessionId: dto.sessionId,
+        rms: dto.rms,
+        zeroCrossings: dto.zeroCrossings ?? 0,
+        samples: dto.samples ?? 1024,
+      },
+    });
+  }
+
+  private async forwardToProctoring<T>(
+    path: '/analyze' | '/audio',
+    options: { form?: FormData; json?: unknown; query?: Record<string, string> },
+  ): Promise<T> {
+    const base = (this.configService.get<string>('PROCTORING_URL', 'http://127.0.0.1:8000') ?? '').replace(/\/$/, '');
+    const apiKey = this.configService.get<string>('PROCTORING_API_KEY', '') ?? '';
+    const url = new URL(`${base}${path}`);
+    for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value);
+
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    let body: BodyInit | undefined;
+    if (options.form) {
+      body = options.form;
+    } else if (options.json !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(options.json);
+    }
+
+    const res = await fetch(url.toString(), { method: 'POST', headers, body });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      const status = res.status >= 500 ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST;
+      throw new HttpException(detail || `Proctoring service returned ${res.status}`, status);
+    }
+    return (await res.json()) as T;
   }
 
   @Post('sessions/:sessionId/actions')

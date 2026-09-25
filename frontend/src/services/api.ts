@@ -2,7 +2,10 @@ import axios from 'axios';
 import { useAuthStore } from '@/store/auth.store';
 import type { ApiEnvelope, AuthUser } from '@/types/api';
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+// API calls go through the same-origin Next.js proxy (next.config.mjs rewrites
+// /api/:path* -> backend). Same-origin is required so the backend's httpOnly
+// access_token/refresh_token cookies work on this host.
+const baseURL = '/api/v1';
 
 export const api = axios.create({
   baseURL,
@@ -22,16 +25,24 @@ api.interceptors.request.use((config) => {
 
 let refreshPromise: Promise<string | null> | null = null;
 
-async function doRefresh(): Promise<string | null> {
+/**
+ * Restores a session at app boot by refreshing via the httpOnly refresh_token
+ * cookie. Returns true when a valid session was re-established.
+ */
+export async function restoreSession(): Promise<boolean> {
   try {
     const refresh = await api.post<ApiEnvelope<{ accessToken: string; user: AuthUser }>>('/auth/refresh', {});
     const { accessToken, user } = refresh.data.data;
     useAuthStore.getState().setSession(accessToken, user);
-    return accessToken;
+    return true;
   } catch {
     useAuthStore.getState().clearSession();
-    return null;
+    return false;
   }
+}
+
+async function doRefresh(): Promise<string | null> {
+  return (await restoreSession()) ? useAuthStore.getState().accessToken ?? null : null;
 }
 
 api.interceptors.response.use(

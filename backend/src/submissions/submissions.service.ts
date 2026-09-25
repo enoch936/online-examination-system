@@ -51,7 +51,11 @@ export class SubmissionsService implements OnModuleInit {
     if (!([SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] as SessionStatus[]).includes(session.status)) {
       throw new ForbiddenException('Session cannot be submitted');
     }
-    return this.finalizeSubmission(session, dto.autoSubmitted ?? false);
+    // A manual submit after expiresAt is still legitimate (student finished
+    // exactly on time), but must be recorded as an automatic submission so it
+    // is never mistaken for an on-time manual attempt.
+    const pastDue = session.expiresAt ? Date.now() > session.expiresAt.getTime() : true;
+    return this.finalizeSubmission(session, dto.autoSubmitted ?? pastDue);
   }
 
   async autoSubmitExpired(now = new Date()) {
@@ -182,30 +186,34 @@ export class SubmissionsService implements OnModuleInit {
     const isPassed = finalScore >= Number(session.exam.passingMarks);
     const status = needsManualGrading ? SubmissionStatus.NEEDS_MANUAL_GRADING : SubmissionStatus.GRADED;
 
-    const submission = await this.prisma.submission.create({
-      data: {
-        sessionId: session.id,
-        status,
-        autoSubmitted,
-        totalScore: finalScore,
-        maxScore,
-        percentage,
-        isPassed,
-        gradingCompletedAt: needsManualGrading ? null : new Date(),
-        result: {
-          create: {
-            examId: session.examId,
-            studentId: session.studentId,
-            score: finalScore,
-            maxScore,
-            percentage,
-            passed: isPassed,
-            publishedAt: session.exam.showResultImmediately && !needsManualGrading ? new Date() : null,
-          },
-        },
-      },
-      include: { result: true },
+    const submission = await this.safeCreateSubmission(session, {
+      status,
+      autoSubmitted,
+      totalScore: finalScore,
+      maxScore,
+      percentage,
+      isPassed,
+      gradingCompletedAt: needsManualGrading ? null : new Date(),
+      showResultImmediately: session.exam.showResultImmediately && !needsManualGrading,
     });
+
+    void this.prisma.auditLog
+      .create({
+        data: {
+          actorId: session.studentId,
+          action: 'EXAM_SUBMITTED',
+          entity: 'SUBMISSION',
+          entityId: submission.id,
+          after: JSON.stringify({
+            examId: session.examId,
+            sessionId: session.id,
+            autoSubmitted,
+            score: finalScore,
+            status,
+          }),
+        },
+      })
+      .catch(() => undefined);
 
     await this.prisma.examSession.update({
       where: { id: session.id },
@@ -229,5 +237,62 @@ export class SubmissionsService implements OnModuleInit {
     }
 
     return submission;
+  }
+
+  /**
+   * Creates the submission whose `sessionId` is UNIQUE in the schema. Two
+   * concurrent submit calls (or a manual submit racing the 60s auto-submit
+   * lifecycle) can both pass the "no submission yet" check and then collide;
+   * the loser gets a P2002 unique-constraint error and must return the winner's
+   * already-stored submission instead of failing the request.
+   */
+  private async safeCreateSubmission(
+    session: SubmissionSession,
+    data: {
+      status: SubmissionStatus;
+      autoSubmitted: boolean;
+      totalScore: number;
+      maxScore: number;
+      percentage: number;
+      isPassed: boolean;
+      gradingCompletedAt: Date | null;
+      showResultImmediately: boolean;
+    },
+  ) {
+    try {
+      return await this.prisma.submission.create({
+        data: {
+          sessionId: session.id,
+          status: data.status,
+          autoSubmitted: data.autoSubmitted,
+          totalScore: data.totalScore,
+          maxScore: data.maxScore,
+          percentage: data.percentage,
+          isPassed: data.isPassed,
+          gradingCompletedAt: data.gradingCompletedAt,
+          result: {
+            create: {
+              examId: session.examId,
+              studentId: session.studentId,
+              score: data.totalScore,
+              maxScore: data.maxScore,
+              percentage: data.percentage,
+              passed: data.isPassed,
+              publishedAt: data.showResultImmediately ? new Date() : null,
+            },
+          },
+        },
+        include: { result: true },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const existing = await this.prisma.submission.findUnique({
+          where: { sessionId: session.id },
+          include: { result: true },
+        });
+        if (existing) return existing;
+      }
+      throw error;
+    }
   }
 }

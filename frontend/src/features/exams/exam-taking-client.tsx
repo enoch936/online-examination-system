@@ -753,9 +753,35 @@ const resumeErrorPolicy = (
           </div>
         </div>
       )}
+      {(requirements?.fullscreenPolicy === 'REQUIRED' || Boolean(query.data?.exam?.fullscreenRequired)) &&
+        !isFullscreen &&
+        !submittedRef.current &&
+        !disconnectMsg && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 p-6 backdrop-blur-md">
+            <Card className="max-w-md w-full shadow-2xl border-primary/20 text-center">
+              <CardHeader>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Maximize className="h-7 w-7" />
+                </div>
+                <CardTitle className="mt-4 text-xl">Fullscreen Mode Required</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  This examination requires full-screen mode to ensure test integrity. You must return to full screen to continue.
+                </p>
+                <Button className="w-full" size="lg" onClick={enterFullscreen}>
+                  <Maximize className="mr-2 h-4 w-4" />
+                  Return to Fullscreen
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        )}
       <div className="flex flex-col gap-4 rounded-lg border bg-background p-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <Badge variant="outline">Exam in progress</Badge>
+          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 font-medium">
+            Started — Exam in progress
+          </Badge>
           <h1 className="mt-2 text-2xl font-semibold tracking-normal">{query.data.exam.title}</h1>
           <p className="text-sm text-muted-foreground">
             Answered {answeredCount} of {questions.length}

@@ -33,8 +33,18 @@ const schema = z.object({
   COOKIE_PATH: z.string().default('/'),
   SWAGGER_ENABLED: boolEnv(true),
   BCRYPT_ROUNDS: z.coerce.number().min(10).default(12),
+  // RATE_LIMIT_TTL is expressed in SECONDS (default 60). @nestjs/throttler v6
+  // converts via the `seconds()` helper in app.module.ts.
   RATE_LIMIT_TTL: z.coerce.number().default(60),
   RATE_LIMIT_LIMIT: z.coerce.number().default(120),
+  // Number of reverse-proxy hops to trust for X-Forwarded-For (used by
+  // rate limiting + audit logs). 0 disables proxy trust (safe when the API is
+  // reachable directly); Render/Vercel setups should keep 1.
+  TRUST_PROXY_HOPS: z.coerce.number().min(0).default(1),
+  // Cloudflare Turnstile. Optional: when TURNSTILE_SECRET_KEY is unset the
+  // auth endpoints do not enforce a captcha (dev/test). When set, /auth/login
+  // and /auth/register require a valid token and reject bots with 403.
+  TURNSTILE_SECRET_KEY: z.string().optional(),
   REDIS_URL: z.string().url().optional().default(''),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
@@ -46,6 +56,11 @@ const schema = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
+  // Proctoring signal service. The backend is the ONLY caller of /analyze and
+  // /audio (the browser goes through the authenticated API); PROCTORING_API_KEY
+  // is the shared secret required in production.
+  PROCTORING_URL: z.string().url().optional().default('http://127.0.0.1:8000'),
+  PROCTORING_API_KEY: z.string().optional(),
   // Initial SUPER_ADMIN bootstrap credentials (optional here). They are read
   // ONLY on the server side by SuperAdminBootstrapService when no SUPER_ADMIN
   // exists yet. Empty values are treated as unset so a dev .env without them

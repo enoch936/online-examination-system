@@ -2,8 +2,7 @@
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { FilePen, BarChart3, ShieldCheck, Radar, Radio, Video, Cpu, Activity, Lock, CheckCircle2 } from 'lucide-react';
-import { Reveal, SectionHeader, SectionReveal, TiltCard, Parallax } from './landing-primitives';
-import { NetworkOrb } from './landing-art';
+import { Reveal, SectionHeader, SectionReveal, TiltCard, Parallax, useRevealGate } from './landing-primitives';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -17,6 +16,37 @@ const capabilities = [
   { icon: Activity, label: 'Live exam state', desc: 'Submissions & results sync' },
   { icon: Lock, label: 'Secure sessions', desc: 'Encrypted, scoped, audited' },
 ];
+
+type CapabilityChipProps = {
+  icon: typeof Radio;
+  label: string;
+  desc: string;
+  index: number;
+};
+
+function CapabilityChip({ icon: Icon, label, desc, index }: CapabilityChipProps) {
+  const { ref, shown, reduce } = useRevealGate();
+  const target: { opacity: 1; x: 0 } = { opacity: 1, x: 0 };
+  const hidden = { opacity: 0, x: 24 };
+  return (
+    <motion.div
+      ref={ref as React.Ref<HTMLDivElement>}
+      initial={reduce ? false : hidden}
+      animate={shown ? target : hidden}
+      transition={{ delay: reduce ? 0 : index * 0.06, duration: reduce ? 0 : 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3 transition-colors duration-300 hover:border-gold/40"
+    >
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary transition-colors duration-300 group-hover:bg-gold/10 group-hover:text-gold-strong">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[0.8rem] font-semibold tracking-tight text-foreground">{label}</p>
+        <p className="truncate text-xs text-muted-foreground">{desc}</p>
+      </div>
+      <CheckCircle2 className="ml-auto h-3.5 w-3.5 shrink-0 text-gold-strong/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+    </motion.div>
+  );
+}
 
 export function CapabilitiesStrip() {
   const reduce = useReducedMotion() ?? false;
@@ -33,7 +63,7 @@ export function CapabilitiesStrip() {
         <Parallax speed={60} className="absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 py-16 sm:px-6 md:py-20">
+      <div className="w-full pb-16 md:pb-20">
         <div className="grid items-center gap-14 lg:grid-cols-[minmax(0,26rem)_1fr] lg:gap-20">
           {/* Left — circular capability cluster with overlay */}
           <div className="relative mx-auto h-[19rem] w-[19rem] sm:h-[21rem] sm:w-[21rem]">
@@ -114,7 +144,7 @@ export function CapabilitiesStrip() {
               <h2 className="mt-5 text-[1.7rem] font-semibold leading-[1.15] tracking-tight text-foreground sm:text-3xl">
                 Six capabilities, one live surface
               </h2>
-              <p className="mt-4 max-w-md text-[0.95rem] leading-relaxed text-muted-foreground">
+              <p className="mt-4 max-w-none text-[0.95rem] leading-relaxed text-muted-foreground">
                 Everything an exam needs runs together during every session — from proctoring to grading —
                 connected by a single real-time state.
               </p>
@@ -123,23 +153,7 @@ export function CapabilitiesStrip() {
               {capabilities.map((c, i) => {
                 const Icon = c.icon;
                 return (
-                  <motion.div
-                    key={c.label}
-                    initial={reduce ? false : { opacity: 0, x: 24 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true, margin: '-60px' }}
-                    transition={{ delay: i * 0.06, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                    className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3 transition-colors duration-300 hover:border-gold/40"
-                  >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary transition-colors duration-300 group-hover:bg-gold/10 group-hover:text-gold-strong">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[0.8rem] font-semibold tracking-tight text-foreground">{c.label}</p>
-                      <p className="truncate text-xs text-muted-foreground">{c.desc}</p>
-                    </div>
-                    <CheckCircle2 className="ml-auto h-3.5 w-3.5 shrink-0 text-gold-strong/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-                  </motion.div>
+                  <CapabilityChip key={c.label} icon={Icon} label={c.label} desc={c.desc} index={i} />
                 );
               })}
             </div>
@@ -182,14 +196,13 @@ function MiniBars() {
 
 export function BentoSection() {
   return (
-    <SectionReveal id="product" mode="expand-in" className="relative isolate py-20 md:py-28">
+    <SectionReveal id="product" mode="expand-in" className="relative isolate pb-20 md:pb-28">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
         <Parallax speed={150} className="absolute -right-24 top-16 h-80 w-80 rounded-full bg-primary/15 blur-3xl" />
         <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
-        <NetworkOrb className="absolute right-10 top-32 hidden h-40 w-44 text-primary/35 md:block" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           align="left"
           reveal="blur"

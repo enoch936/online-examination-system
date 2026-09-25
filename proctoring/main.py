@@ -13,12 +13,15 @@ Configuration (environment variables):
   ENVIRONMENT      "production" enables fail-fast origin validation.
   PORT             Listen port (default 8000).
   MAX_FRAME_BYTES  Upload size cap in bytes (default 524288 = 512 KiB).
+  MAX_PIXELS       Decoded pixel-count cap to block decompression bombs.
+  PROCTORING_API_KEY  Shared secret required on /analyze and /audio when set.
   WORKERS          Number of uvicorn workers (default: 1 in dev, 4+ recommended in prod).
 """
 from __future__ import annotations
 
 import logging
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -27,7 +30,7 @@ from contextlib import asynccontextmanager
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -39,9 +42,59 @@ logger = logging.getLogger("proctoring")
 FRAME_TTL_SECONDS = 3.0
 MAX_STATES = 500
 MAX_FRAME_BYTES = int(os.environ.get("MAX_FRAME_BYTES", str(512 * 1024)))
-ALLOWED_CONTENT_TYPES = ("image/jpeg", "image/jpg", "image/png", "application/octet-stream")
+MAX_PIXELS = int(os.environ.get("MAX_PIXELS", str(12_000_000)))
 
 SESSION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
+# Shared secret the backend presents when PROCTORING_API_KEY is configured.
+# Browser clients never talk to this service directly — they go through the
+# authenticated API — so a keyed deployment is the intended mode.
+PROCTORING_API_KEY = os.environ.get("PROCTORING_API_KEY", "").strip()
+
+
+def require_proctoring_key(
+    authorization: str | None = Header(default=None),
+    x_proctoring_key: str | None = Header(default=None),
+) -> None:
+    if not PROCTORING_API_KEY:
+        return None
+    provided = x_proctoring_key
+    if authorization and authorization.lower().startswith("bearer "):
+        provided = authorization[7:]
+    if provided is None or not secrets.compare_digest(provided, PROCTORING_API_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# JPEG/PNG header parsers used as a PRE-DECODE guard against decompression
+# bombs: reject huge intrinsic dimensions before cv2 allocates the raster.
+def _image_dimensions(data: bytes) -> tuple[int, int] | None:
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        width = int.from_bytes(data[16:20], "big")
+        height = int.from_bytes(data[20:24], "big")
+        return width, height
+    if data[:2] == b"\xff\xd8":
+        i = 2
+        while i < len(data) - 8:
+            if data[i] != 0xFF:
+                i += 1
+                continue
+            marker = data[i + 1]
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                if i + 9 > len(data):
+                    return None
+                height = int.from_bytes(data[i + 5 : i + 7], "big")
+                width = int.from_bytes(data[i + 7 : i + 9], "big")
+                return width, height
+            if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            if i + 4 > len(data):
+                break
+            seg_len = int.from_bytes(data[i + 2 : i + 4], "big")
+            if seg_len < 2:
+                break
+            i += 2 + seg_len
+    return None
 
 _motion_states: dict[str, dict] = {}
 _motion_lock = threading.Lock()
@@ -165,7 +218,7 @@ def health() -> dict:
     }
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post("/analyze", response_model=AnalyzeResponse, dependencies=[Depends(require_proctoring_key)])
 async def analyze(
     file: UploadFile = File(...),
     session_id: str | None = Query(None, pattern=SESSION_ID_PATTERN),
@@ -182,8 +235,16 @@ async def analyze(
         return _result(session_id, 0, 0.0, False, 0.0)
 
     content_type = (file.content_type or "").lower()
-    if content_type and not any(content_type.startswith(allowed) for allowed in ALLOWED_CONTENT_TYPES):
+    if content_type and not content_type.startswith("image/"):
         raise HTTPException(status_code=415, detail="Unsupported media type")
+
+    # Pre-decode decompression-bomb guard: enforce intrinsic dimension bounds
+    # before cv2.imdecode allocates the decoded raster.
+    dims = _image_dimensions(data)
+    if dims is not None:
+        width, height = dims
+        if width <= 0 or height <= 0 or width * height > MAX_PIXELS:
+            raise HTTPException(status_code=413, detail="Frame dimensions exceed limit")
 
     # Decode JPEG/PNG payload.
     buf = np.frombuffer(data, dtype=np.uint8)
@@ -211,7 +272,7 @@ async def analyze(
     return _result(session_id, faces, motion_score, motion_detected, confidence)
 
 
-@app.post("/audio")
+@app.post("/audio", dependencies=[Depends(require_proctoring_key)])
 def audio(report: AudioReport) -> dict:
     """Classify an audio-activity signal from browser-reported RMS energy."""
     rms = max(0.0, min(1.0, report.rms))

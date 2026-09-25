@@ -2,9 +2,9 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from 
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Permissions } from '../common/decorators/permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { GradeAnswersDto } from './dto/grade-answers.dto';
 import { ResultsService } from './results.service';
 
 @ApiBearerAuth()
@@ -37,17 +37,17 @@ export class ResultsController {
 
   @Patch(':id/publish')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
-  async publish(@Param('id', ParseUUIDPipe) id: string) {
-    return this.results.publish(id);
+  async publish(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.results.publish(id, user);
   }
 
   @Post(':id/grade')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   async grade(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: { answers: Array<{ answerId: string; score: number; feedback?: string }> },
+    @Body() dto: GradeAnswersDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.results.gradeManually(id, user.sub, dto.answers);
+    return this.results.gradeManually(id, user, dto.answers);
   }
 }

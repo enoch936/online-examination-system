@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import webpush from 'web-push';
 import { PrismaService } from '../prisma/prisma.service';
+import { isSafePushEndpoint } from './dto/push-subscription.dto';
 
 export interface PushSubscriptionInput {
   endpoint: string;
@@ -66,9 +67,14 @@ export class PushService {
     const subscriptions = await this.prisma.pushSubscription.findMany({ where: { userId } });
     if (subscriptions.length === 0) return;
 
+    // Legacy rows predating endpoint validation may point at unsafe hosts —
+    // never send a push to a non-public-https endpoint, even if stored.
+    const safeSubscriptions = subscriptions.filter((sub) => isSafePushEndpoint(sub.endpoint));
+    if (safeSubscriptions.length === 0) return;
+
     const payload = JSON.stringify({ title, message, metadata: metadata ?? null });
     await Promise.allSettled(
-      subscriptions.map((sub) =>
+      safeSubscriptions.map((sub) =>
         webpush
           .sendNotification(
             { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },

@@ -12,8 +12,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { TurnstileWidget } from '@/components/auth/turnstile-widget';
+import { isPasswordBreached, sanitizeEmail, sanitizeText } from '@/lib/sanitize';
 import { authService } from '@/services/auth.service';
 import { useAuthStore } from '@/store/auth.store';
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? '';
+const BREACH_MESSAGE = 'This password has appeared in a data breach. Choose a different password.';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -45,6 +50,7 @@ export function AuthForm({ mode }: AuthFormProps) {
   const setSession = useAuthStore((state) => state.setSession);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
   const schema = mode === 'login' ? loginSchema : registerSchema;
   const form = useForm<AuthValues>({
     resolver: zodResolver(schema),
@@ -69,12 +75,37 @@ export function AuthForm({ mode }: AuthFormProps) {
   }
 
   async function onSubmit(values: AuthValues) {
+    if (SITE_KEY && !turnstileToken) {
+      toast.error('Complete the security check first.');
+      return;
+    }
     setLoading(true);
     try {
+      // Mirror backend transforms: strip markup, normalize email casing/aliases.
+      const payload = {
+        email: sanitizeEmail(values.email),
+        password: values.password,
+        firstName: mode === 'register' ? sanitizeText(values.firstName ?? '') : undefined,
+        lastName: mode === 'register' ? sanitizeText(values.lastName ?? '') : undefined,
+        turnstileToken: turnstileToken ?? undefined,
+      };
+
+      if (mode === 'register' && (await isPasswordBreached(values.password))) {
+        toast.error(BREACH_MESSAGE);
+        setLoading(false);
+        return;
+      }
+
       const result =
         mode === 'login'
-          ? await authService.login(values)
-          : await authService.register(values as z.infer<typeof registerSchema>);
+          ? await authService.login({ email: payload.email, password: payload.password, turnstileToken: payload.turnstileToken })
+          : await authService.register({
+              email: payload.email,
+              password: payload.password,
+              firstName: payload.firstName as string,
+              lastName: payload.lastName as string,
+              turnstileToken: payload.turnstileToken,
+            });
       setSession(result.accessToken, result.user);
       toast.success(mode === 'login' ? 'Welcome back' : 'Account created');
       const role = result.user.roles[0];
@@ -139,6 +170,9 @@ export function AuthForm({ mode }: AuthFormProps) {
             </div>
             <FieldError name="password" />
           </div>
+          {SITE_KEY && (
+            <TurnstileWidget onVerify={setTurnstileToken} className="flex justify-center pt-1" />
+          )}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
             {mode === 'login' ? 'Log in' : 'Create account'}

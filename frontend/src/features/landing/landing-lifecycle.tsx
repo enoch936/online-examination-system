@@ -59,7 +59,7 @@ export function LifecycleSection() {
     <SectionReveal
       id="lifecycle"
       mode="rise-impact"
-      className="relative isolate border-y border-border/60 bg-card/20 py-20 md:py-28"
+      className="relative isolate border-y border-border/60 bg-card/20 pb-20 md:pb-28"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
@@ -67,7 +67,7 @@ export function LifecycleSection() {
         <Parallax speed={120} className="absolute -right-32 top-1/3 h-96 w-96 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="mx-auto max-w-6xl px-5 sm:px-6">
+      <div className="w-full">
         <SectionHeader
           align="left"
           reveal="expand-out"

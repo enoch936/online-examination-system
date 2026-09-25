@@ -8,10 +8,10 @@ type AuthResponse = {
 };
 
 export const authService = {
-  async login(payload: { email: string; password: string }) {
+  async login(payload: { email: string; password: string; turnstileToken?: string }) {
     return unwrap<AuthResponse>(await api.post('/auth/login', payload));
   },
-  async register(payload: { email: string; firstName: string; lastName: string; password: string }) {
+  async register(payload: { email: string; firstName: string; lastName: string; password: string; turnstileToken?: string }) {
     return unwrap<AuthResponse>(await api.post('/auth/register', payload));
   },
   async logout() {

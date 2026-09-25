@@ -27,7 +27,6 @@ import {
 import { TypingText, TypeLoop, ScrambleText, MaskedReveal, WrapUpText, MOTION } from './landing-primitives';
 import { TypeCycler } from './landing-typewriter';
 import { OrbitObjects, Pencil, Book, TimerObject, Webcam, Certificate } from './landing-objects';
-import { NetworkOrb } from './landing-art';
 import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
@@ -354,7 +353,7 @@ export function LandingHero() {
     <section
       ref={ref}
       id="home"
-      className="relative overflow-hidden pb-24 pt-32 sm:pt-36 md:pb-32"
+      className="relative overflow-hidden pb-24 pt-[4.1875rem] md:pb-32"
       onMouseMove={(e) => {
         if (reduce) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -367,16 +366,15 @@ export function LandingHero() {
         <div className="absolute inset-0 bg-grid-fine [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,#000_60%,transparent_100%)] opacity-60" />
         <motion.div
           style={{ y: glowY }}
-          className="absolute -top-40 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-primary/10 blur-[140px]"
+          className="absolute -top-40 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
         />
-        <div className="absolute right-[-6%] top-40 h-64 w-64 rounded-full bg-gold/10 blur-[120px]" />
-        <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-[110px]" />
-        <NetworkOrb className="absolute bottom-10 left-0 hidden h-40 w-44 text-primary/30 md:block" />
+        <div className="absolute right-[-6%] top-40 h-64 w-64 rounded-full bg-gold/10 blur-3xl" />
+        <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
       </div>
 
-      <div className="mx-auto grid max-w-6xl gap-12 px-5 sm:px-6 lg:grid-cols-[1fr_1.05fr] lg:items-center lg:gap-8">
+      <div className="grid w-full gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-8">
         {/* LEFT — message */}
-        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-xl">
+        <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-none">
           <motion.div
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -399,7 +397,7 @@ export function LandingHero() {
             initial={reduce ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: MOTION.normal, delay: 0.25, ease: MOTION.ease }}
-            className="mt-5 max-w-md text-[0.98rem] leading-relaxed text-muted-foreground"
+            className="mt-5 max-w-none text-[0.98rem] leading-relaxed text-muted-foreground"
           >
             A secure platform for <TypeCycler words={['students', 'instructors', 'administrators', 'proctors']} /> —
             from exam creation to live proctoring and instant results.

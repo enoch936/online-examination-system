@@ -53,24 +53,24 @@ export class QuestionsController {
   @Post()
   @Permissions('questions.manage')
   create(@Body() dto: CreateQuestionDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.questions.create(dto, user.sub);
+    return this.questions.create(dto, user.sub, user);
   }
 
   @Patch(':id')
   @Permissions('questions.manage')
-  update(@Param('id') id: string, @Body() dto: UpdateQuestionDto) {
-    return this.questions.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateQuestionDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.questions.update(id, dto, user);
   }
 
   @Delete(':id')
   @Permissions('questions.manage')
-  remove(@Param('id') id: string) {
-    return this.questions.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.questions.remove(id, user);
   }
 
   @Post('bulk-import')
   @Permissions('questions.manage')
   bulkImport(@Body() dto: BulkImportQuestionsDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.questions.bulkImport(dto.questions, user.sub);
+    return this.questions.bulkImport(dto.questions, user);
   }
 }
