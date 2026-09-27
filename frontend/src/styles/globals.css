@@ -134,6 +134,36 @@
    Landing page design system (premium / EdTech)
    ============================================================ */
 
+/* Layout container -----------------------------------------------------
+   Landing sections stay full-bleed so their backgrounds, borders and
+   decorative layers can still run edge to edge, while the actual content
+   sits inside one shared centered container. Sections must not invent
+   their own gutters; they wrap their content in `.landing-container`. */
+.landing-container {
+  width: 100%;
+  max-width: 80rem; /* 1280px: content stops widening past this */
+  margin-inline: auto;
+  padding-inline: 1.25rem; /* 20px on phones */
+}
+
+@media (min-width: 640px) {
+  .landing-container {
+    padding-inline: 1.75rem; /* 28px */
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-container {
+    padding-inline: 3rem; /* 48px */
+  }
+}
+
+@media (min-width: 1536px) {
+  .landing-container {
+    padding-inline: 3.5rem; /* 56px */
+  }
+}
+
 /* Fine grid backdrop */
 .bg-grid-fine {
   background-image:

@@ -67,7 +67,7 @@ export function LifecycleSection() {
         <Parallax speed={120} className="absolute -right-32 top-1/3 h-96 w-96 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <SectionHeader
           align="left"
           reveal="expand-out"
@@ -78,7 +78,7 @@ export function LifecycleSection() {
 
         <div className="mt-14 grid gap-10 lg:grid-cols-[1fr_1.05fr] lg:gap-8 lg:items-center">
           {/* Pipeline */}
-          <div className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+          <div className="relative min-w-0" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
             {/* Progress rail */}
             <div className="absolute bottom-6 left-[1.15rem] top-6 hidden w-px bg-border/40 sm:block">
               <motion.div
@@ -144,7 +144,7 @@ export function LifecycleSection() {
           </div>
 
           {/* Preview panel */}
-          <Reveal style="zoom-in" delay={0.1}>
+          <Reveal style="zoom-in" delay={0.1} className="min-w-0">
             <div className="glass-panel glass-edge hairline-top overflow-hidden rounded-2xl">
               <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
                 <div className="min-w-0">

@@ -372,7 +372,7 @@ export function LandingHero() {
         <div className="absolute bottom-0 left-[-8%] h-72 w-72 rounded-full bg-accent/10 blur-3xl" />
       </div>
 
-      <div className="grid w-full gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-8">
+      <div className="landing-container grid gap-12 lg:grid-cols-[1fr_1.05fr] lg:items-start lg:gap-8">
         {/* LEFT — message */}
         <motion.div style={{ y: heroY, opacity: heroOpacity }} className="max-w-none">
           <motion.div

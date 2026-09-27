@@ -58,8 +58,8 @@ const columns = [
 export function LandingFooter() {
   return (
     <footer className="hairline-top border-t border-border/60 bg-card/20">
-      <div className="w-full pb-14">
-        <div className="grid gap-10 md:grid-cols-[1.3fr_repeat(6,1fr)]">
+      <div className="landing-container pb-14">
+        <div className="grid gap-10 md:grid-cols-4 lg:grid-cols-[1.3fr_repeat(6,1fr)]">
           <div className="max-w-none space-y-4">
             <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight text-foreground">
               <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground">

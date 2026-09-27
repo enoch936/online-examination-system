@@ -285,7 +285,7 @@ export function RolesSection() {
         <Parallax speed={100} className="absolute inset-x-0 top-8 mx-auto h-96 w-[48rem] rounded-full bg-primary/8 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <SectionHeader
           eyebrow="Who it's for"
           title={<WrapUpText lines={['One platform,', 'five workspaces']} />}

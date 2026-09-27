@@ -123,7 +123,7 @@ export function NarrativeSection() {
         <Parallax speed={70} className="absolute -left-24 top-16 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <div className="max-w-none">
           <Reveal style="none">
             <span className="eyebrow">

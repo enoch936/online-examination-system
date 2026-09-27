@@ -63,7 +63,7 @@ export function CapabilitiesStrip() {
         <Parallax speed={60} className="absolute -right-20 bottom-0 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="w-full pb-16 md:pb-20">
+      <div className="landing-container pb-16 md:pb-20">
         <div className="grid items-center gap-14 lg:grid-cols-[minmax(0,26rem)_1fr] lg:gap-20">
           {/* Left — circular capability cluster with overlay */}
           <div className="relative mx-auto h-[19rem] w-[19rem] sm:h-[21rem] sm:w-[21rem]">
@@ -202,7 +202,7 @@ export function BentoSection() {
         <Parallax speed={60} className="absolute -bottom-24 left-8 h-64 w-64 rounded-full bg-gold/8 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <SectionHeader
           align="left"
           reveal="blur"

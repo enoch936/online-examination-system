@@ -57,7 +57,7 @@ export function SecuritySection() {
         <Parallax speed={60} className="absolute -left-28 bottom-8 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <SectionHeader
           align="left"
           reveal="fade-left"
@@ -133,7 +133,7 @@ export function CTASection() {
         <Parallax speed={50} className="absolute -left-24 bottom-0 h-72 w-72 rounded-full bg-primary/8 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <div ref={ref as React.Ref<HTMLDivElement>} className="relative">
           {/* Floating chips framing the CTA panel */}
           <div

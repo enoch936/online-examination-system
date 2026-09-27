@@ -38,7 +38,7 @@ export function LandingInterlude() {
         <Parallax speed={60} className="absolute -left-24 bottom-10 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <div className="flex flex-wrap items-end justify-between gap-6">
           <Reveal style="fade-right">
             <span className="eyebrow">
