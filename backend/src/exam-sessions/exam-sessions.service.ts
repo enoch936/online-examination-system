@@ -19,6 +19,7 @@ import {
 } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isAnswerPopulated } from '../results/result-calculation.util';
 import { LogViolationDto } from './dto/log-violation.dto';
 import { SaveAnswerDto } from './dto/save-answer.dto';
 
@@ -55,7 +56,7 @@ export class ExamSessionsService {
 
     return sessions.map((s) => {
       const totalQuestions = s.exam._count.questions;
-      const answeredCount = s.answers.filter((a) => this.isAnswered(a)).length;
+      const answeredCount = s.answers.filter((a) => isAnswerPopulated(a)).length;
       const resumeApprovalRequired =
         s.exam.resumeApprovalRequired ||
         s.exam.resumePolicy === ExamResumePolicy.INSTRUCTOR_APPROVAL ||
@@ -97,18 +98,6 @@ export class ExamSessionsService {
         progress: totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0,
       };
     });
-  }
-
-  private isAnswered(a: { selectedOptionIds: string; answerText: string | null; answerJson: string | null }) {
-    try {
-      const selected: string[] = JSON.parse(a.selectedOptionIds ?? '[]');
-      if (Array.isArray(selected) && selected.length > 0) return true;
-    } catch {
-      /* ignore */
-    }
-    if (a.answerText && a.answerText.trim().length > 0) return true;
-    if (a.answerJson && a.answerJson !== 'null' && a.answerJson !== '{}' && a.answerJson !== '[]') return true;
-    return false;
   }
 
   async startExam(examId: string, studentId: string): Promise<Record<string, unknown>> {

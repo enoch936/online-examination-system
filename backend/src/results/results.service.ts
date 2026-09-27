@@ -162,52 +162,21 @@ export class ResultsService {
     // back to the whole `exam.totalMarks`, so a single manual grade could be
     // clamped to the entire exam's worth of marks.
     const examPoints = new Map(result.exam.questions.map((q) => [q.questionId, Number(q.points)]));
-
     const graderId = user.sub;
-    const toUpdate = answers.map((g) => {
+    const pendingUpdates = answers.map((g) => {
       const answer = answerById.get(g.answerId) as (typeof existingAnswers)[number];
       const configured = examPoints.get(answer.questionId);
       const maxPoints = Number.isFinite(configured) && (configured as number) >= 0 ? (configured as number) : 0;
-      return this.prisma.studentAnswer.update({
-        where: { id: g.answerId },
+      return {
+        answerId: g.answerId,
         data: {
           score: clampScore(g.score, maxPoints),
           feedback: g.feedback === undefined ? undefined : g.feedback.trim() || null,
           graderId,
         },
-      });
+      };
     });
-    if (toUpdate.length > 0) {
-      await this.prisma.$transaction(toUpdate);
-    }
 
-    const freshAnswers = existingAnswers.length
-      ? await this.prisma.studentAnswer.findMany({
-          where: { id: { in: existingAnswers.map((a) => a.id) } },
-          select: { id: true, questionId: true, score: true },
-        })
-      : [];
-
-    // Re-aggregate the persisted per-answer scores through the same central
-    // calculation used for auto-grading, so percentage/pass can never diverge.
-    const totalMarks = Number(result.exam.totalMarks);
-    const passingMarks = Number(result.exam.passingMarks);
-    const pointsByQuestion = new Map(result.exam.questions.map((q) => [q.questionId, Number(q.points)]));
-    const rawTotal = freshAnswers.reduce((sum, a) => {
-      const ceiling = pointsByQuestion.get(a.questionId);
-      if (!Number.isFinite(ceiling) || (ceiling as number) <= 0) return sum;
-      return sum + clampScore(Number(a.score ?? 0), ceiling as number);
-    }, 0);
-    const metrics = computeResultMetrics(rawTotal, { totalMarks, passingMarks });
-    const totalScore = metrics.score;
-    const percentage = metrics.percentage;
-    const passed = metrics.passed;
-    const grade = result.grade ?? computeLetterGrade(percentage);
-
-    // Manual grading finishing the last outstanding answer transitions the
-    // submission out of NEEDS_MANUAL_GRADING. Previously it stayed stuck, so
-    // `pendingGradings` never cleared even after a grader had finished.
-    //
     // Only questions that actually need a human count as outstanding. Counting
     // every `graderId: null` answer also counted the auto-graded ones — and since
     // auto-grading never sets a grader, a 10-question exam with one essay could
@@ -216,20 +185,57 @@ export class ResultsService {
       .filter((q) => requiresManualGrading(String(q.question.type)))
       .map((q) => q.questionId);
 
-    const stillPending =
-      manualQuestionIds.length === 0
-        ? 0
-        : await this.prisma.studentAnswer.count({
-            where: {
-              sessionId: result.submission!.sessionId,
-              questionId: { in: manualQuestionIds },
-              graderId: null,
-            },
-          });
-    const fullyGraded = stillPending === 0;
-    const publishedAt = result.publishedAt ?? (result.exam.showResultImmediately && fullyGraded ? new Date() : null);
+    // Manual grading finishing the last outstanding answer transitions the
+    // submission out of NEEDS_MANUAL_GRADING. Previously it stayed stuck, so
+    // `pendingGradings` never cleared even after a grader had finished.
+    //
+    // Everything below runs in ONE transaction. It used to be split: the
+    // per-answer scores committed first, then the aggregates were re-read and
+    // written separately. A failure in between left the answer rows carrying
+    // new marks while the Result still showed the old totals and the Submission
+    // was still flagged NEEDS_MANUAL_GRADING, and two graders saving at once
+    // could interleave between the write and the re-read.
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      for (const update of pendingUpdates) {
+        await tx.studentAnswer.update({ where: { id: update.answerId }, data: update.data });
+      }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
+      // Re-read inside the transaction so the totals are derived from the rows
+      // this call actually wrote.
+      const freshAnswers = existingAnswers.length
+        ? await tx.studentAnswer.findMany({
+            where: { id: { in: existingAnswers.map((a) => a.id) } },
+            select: { id: true, questionId: true, score: true },
+          })
+        : [];
+
+      // Re-aggregate the persisted per-answer scores through the same central
+      // calculation used for auto-grading, so percentage/pass can never diverge.
+      const totalMarks = Number(result.exam.totalMarks);
+      const passingMarks = Number(result.exam.passingMarks);
+      const pointsByQuestion = new Map(result.exam.questions.map((q) => [q.questionId, Number(q.points)]));
+      const rawTotal = freshAnswers.reduce((sum, a) => {
+        const ceiling = pointsByQuestion.get(a.questionId);
+        if (!Number.isFinite(ceiling) || (ceiling as number) <= 0) return sum;
+        return sum + clampScore(Number(a.score ?? 0), ceiling as number);
+      }, 0);
+
+      const metrics = computeResultMetrics(rawTotal, { totalMarks, passingMarks });
+      const grade = result.grade ?? computeLetterGrade(metrics.percentage);
+
+      const stillPending =
+        manualQuestionIds.length === 0
+          ? 0
+          : await tx.studentAnswer.count({
+              where: {
+                sessionId: result.submission!.sessionId,
+                questionId: { in: manualQuestionIds },
+                graderId: null,
+              },
+            });
+      const fullyGraded = stillPending === 0;
+      const publishedAt = result.publishedAt ?? (result.exam.showResultImmediately && fullyGraded ? new Date() : null);
+
       await tx.submission.update({
         where: { id: result.submissionId },
         data: {
@@ -237,17 +243,20 @@ export class ResultsService {
           gradingCompletedAt: fullyGraded ? new Date() : null,
         },
       });
-      return tx.result.update({
+      const updatedResult = await tx.result.update({
         where: { id },
         data: {
-          score: totalScore,
-          percentage,
-          passed,
+          score: metrics.score,
+          percentage: metrics.percentage,
+          passed: metrics.passed,
           grade,
           publishedAt,
         },
       });
+      return { updatedResult, totalScore: metrics.score, percentage: metrics.percentage, passed: metrics.passed, grade };
     });
+
+    const { updatedResult: updated, totalScore, percentage, passed, grade } = outcome;
 
     void this.prisma.auditLog
       .create({
@@ -267,7 +276,7 @@ export class ResultsService {
             percentage,
             passed,
             grade,
-            updatedAnswers: toUpdate.length,
+            updatedAnswers: pendingUpdates.length,
             publishedAt: updated.publishedAt?.toISOString(),
           }),
         },

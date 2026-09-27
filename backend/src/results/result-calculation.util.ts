@@ -69,10 +69,41 @@ function toNumber(value: unknown): number {
 }
 
 /**
+ * Whether a stored `answerJson` payload carries any real content.
+ *
+ * `MATCHING` and `ESSAY` answers are stored as an arbitrary JSON document
+ * rather than as option ids or free text, so they have to be inspected
+ * structurally: `null`, `{}` and `[]` all mean "not answered".
+ */
+function isNonEmptyJsonPayload(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || parsed === undefined) return false;
+    if (Array.isArray(parsed)) return parsed.length > 0;
+    if (typeof parsed === 'object') return Object.keys(parsed as object).length > 0;
+    if (typeof parsed === 'string') return parsed.trim().length > 0;
+    return true;
+  } catch {
+    // Not JSON at all. Anything other than blank is still content.
+    return raw.trim() !== '' && raw.trim() !== 'null';
+  }
+}
+
+/**
  * Whether a stored answer counts as answered. Shared by the attempt scorer and
  * the progress counters so "answered" can never mean two different things.
+ *
+ * `ExamSessionsService` and `MonitoringService` each carried a private copy of
+ * this that also looked at `answerJson`; the scorer did not. A student who
+ * answered a `MATCHING` question therefore saw it counted in their live
+ * progress but not in their result. The three notions now come from here.
  */
-export function isAnswerPopulated(answer: { selectedOptionIds?: string | null; answerText?: string | null } | null | undefined): boolean {
+export function isAnswerPopulated(answer: {
+  selectedOptionIds?: string | null;
+  answerText?: string | null;
+  answerJson?: string | null;
+} | null | undefined): boolean {
   if (!answer) return false;
   try {
     const selected = JSON.parse(answer.selectedOptionIds ?? '[]');
@@ -80,7 +111,8 @@ export function isAnswerPopulated(answer: { selectedOptionIds?: string | null; a
   } catch {
     /* unparseable payload is treated as "no options selected" */
   }
-  return Boolean(answer.answerText && answer.answerText.trim().length > 0);
+  if (answer.answerText && answer.answerText.trim().length > 0) return true;
+  return isNonEmptyJsonPayload(answer.answerJson);
 }
 
 /**
@@ -184,4 +216,57 @@ export function selectBestAttempt<T extends { percentage: number; durationMinute
     if (byDate !== 0) return byDate;
     return a.attemptNumber - b.attemptNumber;
   })[0];
+}
+
+/**
+ * The subset of `rows` that counts as official: one best attempt per student,
+ * per exam.
+ *
+ * Analytics that iterate raw `Result` rows will otherwise count every attempt,
+ * so a student who retook an exam three times contributes three results to the
+ * pass rate, three to the subject totals and three to the average. That is what
+ * `studentReport` and `subjectReport` were doing while `examAnalytics` had
+ * already been fixed, which made the two disagree with each other.
+ */
+export function selectOfficialResults<T extends OfficialAttemptRow>(rows: readonly T[]): T[] {
+  // Grouped by (student, exam): the official attempt is per exam, so a report
+  // that spans several exams must not let one student's best result on exam A
+  // stand in for their result on exam B.
+  const byStudentExam = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = `${row.studentId} ${row.examId ?? ''}`;
+    const bucket = byStudentExam.get(key);
+    if (bucket) bucket.push(row);
+    else byStudentExam.set(key, [row]);
+  }
+  const official = new Set<string>();
+  for (const attempts of byStudentExam.values()) {
+    const best = selectBestAttempt(attempts.map(toAttemptCandidate));
+    if (best) official.add(best.id);
+  }
+  return rows.filter((row) => official.has(row.id));
+}
+
+/** Minimum shape {@link selectOfficialResults} needs from a `Result` row. */
+export interface OfficialAttemptRow {
+  id: string;
+  studentId: string;
+  /** Optional so an already-exam-scoped query can omit it. */
+  examId?: string | null;
+  percentage: unknown;
+  startedAt?: Date | null;
+  submittedAt?: Date | null;
+  attemptNumber?: unknown;
+}
+
+function toAttemptCandidate(row: OfficialAttemptRow) {
+  const startedAt = row.startedAt ? new Date(row.startedAt) : null;
+  const submittedAt = row.submittedAt ? new Date(row.submittedAt) : new Date(0);
+  return {
+    id: row.id,
+    percentage: Number(row.percentage),
+    durationMinutes: startedAt ? (submittedAt.getTime() - startedAt.getTime()) / 60_000 : 0,
+    submittedAt,
+    attemptNumber: Number(row.attemptNumber ?? 0),
+  };
 }
