@@ -52,7 +52,7 @@ export function ArchitectureSection() {
         <Parallax speed={140} className="absolute -left-32 top-24 h-80 w-80 rounded-full bg-gold/7 blur-3xl" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <SectionHeader
           align="right"
           reveal="fade-right"

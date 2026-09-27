@@ -55,70 +55,73 @@ export function LandingNav() {
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className={cn(
-          'flex w-full items-center justify-between gap-4 rounded-none border px-4 transition-all duration-300',
+          'w-full border transition-all duration-300',
           scrolled
             ? 'border-border/60 bg-background/75 py-2 shadow-lg shadow-black/5 backdrop-blur-xl dark:shadow-white/5'
             : 'border-transparent bg-transparent py-3',
         )}
       >
-        <Link href="/" className="group flex items-center gap-2 font-semibold tracking-tight text-foreground">
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/30 transition-transform duration-300 group-hover:scale-105">
-            <GraduationCap className="h-4.5 w-4.5" />
-            <span className="absolute inset-x-1 -bottom-px h-px bg-gradient-to-r from-transparent via-gold to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-          </span>
-          <span>OES</span>
-        </Link>
+        {/* The bar itself stays full-bleed; only its content is contained. */}
+        <div className="landing-container flex items-center justify-between gap-4">
+          <Link href="/" className="group flex items-center gap-2 font-semibold tracking-tight text-foreground">
+            <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm shadow-primary/30 transition-transform duration-300 group-hover:scale-105">
+              <GraduationCap className="h-4.5 w-4.5" />
+              <span className="absolute inset-x-1 -bottom-px h-px bg-gradient-to-r from-transparent via-gold to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            </span>
+            <span>OES</span>
+          </Link>
 
-        <div className="hidden items-center gap-1 md:flex">
-          {links.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className={cn(
-                'relative rounded-lg px-3 py-2 text-[0.85rem] font-medium transition-colors hover:bg-white/5 hover:text-foreground',
-                active === l.section ? 'text-foreground' : 'text-muted-foreground',
-              )}
-            >
-              {l.label}
-              <span
+          <div className="hidden items-center gap-1 lg:flex">
+            {links.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
                 className={cn(
-                  'absolute inset-x-3 -bottom-[3px] h-px origin-left bg-gold transition-transform duration-300',
-                  active === l.section ? 'scale-x-100' : 'scale-x-0',
+                  'relative rounded-lg px-3 py-2 text-[0.85rem] font-medium transition-colors hover:bg-white/5 hover:text-foreground',
+                  active === l.section ? 'text-foreground' : 'text-muted-foreground',
                 )}
-              />
-            </a>
-          ))}
-          <Link
-            href="/contact"
-            className="rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
-          >
-            Contact
-          </Link>
-        </div>
+              >
+                {l.label}
+                <span
+                  className={cn(
+                    'absolute inset-x-3 -bottom-[3px] h-px origin-left bg-gold transition-transform duration-300',
+                    active === l.section ? 'scale-x-100' : 'scale-x-0',
+                  )}
+                />
+              </a>
+            ))}
+            <Link
+              href="/contact"
+              className="rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+            >
+              Contact
+            </Link>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <Link
-            href="/login"
-            className="hidden rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground sm:block"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="btn-shine group hidden items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[0.85rem] font-semibold text-primary-foreground shadow-sm shadow-primary/30 transition-all hover:bg-primary/90 sm:inline-flex"
-          >
-            Get started
-            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Link
+              href="/login"
+              className="hidden rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground sm:block"
+            >
+              Log in
+            </Link>
+            <Link
+              href="/register"
+              className="btn-shine group hidden items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-[0.85rem] font-semibold text-primary-foreground shadow-sm shadow-primary/30 transition-all hover:bg-primary/90 sm:inline-flex"
+            >
+              Get started
+              <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
 
-          <button
-            aria-label="Open menu"
-            onClick={() => setOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-white/5 md:hidden"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+            <button
+              aria-label="Open menu"
+              onClick={() => setOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-foreground transition-colors hover:bg-white/5 lg:hidden"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       </motion.nav>
 
@@ -129,7 +132,7 @@ export function LandingNav() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] bg-background/40 backdrop-blur-sm md:hidden"
+              className="fixed inset-0 z-[60] bg-background/40 backdrop-blur-sm lg:hidden"
             onClick={() => setOpen(false)}
           >
             <motion.div

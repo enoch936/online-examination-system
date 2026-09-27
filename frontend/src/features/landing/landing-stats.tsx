@@ -56,7 +56,7 @@ export function PlatformStats() {
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border/80 to-transparent" />
       </div>
 
-      <div className="w-full">
+      <div className="landing-container">
         <div className="glass-edge grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border/60 bg-card/40 backdrop-blur-xl sm:grid-cols-4">
           {METRICS.map(({ key, label, icon: Icon }) => {
             const value = stats?.[key];
