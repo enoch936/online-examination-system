@@ -1,18 +1,21 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ExamEventType, ExamStatus, Prisma, SessionStatus, SubmissionStatus } from '@prisma/client';
+import { ExamEventType, ExamStatus, Prisma, SessionStatus, Submission, SubmissionReason, SubmissionStatus } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { EventQueueService, GradingJob } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { clampScore, gradeQuestion } from './scoring.util';
+import { computeResultMetrics, scoreAttempt, AttemptScoringConfig } from '../results/result-calculation.util';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 
 const LIFECYCLE_INTERVAL_MS = 60_000;
 const BATCH_SIZE = 200;
 
 type SubmissionSession = Prisma.ExamSessionGetPayload<{ include: ReturnType<SubmissionsService['submissionInclude']> }>;
+type FinalizedSubmission = Submission & { result: { id: string } | null };
 
 @Injectable()
 export class SubmissionsService implements OnModuleInit {
+  private lifecycleRunning = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly monitoring: MonitoringService,
@@ -20,9 +23,25 @@ export class SubmissionsService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    void this.runLifecycle();
-    const timer = setInterval(() => void this.runLifecycle(), LIFECYCLE_INTERVAL_MS);
+    this.scheduleLifecycle();
+    const timer = setInterval(() => this.scheduleLifecycle(), LIFECYCLE_INTERVAL_MS);
     timer.unref?.();
+  }
+
+  /**
+   * The sweep must never be able to take the process down, and two sweeps must
+   * never run at once: an unhandled rejection from the `void`-ed promise would
+   * otherwise crash the worker on the first database hiccup, and overlapping
+   * runs would fight over the same expired sessions.
+   */
+  private scheduleLifecycle() {
+    if (this.lifecycleRunning) return;
+    this.lifecycleRunning = true;
+    void this.runLifecycle()
+      .catch(() => undefined)
+      .finally(() => {
+        this.lifecycleRunning = false;
+      });
   }
 
   async runLifecycle() {
@@ -35,6 +54,28 @@ export class SubmissionsService implements OnModuleInit {
       }),
     ]);
     return { autoSubmitted, closed: closed.count };
+  }
+
+  /**
+   * Staff-driven submission (force-submit, end session, end exam).
+   *
+   * Exposed so that every other module that needs to close a session goes
+   * through the exact same atomic freeze as a student submit. Callers used to
+   * just flip `status = SUBMITTED`, which produced no Submission and no Result
+   * and therefore destroyed the attempt.
+   */
+  async forceSubmitSession(
+    sessionId: string,
+    reason: SubmissionReason = SubmissionReason.AUTO_FORCE_SUBMIT,
+  ): Promise<FinalizedSubmission> {
+    const session = await this.prisma.examSession.findUnique({
+      where: { id: sessionId },
+      include: this.submissionInclude(),
+    });
+    if (!session) {
+      throw new NotFoundException('Exam session not found');
+    }
+    return this.finalizeSubmission(session, { reason, force: true });
   }
 
   async submit(dto: SubmitExamDto, studentId: string) {
@@ -54,8 +95,11 @@ export class SubmissionsService implements OnModuleInit {
     // A manual submit after expiresAt is still legitimate (student finished
     // exactly on time), but must be recorded as an automatic submission so it
     // is never mistaken for an on-time manual attempt.
-    const pastDue = session.expiresAt ? Date.now() > session.expiresAt.getTime() : true;
-    return this.finalizeSubmission(session, dto.autoSubmitted ?? pastDue);
+    //
+    // `dto.autoSubmitted` is deliberately ignored: expiry is a server-side
+    // fact derived from `expiresAt`, so a client can neither fabricate an
+    // on-time submission nor hide an auto-submitted one.
+    return this.finalizeSubmission(session);
   }
 
   async autoSubmitExpired(now = new Date()) {
@@ -76,7 +120,7 @@ export class SubmissionsService implements OnModuleInit {
       });
       for (const session of sessions) {
         try {
-          await this.finalizeSubmission(session, true);
+          await this.finalizeSubmission(session, { reason: SubmissionReason.AUTO_TIME_EXPIRY });
           autoSubmitted++;
         } catch {
           /* a single session must not block the rest */
@@ -101,14 +145,11 @@ export class SubmissionsService implements OnModuleInit {
     let forceSubmitted = 0;
     for (const session of sessions) {
       try {
-        if (!session.submission) {
-          await this.finalizeSubmission(session, true);
-        } else {
-          await this.prisma.examSession.update({
-            where: { id: session.id },
-            data: { status: SessionStatus.SUBMITTED, submittedAt: new Date() },
-          });
-        }
+        // Always route through finalizeSubmission, even when a submission row
+        // already exists: the earlier `else` branch flipped the session to
+        // SUBMITTED without ever producing a Result, which silently lost the
+        // attempt entirely.
+        await this.finalizeSubmission(session, { reason: SubmissionReason.AUTO_EXAM_ENDED, force: true });
         forceSubmitted++;
         await this.monitoring.emitSessionControl(session.id, { type: 'force-submit' });
       } catch {
@@ -146,56 +187,140 @@ export class SubmissionsService implements OnModuleInit {
     } as const;
   }
 
-  private async finalizeSubmission(session: SubmissionSession, autoSubmitted: boolean) {
-    const negativeMarkingRate = Number(session.exam.negativeMarkingRate) || 0;
-    let totalScore = 0;
-    let needsManualGrading = false;
-    const answerByQuestion = new Map(session.answers.map((answer) => [answer.questionId, answer]));
+  /**
+   * Freezes a session into exactly one Submission + Result + closed session.
+   *
+   * Everything that must be atomic lives in one interactive transaction:
+   *   1. insert the Submission (its `sessionId` is UNIQUE, so this is the race)
+   *   2. persist the per-answer scores
+   *   3. close the session
+   *
+   * The previous implementation wrote answer scores in a *separate* transaction
+   * that ran *before* the submission insert, so two concurrent submits both
+   * graded and both wrote scores while the loser then hit P2002 — leaving the
+   * loser's scores on the winner's submission. Inserting the unique row first
+   * means only the winner ever writes.
+   */
+  private async finalizeSubmission(
+    session: SubmissionSession,
+    options: { reason?: SubmissionReason; force?: boolean } = {},
+  ): Promise<FinalizedSubmission> {
+    const scoringConfig: AttemptScoringConfig = {
+      totalMarks: Number(session.exam.totalMarks),
+      passingMarks: Number(session.exam.passingMarks),
+      negativeMarkingRate: Number(session.exam.negativeMarkingRate) || 0,
+    };
 
-    const updates: Array<{ id: string; score: number }> = [];
+    // Server-authoritative classification. A student-initiated submit that lands
+    // after `expiresAt` is still a legitimate attempt, but it must never be
+    // recorded as on-time, so it is filed as an automatic submission.
+    const expired = !session.expiresAt || Date.now() > session.expiresAt.getTime();
+    const reason = options.reason ?? (expired ? SubmissionReason.AUTO_TIME_EXPIRY : SubmissionReason.MANUAL_SUBMIT);
+    const autoSubmitted = reason !== SubmissionReason.MANUAL_SUBMIT;
 
-    for (const examQuestion of session.exam.questions) {
-      const question = examQuestion.question;
-      const answer = answerByQuestion.get(question.id);
-
-      const graded = gradeQuestion({
-        type: question.type,
+    const breakdown = scoreAttempt(
+      session.exam.questions.map((examQuestion) => ({
+        questionId: examQuestion.questionId,
+        type: examQuestion.question.type,
         points: Number(examQuestion.points),
-        options: question.options,
-        answer: answer ?? null,
-        negativeMarkingRate,
+        options: examQuestion.question.options,
+      })),
+      session.answers.map((answer) => ({
+        answerId: answer.id,
+        questionId: answer.questionId,
+        selectedOptionIds: answer.selectedOptionIds,
+        answerText: answer.answerText,
+      })),
+      scoringConfig,
+    );
+
+    const metrics = computeResultMetrics(breakdown.rawTotal, scoringConfig);
+    const status = breakdown.needsManualGrading ? SubmissionStatus.NEEDS_MANUAL_GRADING : SubmissionStatus.GRADED;
+    const showResultImmediately = Boolean(session.exam.showResultImmediately) && !breakdown.needsManualGrading;
+    const now = new Date();
+
+    const outcome = await this.prisma
+      .$transaction(async (tx) => {
+        // The unique `sessionId` makes this the concurrency arbiter: exactly one
+        // caller inserts, every other caller rolls back and re-reads below.
+        const submission = await tx.submission.create({
+          data: {
+            sessionId: session.id,
+            status,
+            autoSubmitted,
+            reason,
+            totalScore: metrics.score,
+            maxScore: metrics.maxScore,
+            percentage: metrics.percentage,
+            isPassed: metrics.passed,
+            gradingCompletedAt: breakdown.needsManualGrading ? null : now,
+            result: {
+              create: {
+                examId: session.examId,
+                studentId: session.studentId,
+                score: metrics.score,
+                maxScore: metrics.maxScore,
+                percentage: metrics.percentage,
+                passed: metrics.passed,
+                publishedAt: showResultImmediately ? now : null,
+              },
+            },
+          },
+          include: { result: { select: { id: true } } },
+        });
+
+        for (const scored of breakdown.answerScores) {
+          await tx.studentAnswer.update({ where: { id: scored.answerId }, data: { score: scored.score } });
+        }
+
+        await tx.examSession.update({
+          where: { id: session.id },
+          data: {
+            status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
+            submittedAt: now,
+            connectionState: 'CONNECTED',
+            lastActivityAt: now,
+          },
+        });
+
+        return submission;
+      })
+      .then((submission) => ({ submission, created: true as const }))
+      .catch(async (error: unknown) => {
+        // A concurrent submit (or the 60s sweep) already finalised this session.
+        // Return that authoritative row untouched rather than re-grading.
+        if (
+          !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+          error.code !== 'P2002'
+        ) {
+          throw error;
+        }
+        const existing = await this.prisma.submission.findUnique({
+          where: { sessionId: session.id },
+          include: { result: { select: { id: true } } },
+        });
+        if (!existing) throw error;
+        return { submission: existing, created: false as const };
       });
 
-      totalScore += graded.score;
-      if (graded.needsManualGrading) needsManualGrading = true;
+    const { submission, created } = outcome;
 
-      if (answer) {
-        updates.push({ id: answer.id, score: graded.score });
-      }
+    // The session must be closed even when we lost the race, otherwise a losing
+    // request could leave the session IN_PROGRESS and keep accepting answers.
+    if (!created) {
+      await this.prisma.examSession
+        .update({
+          where: { id: session.id },
+          data: {
+            status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
+            submittedAt: session.submittedAt ?? now,
+            connectionState: 'CONNECTED',
+            lastActivityAt: now,
+          },
+        })
+        .catch(() => undefined);
+      return submission;
     }
-
-    if (updates.length > 0) {
-      await this.prisma.$transaction(
-        updates.map((u) => this.prisma.studentAnswer.update({ where: { id: u.id }, data: { score: u.score } })),
-      );
-    }
-
-    const maxScore = Number(session.exam.totalMarks);
-    const finalScore = clampScore(totalScore, maxScore);
-    const percentage = maxScore > 0 ? Number(((finalScore / maxScore) * 100).toFixed(2)) : 0;
-    const isPassed = finalScore >= Number(session.exam.passingMarks);
-    const status = needsManualGrading ? SubmissionStatus.NEEDS_MANUAL_GRADING : SubmissionStatus.GRADED;
-
-    const submission = await this.safeCreateSubmission(session, {
-      status,
-      autoSubmitted,
-      totalScore: finalScore,
-      maxScore,
-      percentage,
-      isPassed,
-      gradingCompletedAt: needsManualGrading ? null : new Date(),
-      showResultImmediately: session.exam.showResultImmediately && !needsManualGrading,
-    });
 
     void this.prisma.auditLog
       .create({
@@ -207,92 +332,27 @@ export class SubmissionsService implements OnModuleInit {
           after: JSON.stringify({
             examId: session.examId,
             sessionId: session.id,
+            attemptNumber: session.attemptNumber,
             autoSubmitted,
-            score: finalScore,
+            reason,
+            score: metrics.score,
             status,
           }),
         },
       })
       .catch(() => undefined);
 
-    await this.prisma.examSession.update({
-      where: { id: session.id },
-      data: {
-        status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
-        submittedAt: new Date(),
-        connectionState: 'CONNECTED',
-        lastActivityAt: new Date(),
-      },
-    });
-
     try {
       await this.monitoring.recordEvent({
         examId: session.examId,
         sessionId: session.id,
         type: ExamEventType.EXAM_SUBMITTED,
-        metadata: { autoSubmitted, submissionId: submission.id },
+        metadata: { autoSubmitted, reason, submissionId: submission.id },
       });
     } catch {
       /* best effort */
     }
 
     return submission;
-  }
-
-  /**
-   * Creates the submission whose `sessionId` is UNIQUE in the schema. Two
-   * concurrent submit calls (or a manual submit racing the 60s auto-submit
-   * lifecycle) can both pass the "no submission yet" check and then collide;
-   * the loser gets a P2002 unique-constraint error and must return the winner's
-   * already-stored submission instead of failing the request.
-   */
-  private async safeCreateSubmission(
-    session: SubmissionSession,
-    data: {
-      status: SubmissionStatus;
-      autoSubmitted: boolean;
-      totalScore: number;
-      maxScore: number;
-      percentage: number;
-      isPassed: boolean;
-      gradingCompletedAt: Date | null;
-      showResultImmediately: boolean;
-    },
-  ) {
-    try {
-      return await this.prisma.submission.create({
-        data: {
-          sessionId: session.id,
-          status: data.status,
-          autoSubmitted: data.autoSubmitted,
-          totalScore: data.totalScore,
-          maxScore: data.maxScore,
-          percentage: data.percentage,
-          isPassed: data.isPassed,
-          gradingCompletedAt: data.gradingCompletedAt,
-          result: {
-            create: {
-              examId: session.examId,
-              studentId: session.studentId,
-              score: data.totalScore,
-              maxScore: data.maxScore,
-              percentage: data.percentage,
-              passed: data.isPassed,
-              publishedAt: data.showResultImmediately ? new Date() : null,
-            },
-          },
-        },
-        include: { result: true },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const existing = await this.prisma.submission.findUnique({
-          where: { sessionId: session.id },
-          include: { result: true },
-        });
-        if (existing) return existing;
-      }
-      throw error;
-    }
   }
 }

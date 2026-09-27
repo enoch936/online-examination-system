@@ -11,6 +11,7 @@ import {
   RiskLevel,
   RoleName,
   SessionStatus,
+  SubmissionReason,
   ViolationType,
   WebcamMode,
 } from '@prisma/client';
@@ -20,6 +21,7 @@ import { CacheService } from '../cache/cache.service';
 import { EventQueueService } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
+import { SubmissionsService } from '../submissions/submissions.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RiskEngine } from './risk.engine';
@@ -108,6 +110,8 @@ export class MonitoringService {
     private readonly eventQueue: EventQueueService,
     private readonly access: ExamAccessService,
     @Inject(forwardRef(() => RealtimeGateway)) private readonly gateway: RealtimeGateway,
+    @Inject(forwardRef(() => SubmissionsService))
+    private readonly submissions: SubmissionsService,
   ) {}
 
   private lastStatsAt = new Map<string, number>();
@@ -645,10 +649,11 @@ export class MonitoringService {
 
     if (state === 'DISCONNECTED' && wasConnected) {
       if (session.exam.connectionLossPolicy === ExamConnectionLossPolicy.END_SESSION) {
-        await this.prisma.examSession.update({
-          where: { id: sessionId },
-          data: { status: SessionStatus.SUBMITTED, submittedAt: new Date() },
-        });
+        // Freeze the attempt instead of only flipping the status, otherwise the
+        // session ends with no Submission/Result and the attempt is unrecoverable.
+        await this.submissions
+          .forceSubmitSession(sessionId, SubmissionReason.AUTO_INSTRUCTOR_END_SESSION)
+          .catch(() => undefined);
         const event = await this.prisma.examEvent.create({
           data: {
             examId: session.examId,
@@ -1085,7 +1090,12 @@ export class MonitoringService {
     return session.examId;
   }
 
-  async instructorAction(instructorId: string, sessionId: string, dto: InstructorActionDto) {
+  async instructorAction(
+    instructorId: string,
+    sessionId: string,
+    dto: InstructorActionDto,
+    actorRoles: RoleName[] = [],
+  ) {
     const session = await this.prisma.examSession.findUnique({
       where: { id: sessionId },
       include: {
@@ -1199,10 +1209,15 @@ export class MonitoringService {
       }
       case 'force_submit': {
         if (session.submittedAt || session.status === SessionStatus.SUBMITTED || session.status === SessionStatus.AUTO_SUBMITTED) break;
-        await this.prisma.examSession.update({
-          where: { id: sessionId },
-          data: { status: SessionStatus.SUBMITTED, submittedAt: new Date() },
-        });
+        // Must go through the shared freeze: flipping the status on its own left
+        // the attempt with no Submission and no Result, so the student silently
+        // lost every answer and the exam analytics counted nothing.
+        await this.submissions.forceSubmitSession(
+          sessionId,
+          actorRoles.includes(RoleName.ADMIN) || actorRoles.includes(RoleName.SUPER_ADMIN)
+            ? SubmissionReason.AUTO_ADMIN_FORCE_SUBMIT
+            : SubmissionReason.AUTO_INSTRUCTOR_END_SESSION,
+        );
         await this.recordInstructorEvent(session, 'FORCE_SUBMITTED', {});
         this.gateway.emitToSession(session.id, 'exam:control', { type: 'force-submit' });
         break;

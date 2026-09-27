@@ -75,6 +75,18 @@ enum SubmissionStatus {
   PUBLISHED
 }
 
+/// Why a submission row was created. `MANUAL_SUBMIT` is the only reason a
+/// student can influence; every other value is decided by the server so that
+/// "was this attempt on time?" can always be audited from the row itself.
+enum SubmissionReason {
+  MANUAL_SUBMIT
+  AUTO_TIME_EXPIRY
+  AUTO_FORCE_SUBMIT
+  AUTO_EXAM_ENDED
+  AUTO_INSTRUCTOR_END_SESSION
+  AUTO_ADMIN_FORCE_SUBMIT
+}
+
 enum NotificationType {
   INFO
   WARNING
@@ -682,6 +694,7 @@ model Submission {
   status             SubmissionStatus @default(SUBMITTED)
   submittedAt        DateTime         @default(now())
   autoSubmitted      Boolean          @default(false)
+  reason             SubmissionReason @default(MANUAL_SUBMIT)
   totalScore         Decimal          @default(0)
   maxScore           Decimal          @default(0)
   percentage         Decimal          @default(0)
@@ -693,6 +706,7 @@ model Submission {
 
   @@index([status, submittedAt])
   @@index([sessionId])
+  @@index([reason])
   @@map("submissions")
 }
 

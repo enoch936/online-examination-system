@@ -240,6 +240,6 @@ export class MonitoringController {
     await this.access.assertCanMonitorSession(sessionId, user);
     const session = await this.monitoring.getSessionExamId(sessionId);
     await this.access.assertCanPerformAction(session, user, dto.action);
-    return this.monitoring.instructorAction(user.sub, sessionId, dto);
+    return this.monitoring.instructorAction(user.sub, sessionId, dto, user.roles);
   }
 }

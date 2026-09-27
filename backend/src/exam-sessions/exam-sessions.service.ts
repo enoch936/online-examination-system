@@ -1,10 +1,19 @@
-import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   ExamConnectionLossPolicy,
   ExamEventType,
   ExamResumePolicy,
   ExamRetakePolicy,
   ExamStatus,
+  Prisma,
   RetakeRequestStatus,
   SessionStatus,
 } from '@prisma/client';
@@ -102,7 +111,20 @@ export class ExamSessionsService {
     return false;
   }
 
-  async startExam(examId: string, studentId: string) {
+  async startExam(examId: string, studentId: string): Promise<Record<string, unknown>> {
+    return this.startExamInternal(examId, studentId, true);
+  }
+
+  /**
+   * `retry` allows exactly one re-evaluation when the insert loses a race. A
+   * bounded retry is deliberate: unbounded recursion on a hot unique constraint
+   * would turn a concurrency bug into a stack-overflow / request-storm.
+   */
+  private async startExamInternal(
+    examId: string,
+    studentId: string,
+    retry: boolean,
+  ): Promise<Record<string, unknown>> {
     const existing = await this.prisma.examSession.findFirst({
       where: { examId, studentId, status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] } },
       include: this.sessionInclude(),
@@ -194,21 +216,48 @@ export class ExamSessionsService {
       }),
     );
 
-    const session = await this.prisma.examSession.create({
-      data: {
-        examId,
-        studentId,
-        attemptNumber: attemptsUsed + 1,
-        status: SessionStatus.IN_PROGRESS,
-        startedAt: new Date(),
-        expiresAt: new Date(Date.now() + exam.durationMinutes * 60 * 1000),
-        remainingSeconds: exam.durationMinutes * 60,
-        questionOrder: JSON.stringify(questionOrder),
-        optionOrder: JSON.stringify(optionOrder),
-        currentQuestionIndex: 0,
-      },
-      include: this.sessionInclude(),
-    });
+    // Creating the session is the only place a new attempt number is allocated.
+    // Two concurrent starts (double-click, two tabs, a retried request) both pass
+    // the checks above and race here; `@@unique([examId, studentId,
+    // attemptNumber])` makes exactly one win. The loser used to surface as a
+    // raw P2002 -> HTTP 500, which is why clients saw "start failed" instead of
+    // their already-running session.
+    let session;
+    try {
+      session = await this.prisma.examSession.create({
+        data: {
+          examId,
+          studentId,
+          attemptNumber: attemptsUsed + 1,
+          status: SessionStatus.IN_PROGRESS,
+          startedAt: new Date(),
+          expiresAt: new Date(Date.now() + exam.durationMinutes * 60 * 1000),
+          remainingSeconds: exam.durationMinutes * 60,
+          questionOrder: JSON.stringify(questionOrder),
+          optionOrder: JSON.stringify(optionOrder),
+          currentQuestionIndex: 0,
+        },
+        include: this.sessionInclude(),
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error;
+      }
+      const winner = await this.prisma.examSession.findFirst({
+        where: { examId, studentId, status: { in: [SessionStatus.IN_PROGRESS, SessionStatus.PAUSED] } },
+        include: this.sessionInclude(),
+      });
+      if (!winner) {
+        // The collision was not an attempt-number clash (e.g. a concurrent
+        // submit freed the active session). Re-evaluate the retake policy once so
+        // the caller gets a real answer instead of a constraint error.
+        if (retry) {
+          return this.startExamInternal(examId, studentId, false);
+        }
+        throw new ConflictException('Exam could not be started; please try again');
+      }
+      return this.sanitizeSession(winner);
+    }
 
     try {
       await this.monitoring.recordEvent({
@@ -254,6 +303,7 @@ export class ExamSessionsService {
   private async assertResumeAllowed(session: {
     id: string;
     status: SessionStatus;
+    expiresAt?: Date | null;
     exam: {
       resumeApprovalRequired: boolean;
       resumePolicy: ExamResumePolicy;
@@ -262,6 +312,32 @@ export class ExamSessionsService {
     resumeApprovedAt: Date | null;
     resumeDeniedAt: Date | null;
   }) {
+    // Terminal sessions must never be handed back. The status is used rather
+    // than the `submission` relation because `sessionInclude` is echoed straight
+    // back to the student, and adding the relation would leak unpublished scores.
+    if (session.status === SessionStatus.SUBMITTED || session.status === SessionStatus.AUTO_SUBMITTED) {
+      throw new HttpException(
+        {
+          code: 'ALREADY_SUBMITTED',
+          message: 'This attempt has already been submitted.',
+          sessionId: session.id,
+        },
+        HttpStatus.LOCKED,
+      );
+    }
+    // A session whose clock has run out must never be handed back to a student:
+    // the 200 response re-armed a frozen timer client-side and let them keep
+    // clicking through the paper. The 60s sweep will (or already did) freeze it.
+    if (session.expiresAt && Date.now() > session.expiresAt.getTime()) {
+      throw new HttpException(
+        {
+          code: 'TIME_EXPIRED',
+          message: 'Your time for this exam has expired and the attempt is being submitted.',
+          sessionId: session.id,
+        },
+        HttpStatus.LOCKED,
+      );
+    }
     if (session.exam.resumePolicy === ExamResumePolicy.DISABLED) {
       throw new HttpException(
         {
@@ -471,7 +547,10 @@ export class ExamSessionsService {
     } as const;
   }
 
-  private sanitizeSession(session: { exam: { questions: Array<{ question: { options: Array<{ isCorrect: boolean }> } }> } } & Record<string, unknown>) {
+  private sanitizeSession(session: {
+    exam: { questions: Array<{ question: { options: Array<{ isCorrect: boolean }> } }> };
+    [key: string]: unknown;
+  }): Record<string, unknown> {
     return {
       ...session,
       exam: {

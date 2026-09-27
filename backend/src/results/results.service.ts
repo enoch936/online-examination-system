@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RoleName } from '@prisma/client';
+import { Prisma, RoleName, SubmissionStatus } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ExamAccessService } from '../common/exam-access.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { clampScore } from '../submissions/scoring.util';
 import { GradeAnswerItemDto } from './dto/grade-answers.dto';
 import { OverrideResultDto } from './dto/override-result.dto';
-import { computeLetterGrade, roundPercentage } from './grading.util';
+import { computeLetterGrade } from './grading.util';
+import { computeResultMetrics } from './result-calculation.util';
 
 type FindManyOptions = {
   examId?: string;
@@ -112,10 +113,10 @@ export class ResultsService {
     const result = await this.prisma.result.findUnique({
       where: { id },
       include: {
-        exam: true,
+        exam: { include: { questions: { select: { questionId: true, points: true } } } },
         submission: {
           include: {
-            session: { include: { answers: { include: { question: { select: { points: true } } } } } },
+            session: { include: { answers: true } },
           },
         },
       },
@@ -123,7 +124,12 @@ export class ResultsService {
     if (!result) throw new NotFoundException('Result not found');
     await this.examAccess.assertCanManage(result.examId, user);
 
-    if (!Array.isArray(answers) || answers.length > MAX_GRADE_ITEMS) {
+    // An empty payload used to be accepted, which zeroed every answer and
+    // published a GRADED result — a real way to destroy a student's marks.
+    if (!Array.isArray(answers) || answers.length === 0) {
+      throw new BadRequestException('Invalid grade payload');
+    }
+    if (answers.length > MAX_GRADE_ITEMS) {
       throw new BadRequestException('Invalid grade payload');
     }
 
@@ -143,11 +149,17 @@ export class ResultsService {
       seen.add(item.answerId);
     }
 
+    // The per-question ceiling must come from the exam's own mark allocation.
+    // The old code read `Question.points` (the question bank default) and fell
+    // back to the whole `exam.totalMarks`, so a single manual grade could be
+    // clamped to the entire exam's worth of marks.
+    const examPoints = new Map(result.exam.questions.map((q) => [q.questionId, Number(q.points)]));
+
     const graderId = user.sub;
     const toUpdate = answers.map((g) => {
       const answer = answerById.get(g.answerId) as (typeof existingAnswers)[number];
-      const rawMax = Number(answer.question?.points ?? Number.NaN);
-      const maxPoints = Number.isFinite(rawMax) && rawMax >= 0 ? rawMax : Number(result.exam.totalMarks);
+      const configured = examPoints.get(answer.questionId);
+      const maxPoints = Number.isFinite(configured) && (configured as number) >= 0 ? (configured as number) : 0;
       return this.prisma.studentAnswer.update({
         where: { id: g.answerId },
         data: {
@@ -164,25 +176,53 @@ export class ResultsService {
     const freshAnswers = existingAnswers.length
       ? await this.prisma.studentAnswer.findMany({
           where: { id: { in: existingAnswers.map((a) => a.id) } },
-          select: { id: true, score: true },
+          select: { id: true, questionId: true, score: true },
         })
       : [];
-    const maxScore = Number(result.exam.totalMarks);
-    const rawTotal = freshAnswers.reduce((sum, a) => sum + Number(a.score ?? 0), 0);
-    const totalScore = clampScore(rawTotal, maxScore);
-    const percentage = roundPercentage(totalScore, maxScore);
-    const passed = totalScore >= Number(result.exam.passingMarks);
+
+    // Re-aggregate the persisted per-answer scores through the same central
+    // calculation used for auto-grading, so percentage/pass can never diverge.
+    const totalMarks = Number(result.exam.totalMarks);
+    const passingMarks = Number(result.exam.passingMarks);
+    const pointsByQuestion = new Map(result.exam.questions.map((q) => [q.questionId, Number(q.points)]));
+    const rawTotal = freshAnswers.reduce((sum, a) => {
+      const ceiling = pointsByQuestion.get(a.questionId);
+      if (!Number.isFinite(ceiling) || (ceiling as number) <= 0) return sum;
+      return sum + clampScore(Number(a.score ?? 0), ceiling as number);
+    }, 0);
+    const metrics = computeResultMetrics(rawTotal, { totalMarks, passingMarks });
+    const totalScore = metrics.score;
+    const percentage = metrics.percentage;
+    const passed = metrics.passed;
     const grade = result.grade ?? computeLetterGrade(percentage);
 
-    const updated = await this.prisma.result.update({
-      where: { id },
-      data: {
-        score: totalScore,
-        percentage,
-        passed,
-        grade,
-        publishedAt: result.publishedAt ?? new Date(),
-      },
+    // Manual grading finishing the last outstanding answer transitions the
+    // submission out of NEEDS_MANUAL_GRADING. Previously it stayed stuck, so
+    // `pendingGradings` never cleared even after a grader had finished.
+    const stillPending = await this.prisma.studentAnswer.count({
+      where: { sessionId: result.submission!.sessionId, graderId: null },
+    });
+    const fullyGraded = stillPending === 0;
+    const publishedAt = result.publishedAt ?? (result.exam.showResultImmediately && fullyGraded ? new Date() : null);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.submission.update({
+        where: { id: result.submissionId },
+        data: {
+          status: fullyGraded ? SubmissionStatus.GRADED : SubmissionStatus.NEEDS_MANUAL_GRADING,
+          gradingCompletedAt: fullyGraded ? new Date() : null,
+        },
+      });
+      return tx.result.update({
+        where: { id },
+        data: {
+          score: totalScore,
+          percentage,
+          passed,
+          grade,
+          publishedAt,
+        },
+      });
     });
 
     void this.prisma.auditLog
