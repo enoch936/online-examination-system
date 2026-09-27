@@ -365,7 +365,7 @@ export class CertificatesService {
     const score = Number(result.score);
     const maxScore = Number(result.maxScore);
     const percentage = Number(result.percentage);
-    const expired = certificate.expiresAt !== null && certificate.expiresAt.getTime() < Date.now();
+    const expired = isExpired(certificate.expiresAt);
 
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 56 });
     const chunks: Buffer[] = [];
