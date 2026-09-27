@@ -1,15 +1,33 @@
 ﻿'use client';
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, Download, SearchX, ShieldCheck } from 'lucide-react';
+import { Award, Download, Loader2, SearchX, ShieldCheck } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { certificatesService } from '@/services/certificates.service';
+import { certificatesService, saveBlob } from '@/services/certificates.service';
 import type { Certificate } from '@/types/api';
 
 function CertificateCard({ certificate }: { certificate: Certificate }) {
+  const [downloading, setDownloading] = useState(false);
+  const isExpired = certificate.expired === true;
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const blob = await certificatesService.downloadPdf(certificate.id);
+      saveBlob(blob, `certificate-${certificate.certificateNo}.pdf`);
+      toast.success('Certificate downloaded');
+    } catch {
+      toast.error('Failed to download certificate');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <Card className="transition-colors hover:border-primary/50">
       <CardHeader className="flex-row items-start justify-between space-y-0">
@@ -32,6 +50,15 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
             <span className="text-muted-foreground">Issued</span>
             <span>{new Date(certificate.issuedAt).toLocaleDateString()}</span>
           </div>
+          {certificate.expiresAt && (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Expires</span>
+              <span className={isExpired ? 'font-medium text-destructive' : undefined}>
+                {new Date(certificate.expiresAt).toLocaleDateString()}
+                {isExpired ? ' (expired)' : ''}
+              </span>
+            </div>
+          )}
           {certificate.result && (
             <>
               <div className="flex justify-between">
@@ -46,14 +73,16 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
               </div>
             </>
           )}
-          {certificate.fileUrl && (
-            <Button variant="outline" size="sm" className="mt-2 w-full gap-2" asChild>
-              <a href={certificate.fileUrl} target="_blank" rel="noopener noreferrer">
-                <Download className="h-4 w-4" />
-                Download certificate
-              </a>
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2 w-full gap-2"
+            onClick={handleDownload}
+            disabled={downloading}
+          >
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {downloading ? 'Preparing PDF...' : 'Download certificate'}
+          </Button>
         </div>
       </CardContent>
     </Card>

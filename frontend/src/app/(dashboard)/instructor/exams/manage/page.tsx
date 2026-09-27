@@ -122,6 +122,10 @@ export default function ManageExamPage() {
     resumePolicy: 'INSTRUCTOR_APPROVAL',
     retakePolicy: 'INSTRUCTOR_APPROVAL',
     negativeMarkingRate: '0',
+    certificateEnabled: false,
+    certificateAutoIssue: false,
+    certificateMinPercentage: '',
+    certificateValidityDays: '',
   });
 
   const { data: exams, isLoading, error, refetch } = useQuery({
@@ -349,6 +353,16 @@ export default function ManageExamPage() {
       resumePolicy: exam.resumePolicy ?? 'INSTRUCTOR_APPROVAL',
       retakePolicy: exam.retakePolicy ?? 'INSTRUCTOR_APPROVAL',
       negativeMarkingRate: String(exam.negativeMarkingRate),
+      certificateEnabled: exam.certificateEnabled ?? false,
+      certificateAutoIssue: exam.certificateAutoIssue ?? false,
+      certificateMinPercentage:
+        exam.certificateMinPercentage === null || exam.certificateMinPercentage === undefined
+          ? ''
+          : String(exam.certificateMinPercentage),
+      certificateValidityDays:
+        exam.certificateValidityDays === null || exam.certificateValidityDays === undefined
+          ? ''
+          : String(exam.certificateValidityDays),
     });
     setEditingId(exam.id);
   }
@@ -357,6 +371,14 @@ export default function ManageExamPage() {
     if (!editingId) return;
     if (Number(editForm.passingMarks) > Number(editForm.totalMarks)) { toast.error('Passing marks cannot exceed total marks'); return; }
     if (Number(editForm.negativeMarkingRate) > 1) { toast.error('Negative marking rate must be between 0 and 1'); return; }
+    if (editForm.certificateMinPercentage !== '' && (Number(editForm.certificateMinPercentage) < 0 || Number(editForm.certificateMinPercentage) > 100)) {
+      toast.error('Certificate minimum percentage must be between 0 and 100');
+      return;
+    }
+    if (editForm.certificateValidityDays !== '' && Number(editForm.certificateValidityDays) < 1) {
+      toast.error('Certificate validity must be at least 1 day');
+      return;
+    }
     const data: Record<string, unknown> = {};
     if (editForm.title.trim()) data.title = editForm.title.trim();
     if (editForm.description) data.description = editForm.description || undefined;
@@ -379,6 +401,18 @@ export default function ManageExamPage() {
     data.resumePolicy = editForm.resumePolicy;
     data.retakePolicy = editForm.retakePolicy;
     data.negativeMarkingRate = Number(editForm.negativeMarkingRate) || 0;
+    data.certificateEnabled = editForm.certificateEnabled;
+    data.certificateAutoIssue = editForm.certificateEnabled && editForm.certificateAutoIssue;
+    // Always sent, so clearing the field really clears the rule server-side
+    // rather than silently leaving the previous value in place.
+    data.certificateMinPercentage =
+      editForm.certificateEnabled && editForm.certificateMinPercentage !== ''
+        ? Number(editForm.certificateMinPercentage)
+        : null;
+    data.certificateValidityDays =
+      editForm.certificateEnabled && editForm.certificateValidityDays !== ''
+        ? Number(editForm.certificateValidityDays)
+        : null;
     updateMutation.mutate({ id: editingId, data });
   }
 
@@ -587,6 +621,60 @@ export default function ManageExamPage() {
                   <option value="ADMIN_APPROVAL">Admin approves retake</option>
                 </select>
               </div>
+            </div>
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Certificates</p>
+              <p className="text-xs text-muted-foreground">
+                Eligibility always requires a pass; the settings below add optional extra rules.
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={editForm.certificateEnabled}
+                  onChange={(e) => setEditForm({ ...editForm, certificateEnabled: e.target.checked })}
+                />
+                Enable certificate generation
+              </label>
+              {editForm.certificateEnabled && (
+                <>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={editForm.certificateAutoIssue}
+                      onChange={(e) => setEditForm({ ...editForm, certificateAutoIssue: e.target.checked })}
+                    />
+                    Issue automatically when a result is published
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Minimum percentage</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        value={editForm.certificateMinPercentage}
+                        onChange={(e) => setEditForm({ ...editForm, certificateMinPercentage: e.target.value })}
+                        placeholder="No extra gate"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Validity (days)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={3650}
+                        className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                        value={editForm.certificateValidityDays}
+                        onChange={(e) => setEditForm({ ...editForm, certificateValidityDays: e.target.value })}
+                        placeholder="No expiry"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             <div className="flex gap-3 pt-4">
               <Button onClick={handleSaveEdit} disabled={updateMutation.isPending} className="flex-1">

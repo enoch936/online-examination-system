@@ -82,3 +82,15 @@ export function certificateExpiry(validityDays?: number | null, from: Date = new
   if (!Number.isFinite(days) || days <= 0) return null;
   return new Date(from.getTime() + Math.floor(days) * 24 * 60 * 60 * 1000);
 }
+
+/**
+ * Whether an issued certificate is past its validity window. A null `expiresAt`
+ * means the certificate never expires.
+ *
+ * Derived on the server so the list endpoint, the public verifier, and the PDF
+ * all agree, and so the client never has to compare clocks.
+ */
+export function isExpired(expiresAt: Date | null | undefined, now: Date = new Date()): boolean {
+  if (!expiresAt) return false;
+  return expiresAt.getTime() < now.getTime();
+}

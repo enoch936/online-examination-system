@@ -10,6 +10,7 @@ import {
   CertificateEligibility,
   certificateExpiry,
   evaluateCertificateEligibility,
+  isExpired,
 } from './certificate-eligibility.util';
 
 type ListOptions = {
@@ -172,7 +173,9 @@ export class CertificatesService {
     ]);
 
     return {
-      data,
+      // `expired` is derived server-side so the client never has to compare
+      // clocks, and every consumer gets the same answer the verifier does.
+      data: data.map((certificate) => ({ ...certificate, expired: isExpired(certificate.expiresAt) })),
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -510,7 +513,7 @@ export class CertificatesService {
     if (!certificate) return null;
     return {
       ...certificate,
-      expired: certificate.expiresAt !== null && certificate.expiresAt.getTime() < Date.now(),
+      expired: isExpired(certificate.expiresAt),
     };
   }
 }

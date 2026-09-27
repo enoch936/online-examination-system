@@ -211,6 +211,13 @@ export type ExamSummary = {
   connectionLossPolicy?: 'AUTO_RESUME' | 'MANUAL_RESUME' | 'APPROVAL_REQUIRED' | 'END_SESSION' | 'MARK_REVIEW';
   resumePolicy?: 'STUDENT' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL' | 'DISABLED';
   retakePolicy?: 'DISABLED' | 'AUTO' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL';
+  /** Allow bulk/auto certificate generation. Hand-issued certificates ignore this. */
+  certificateEnabled?: boolean;
+  /** Extra eligibility gate on top of passingMarks; null means no additional gate. */
+  certificateMinPercentage?: number | null;
+  /** Days until an issued certificate expires; null means it never expires. */
+  certificateValidityDays?: number | null;
+  certificateAutoIssue?: boolean;
   course?: { name: string; subject?: { name: string } };
   courses?: Array<{ id: string; course: Course }>;
   questionBank?: { id: string; name: string } | null;
@@ -316,6 +323,8 @@ export type Certificate = {
   issuedAt: string;
   expiresAt?: string | null;
   result?: CertificateResult;
+  /** Present on the public verification response only. */
+  expired?: boolean;
 };
 
 export type Result = {

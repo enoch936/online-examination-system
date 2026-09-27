@@ -60,6 +60,10 @@ export default function CreateExamPage() {
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
   const [expandedBankIds, setExpandedBankIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [certificateEnabled, setCertificateEnabled] = useState(false);
+  const [certificateAutoIssue, setCertificateAutoIssue] = useState(false);
+  const [certificateMinPercentage, setCertificateMinPercentage] = useState('');
+  const [certificateValidityDays, setCertificateValidityDays] = useState('');
 
   const { data: courses, isLoading: coursesLoading } = useQuery({
     queryKey: ['courses'],
@@ -140,6 +144,14 @@ export default function CreateExamPage() {
     if (Number(passingMarks) > Number(totalMarks)) { toast.error('Passing marks cannot exceed total marks'); return; }
     if (Number(negativeMarkingRate) > 1) { toast.error('Negative marking rate must be between 0 and 1'); return; }
     if (selectedQuestionIds.length === 0) { toast.error('Please select at least one question'); return; }
+    if (certificateMinPercentage !== '' && (isNaN(Number(certificateMinPercentage)) || Number(certificateMinPercentage) < 0 || Number(certificateMinPercentage) > 100)) {
+      toast.error('Certificate minimum percentage must be between 0 and 100');
+      return;
+    }
+    if (certificateValidityDays !== '' && (isNaN(Number(certificateValidityDays)) || Number(certificateValidityDays) < 1)) {
+      toast.error('Certificate validity must be at least 1 day');
+      return;
+    }
 
     createMutation.mutate({
       courseId: selectedCourseIds[0],
@@ -160,6 +172,14 @@ export default function CreateExamPage() {
       connectionLossPolicy: connectionLossPolicy as 'APPROVAL_REQUIRED',
       resumePolicy: resumePolicy as 'INSTRUCTOR_APPROVAL',
       retakePolicy: retakePolicy as 'INSTRUCTOR_APPROVAL',
+      certificateEnabled,
+      certificateAutoIssue: certificateEnabled && certificateAutoIssue,
+      // Empty string means "no additional gate" / "never expires" on the backend,
+      // so it must be sent as null rather than 0.
+      certificateMinPercentage:
+        certificateEnabled && certificateMinPercentage !== '' ? Number(certificateMinPercentage) : null,
+      certificateValidityDays:
+        certificateEnabled && certificateValidityDays !== '' ? Number(certificateValidityDays) : null,
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       questionIds: selectedQuestionIds,
@@ -482,6 +502,82 @@ export default function CreateExamPage() {
                     </select>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Certificates</CardTitle>
+                <CardDescription>
+                  Eligibility always requires a pass; these settings add optional extra rules.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 mt-0.5"
+                    checked={certificateEnabled}
+                    onChange={(e) => {
+                      setCertificateEnabled(e.target.checked);
+                      if (!e.target.checked) {
+                        setCertificateAutoIssue(false);
+                        setCertificateMinPercentage('');
+                        setCertificateValidityDays('');
+                      }
+                    }}
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Enable certificate generation</p>
+                    <p className="text-xs text-muted-foreground">
+                      Allow bulk and automatic issuance for this exam. You can still issue certificates
+                      by hand either way.
+                    </p>
+                  </div>
+                </label>
+
+                {certificateEnabled && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="certMinPct">Minimum percentage</Label>
+                      <Input
+                        id="certMinPct"
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={certificateMinPercentage}
+                        onChange={(e) => setCertificateMinPercentage(e.target.value)}
+                        placeholder="e.g. 80 — leave blank for no extra gate"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="certValidity">Validity (days)</Label>
+                      <Input
+                        id="certValidity"
+                        type="number"
+                        min={1}
+                        max={3650}
+                        value={certificateValidityDays}
+                        onChange={(e) => setCertificateValidityDays(e.target.value)}
+                        placeholder="e.g. 365 — leave blank for no expiry"
+                      />
+                    </div>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 mt-0.5"
+                        checked={certificateAutoIssue}
+                        onChange={(e) => setCertificateAutoIssue(e.target.checked)}
+                      />
+                      <div>
+                        <p className="text-sm font-medium">Issue automatically</p>
+                        <p className="text-xs text-muted-foreground">
+                          Issue a certificate as soon as an eligible result is published
+                        </p>
+                      </div>
+                    </label>
+                  </>
+                )}
               </CardContent>
             </Card>
 

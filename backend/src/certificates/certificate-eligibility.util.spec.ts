@@ -1,6 +1,7 @@
 import {
   certificateExpiry,
   evaluateCertificateEligibility,
+  isExpired,
 } from './certificate-eligibility.util';
 
 describe('evaluateCertificateEligibility', () => {
@@ -81,5 +82,33 @@ describe('certificateExpiry', () => {
 
   it('truncates a fractional day count', () => {
     expect(certificateExpiry(1.9, from)?.toISOString()).toBe('2026-01-02T00:00:00.000Z');
+  });
+});
+
+describe('isExpired', () => {
+  const now = new Date('2026-06-01T00:00:00.000Z');
+
+  it('is false for a certificate with no expiry', () => {
+    expect(isExpired(null, now)).toBe(false);
+    expect(isExpired(undefined, now)).toBe(false);
+  });
+
+  it('is false while the validity window is still open', () => {
+    expect(isExpired(new Date('2026-12-31T00:00:00.000Z'), now)).toBe(false);
+  });
+
+  it('is true once the expiry instant has passed', () => {
+    expect(isExpired(new Date('2026-05-31T00:00:00.000Z'), now)).toBe(true);
+  });
+
+  it('treats the expiry instant itself as still valid', () => {
+    // Matches the "expires at" reading: the certificate is valid up to and
+    // including its expiry instant.
+    expect(isExpired(now, now)).toBe(false);
+  });
+
+  it('round-trips with certificateExpiry', () => {
+    expect(isExpired(certificateExpiry(1, new Date('2026-06-01T00:00:00.000Z')), new Date('2026-06-01T12:00:00.000Z'))).toBe(false);
+    expect(isExpired(certificateExpiry(1, new Date('2026-06-01T00:00:00.000Z')), new Date('2026-06-03T00:00:00.000Z'))).toBe(true);
   });
 });

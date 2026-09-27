@@ -19,6 +19,10 @@ export type CreateExamData = {
   connectionLossPolicy?: 'AUTO_RESUME' | 'MANUAL_RESUME' | 'APPROVAL_REQUIRED' | 'END_SESSION' | 'MARK_REVIEW';
   resumePolicy?: 'STUDENT' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL' | 'DISABLED';
   retakePolicy?: 'DISABLED' | 'AUTO' | 'INSTRUCTOR_APPROVAL' | 'ADMIN_APPROVAL';
+  certificateEnabled?: boolean;
+  certificateMinPercentage?: number | null;
+  certificateValidityDays?: number | null;
+  certificateAutoIssue?: boolean;
   negativeMarkingRate?: number;
   startsAt: string;
   endsAt: string;

@@ -85,6 +85,25 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
     onError: (err: Error) => toast.error(err?.message || 'Failed to reissue certificate'),
   });
 
+  // Bulk issuance is idempotent, so this doubles as "pick up anything that
+  // became eligible since last time" — no confirmation of partial risk needed.
+  const generateMutation = useMutation({
+    mutationFn: (examId: string) => certificatesService.generateForExam(examId),
+    onSuccess: (summary) => {
+      invalidate();
+      const parts = [`${summary.created} issued`];
+      if (summary.alreadyIssued > 0) parts.push(`${summary.alreadyIssued} already had one`);
+      if (summary.notPublished > 0) parts.push(`${summary.notPublished} awaiting publication`);
+      if (summary.ineligible > 0) parts.push(`${summary.ineligible} not eligible`);
+      if (summary.created === 0) {
+        toast.warning(`No new certificates. ${parts.join(', ')}.`);
+      } else {
+        toast.success(`Certificates generated: ${parts.join(', ')}.`);
+      }
+    },
+    onError: (err: Error) => toast.error(err?.message || 'Failed to generate certificates'),
+  });
+
   const certificates = certificatesQuery.data?.data ?? [];
   const eligible = eligibleQuery.data?.data ?? [];
   const pagination =
@@ -146,6 +165,24 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
             </option>
           ))}
         </select>
+        <Button
+          variant="outline"
+          className="gap-2"
+          disabled={!examFilter || generateMutation.isPending}
+          onClick={() => generateMutation.mutate(examFilter)}
+          title={
+            examFilter
+              ? 'Issue a certificate for every eligible result of this exam'
+              : 'Select an exam to generate certificates for it'
+          }
+        >
+          {generateMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Award className="h-4 w-4" />
+          )}
+          Generate for exam
+        </Button>
       </div>
 
       {isLoading ? (
