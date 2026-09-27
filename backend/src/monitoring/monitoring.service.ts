@@ -22,6 +22,7 @@ import { EventQueueService } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../websocket/realtime.gateway';
 import { SubmissionsService } from '../submissions/submissions.service';
+import { isAnswerPopulated } from '../results/result-calculation.util';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RiskEngine } from './risk.engine';
@@ -651,8 +652,11 @@ export class MonitoringService {
       if (session.exam.connectionLossPolicy === ExamConnectionLossPolicy.END_SESSION) {
         // Freeze the attempt instead of only flipping the status, otherwise the
         // session ends with no Submission/Result and the attempt is unrecoverable.
+        // The reason is AUTO_CONNECTION_LOST, not AUTO_INSTRUCTOR_END_SESSION:
+        // no instructor acted here, and filing it as a human action made
+        // "was this attempt ended by staff?" unanswerable from the row.
         await this.submissions
-          .forceSubmitSession(sessionId, SubmissionReason.AUTO_INSTRUCTOR_END_SESSION)
+          .forceSubmitSession(sessionId, SubmissionReason.AUTO_CONNECTION_LOST)
           .catch(() => undefined);
         const event = await this.prisma.examEvent.create({
           data: {
@@ -854,7 +858,7 @@ export class MonitoringService {
     if (!s) return null;
 
     const totalQuestions = s.exam._count.questions;
-    const answeredCount = s.answers.filter((a) => this.isAnswered(a)).length;
+    const answeredCount = s.answers.filter((a) => isAnswerPopulated(a)).length;
     const progress = totalQuestions > 0 ? Math.round((answeredCount / totalQuestions) * 100) : 0;
     const reportCount = await this.prisma.examEvent.count({
       where: { sessionId: s.id, type: ExamEventType.MANUAL_FLAG },
@@ -889,18 +893,6 @@ export class MonitoringService {
       violationsCount: s._count.violations,
       reportCount,
     };
-  }
-
-  private isAnswered(a: { selectedOptionIds: string; answerText: string | null; answerJson: string | null }) {
-    try {
-      const selected: string[] = JSON.parse(a.selectedOptionIds ?? '[]');
-      if (Array.isArray(selected) && selected.length > 0) return true;
-    } catch {
-      /* ignore */
-    }
-    if (a.answerText && a.answerText.trim().length > 0) return true;
-    if (a.answerJson && a.answerJson !== 'null' && a.answerJson !== '{}' && a.answerJson !== '[]') return true;
-    return false;
   }
 
   async listSessions(examId: string) {
@@ -959,7 +951,7 @@ export class MonitoringService {
     for (const s of active) {
       const q = s.exam._count.questions;
       if (q > 0) {
-        completionSum += Math.min(100, Math.round((s.answers.filter((a) => this.isAnswered(a)).length / q) * 100));
+        completionSum += Math.min(100, Math.round((s.answers.filter((a) => isAnswerPopulated(a)).length / q) * 100));
         completionCount++;
       }
       remainingSum += s.remainingSeconds ?? 0;
@@ -1069,7 +1061,7 @@ export class MonitoringService {
       }),
     ]);
 
-    const answered = answers.filter((a) => this.isAnswered(a)).length;
+    const answered = answers.filter((a) => isAnswerPopulated(a)).length;
     return {
       questionId,
       examId,

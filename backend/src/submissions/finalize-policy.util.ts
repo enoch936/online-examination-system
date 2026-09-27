@@ -21,6 +21,7 @@ export const SYSTEM_SUBMISSION_REASONS: ReadonlySet<SubmissionReason> = new Set<
   SubmissionReason.AUTO_FORCE_SUBMIT,
   SubmissionReason.AUTO_EXAM_ENDED,
   SubmissionReason.AUTO_INSTRUCTOR_END_SESSION,
+  SubmissionReason.AUTO_CONNECTION_LOST,
   SubmissionReason.AUTO_ADMIN_FORCE_SUBMIT,
 ]);
 

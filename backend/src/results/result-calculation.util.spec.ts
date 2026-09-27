@@ -3,6 +3,7 @@ import {
   isAnswerPopulated,
   scoreAttempt,
   selectBestAttempt,
+  selectOfficialResults,
   AttemptScoringConfig,
   CalculableQuestion,
 } from './result-calculation.util';
@@ -165,6 +166,75 @@ describe('isAnswerPopulated', () => {
 
   it('is false for a null answer', () => {
     expect(isAnswerPopulated(null)).toBe(false);
+  });
+
+  // MATCHING and ESSAY answers are stored as a JSON document rather than as
+  // option ids or free text. ExamSessionsService and MonitoringService already
+  // counted those as answered; the scorer did not, so a student's live progress
+  // and their result disagreed about the same question.
+  it.each([
+    ['{"left":"a","right":"b"}', true],
+    ['[["a","b"]]', true],
+    ['{"left":null}', true],
+    ['"essay text"', true],
+    ['{}', false],
+    ['[]', false],
+    ['null', false],
+    ['', false],
+    ['   ', false],
+    ['{ not json', true],
+  ])('answerJson=%s -> %s', (json, expected) => {
+    expect(
+      isAnswerPopulated({ selectedOptionIds: '[]', answerText: null, answerJson: json as string }),
+    ).toBe(expected);
+  });
+
+  it('treats an option-based answer as answered even when answerJson is empty', () => {
+    expect(isAnswerPopulated({ selectedOptionIds: '["a"]', answerText: null, answerJson: '{}' })).toBe(true);
+  });
+});
+
+describe('selectOfficialResults', () => {
+  const row = (id: string, studentId: string, examId: string, percentage: number, attemptNumber: number) => ({
+    id,
+    studentId,
+    examId,
+    percentage,
+    startedAt: new Date(2026, 0, 1, 9, 0),
+    submittedAt: new Date(2026, 0, 1, 10, 0),
+    attemptNumber,
+  });
+
+  it('keeps one best attempt per student', () => {
+    const official = selectOfficialResults([
+      row('a1', 's1', 'e1', 40, 1),
+      row('a2', 's1', 'e1', 90, 2),
+      row('a3', 's1', 'e1', 60, 3),
+    ]);
+    expect(official.map((r) => r.id)).toEqual(['a2']);
+  });
+
+  it('keeps one attempt per student per exam, not one per student overall', () => {
+    // The official attempt is per exam: a good result on one exam must not
+    // stand in for the student's result on a different exam.
+    const official = selectOfficialResults([
+      row('x1', 's1', 'e1', 95, 1),
+      row('x2', 's1', 'e2', 30, 1),
+      row('x3', 's2', 'e1', 50, 1),
+    ]);
+    expect(official.map((r) => r.id).sort()).toEqual(['x1', 'x2', 'x3']);
+  });
+
+  it('treats a query already scoped to one exam as before', () => {
+    const official = selectOfficialResults([
+      { id: 'y1', studentId: 's1', percentage: 20, submittedAt: new Date(), attemptNumber: 1 },
+      { id: 'y2', studentId: 's1', percentage: 80, submittedAt: new Date(), attemptNumber: 2 },
+    ]);
+    expect(official.map((r) => r.id)).toEqual(['y2']);
+  });
+
+  it('returns an empty array for no rows', () => {
+    expect(selectOfficialResults([])).toEqual([]);
   });
 });
 

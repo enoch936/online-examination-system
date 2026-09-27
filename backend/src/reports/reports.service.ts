@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import { RoleName } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
-import { selectBestAttempt } from '../results/result-calculation.util';
+import { selectBestAttempt, selectOfficialResults } from '../results/result-calculation.util';
 
 const ADMIN_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN];
 
@@ -179,11 +179,30 @@ export class ReportsService {
     });
     if (!student) throw new NotFoundException('Student not found');
 
-    const results = await this.prisma.result.findMany({
+    const allResults = await this.prisma.result.findMany({
       where: { studentId },
-      include: { exam: { include: { course: { include: { subject: true } } } } },
+      include: {
+        exam: { include: { course: { include: { subject: true } } } },
+        submission: { include: { session: { select: { attemptNumber: true, startedAt: true, submittedAt: true } } } },
+      },
       orderBy: { createdAt: 'desc' },
     });
+
+    // One official attempt per exam. Counting every retake made a student who
+    // sat an exam three times show three entries, three times the marks in their
+    // subject totals and a pass rate averaged over attempts rather than exams.
+    const results = selectOfficialResults(
+      allResults.map((r) => ({
+        row: r,
+        id: r.id,
+        studentId: r.studentId,
+        examId: r.examId,
+        percentage: r.percentage,
+        startedAt: r.submission?.session?.startedAt ?? null,
+        submittedAt: r.submission?.submittedAt ?? r.submission?.session?.submittedAt ?? null,
+        attemptNumber: r.submission?.session?.attemptNumber ?? 0,
+      })),
+    ).map((entry) => entry.row);
 
     const subjectMap = new Map<string, { name: string; exams: number; totalScore: number; maxScore: number; passed: number }>();
     for (const r of results) {
@@ -232,28 +251,46 @@ export class ReportsService {
 
     const exams = await this.prisma.exam.findMany({
       where: { course: { subjectId } },
-      include: { results: true, course: true },
-    }) as any[];
+      include: {
+        results: { include: { submission: { include: { session: { select: { attemptNumber: true, startedAt: true, submittedAt: true } } } } } },
+        course: true,
+      },
+    });
 
-    const examRows = exams.map((exam: any) => {
-      const scores: number[] = exam.results.map((r: any) => Number(r.score));
-      const percentages: number[] = exam.results.map((r: any) => Number(r.percentage));
-      const passed = exam.results.filter((r: any) => r.passed).length;
+    const examRows = exams.map((exam) => {
+      // One official attempt per student on this exam, so a retake does not
+      // inflate the denominator of passRate or the averages.
+      const official = selectOfficialResults(
+        exam.results.map((r) => ({
+          id: r.id,
+          studentId: r.studentId,
+          examId: r.examId,
+          percentage: r.percentage,
+          passed: r.passed,
+          score: r.score,
+          startedAt: r.submission?.session?.startedAt ?? null,
+          submittedAt: r.submission?.submittedAt ?? r.submission?.session?.submittedAt ?? null,
+          attemptNumber: r.submission?.session?.attemptNumber ?? 0,
+        })),
+      );
+      const scores = official.map((r) => Number(r.score));
+      const percentages = official.map((r) => Number(r.percentage));
+      const passed = official.filter((r) => r.passed).length;
       return {
         examId: exam.id,
         examTitle: exam.title,
         courseName: exam.course?.name ?? 'Unknown',
-        totalStudents: exam.results.length,
+        totalStudents: official.length,
         passed,
-        failed: exam.results.length - passed,
-        passRate: exam.results.length ? Number((passed / exam.results.length).toFixed(4)) : 0,
-        averageScore: scores.length ? Number((scores.reduce((a: number, b: number) => a + b, 0) / scores.length).toFixed(2)) : 0,
-        averagePercentage: percentages.length ? Number((percentages.reduce((a: number, b: number) => a + b, 0) / percentages.length).toFixed(2)) : 0,
+        failed: official.length - passed,
+        passRate: official.length ? Number((passed / official.length).toFixed(4)) : 0,
+        averageScore: scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0,
+        averagePercentage: percentages.length ? Number((percentages.reduce((a, b) => a + b, 0) / percentages.length).toFixed(2)) : 0,
       };
     });
 
-    const totalResults = exams.reduce((s: number, e: any) => s + e.results.length, 0);
-    const totalPassed = exams.reduce((s: number, e: any) => s + e.results.filter((r: any) => r.passed).length, 0);
+    const totalResults = examRows.reduce((s, row) => s + row.totalStudents, 0);
+    const totalPassed = examRows.reduce((s, row) => s + row.passed, 0);
 
     return {
       subject: { id: subject.id, name: subject.name },
@@ -294,10 +331,19 @@ export class ReportsService {
         ? Promise.resolve(1)
         : this.prisma.user.count({ where: { roles: { some: { role: { name: 'INSTRUCTOR' } } } } }),
       this.prisma.submission.count({ where: isScoped ? { session: { examId: { in: scopedIds } } } : {} }),
-      this.prisma.result.aggregate({
-        _avg: { percentage: true },
-        _count: true,
+      // Replaces the previous `result.aggregate({ _avg, _count })`, which
+      // averaged over every attempt. One student retaking an exam three times
+      // pulled the reported average down three times, and the count included
+      // attempts that are not official at all.
+      this.prisma.result.findMany({
         where: isScoped ? { examId: { in: scopedIds } } : {},
+        select: {
+          id: true,
+          examId: true,
+          studentId: true,
+          percentage: true,
+          submission: { select: { submittedAt: true, session: { select: { attemptNumber: true, startedAt: true, submittedAt: true } } } },
+        },
       }),
       this.prisma.result.findMany({
         where: isScoped ? { examId: { in: scopedIds } } : {},
@@ -323,19 +369,46 @@ export class ReportsService {
     const totalStudents = all[1] as number;
     const totalInstructors = all[2] as number;
     const totalSubmissions = all[3] as number;
-    const resultAgg = all[4] as any;
+    const officialResults = selectOfficialResults(
+      (all[4] as Array<Record<string, any>>).map((r) => ({
+        id: r.id,
+        studentId: r.studentId,
+        examId: r.examId,
+        percentage: r.percentage,
+        startedAt: r.submission?.session?.startedAt ?? null,
+        submittedAt: r.submission?.submittedAt ?? r.submission?.session?.submittedAt ?? null,
+        attemptNumber: r.submission?.session?.attemptNumber ?? 0,
+      })),
+    );
     const recentList = all[5] as any[];
     const subjectPerf = all[6] as any[];
 
+    const officialPercentages = officialResults.map((r) => Number(r.percentage));
+    const averagePercentage = officialPercentages.length
+      ? Number((officialPercentages.reduce((a, b) => a + b, 0) / officialPercentages.length).toFixed(2))
+      : 0;
+
     const subjectStats = subjectPerf.map((subj: any) => {
       const results = subj.courses.flatMap((c: any) => c.exams.flatMap((e: any) => e.results));
-      const passed = results.filter((r: any) => r.passed).length;
-      const percentages = results.map((r: any) => Number(r.percentage));
+      const official = selectOfficialResults(
+        results.map((r: any) => ({
+          id: r.id,
+          studentId: r.studentId,
+          examId: r.examId,
+          percentage: r.percentage,
+          passed: r.passed,
+          startedAt: null,
+          submittedAt: r.createdAt ?? null,
+          attemptNumber: 0,
+        })),
+      );
+      const passed = official.filter((r: any) => r.passed).length;
+      const percentages = official.map((r: any) => Number(r.percentage));
       return {
         subject: subj.name,
         totalExams: subj.courses.reduce((s: number, c: any) => s + c.exams.length, 0),
-        totalResults: results.length,
-        passRate: results.length ? Number((passed / results.length).toFixed(4)) : 0,
+        totalResults: official.length,
+        passRate: official.length ? Number((passed / official.length).toFixed(4)) : 0,
         averagePercentage: percentages.length ? Number((percentages.reduce((a: number, b: number) => a + b, 0) / percentages.length).toFixed(2)) : 0,
       };
     });
@@ -346,8 +419,8 @@ export class ReportsService {
         totalStudents,
         totalInstructors,
         totalSubmissions,
-        averagePercentage: resultAgg._avg.percentage ? Number(Number(resultAgg._avg.percentage).toFixed(2)) : 0,
-        totalResults: resultAgg._count,
+        averagePercentage,
+        totalResults: officialResults.length,
       },
       subjectPerformance: subjectStats,
       recentResults: recentList.map((r: any) => ({
