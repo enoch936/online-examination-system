@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export const INSTRUCTOR_ACTIONS = [
   'warning',
@@ -24,9 +24,9 @@ export class InstructorActionDto {
   @IsString()
   message?: string;
 
-  @ApiPropertyOptional({ description: 'Minutes to extend when action is "extend".' })
+  @ApiPropertyOptional({ description: 'Whole minutes to extend when action is "extend".' })
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(1)
   @Max(120)
   minutes?: number;

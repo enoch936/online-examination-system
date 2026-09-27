@@ -23,6 +23,11 @@ import { RealtimeGateway } from '../websocket/realtime.gateway';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RiskEngine } from './risk.engine';
+import {
+  EXTEND_REQUIRES_ACTIVE_SESSION,
+  computeTimeExtension,
+  isExtendableSession,
+} from './time-extension.util';
 
 const VIOLATION_TO_EVENT: Record<ViolationType, ExamEventType> = {
   TAB_SWITCH: ExamEventType.TAB_SWITCHED,
@@ -1169,15 +1174,24 @@ export class MonitoringService {
       }
       case 'extend': {
         if (!minutes) throw new BadRequestException('minutes is required for extend');
-        const current = session.remainingSeconds ?? 0;
-        const added = minutes * 60;
-        const remainingSeconds = current + added;
-        const expiresAt = new Date(
-          (session.expiresAt?.getTime() ?? Date.now()) + added * 1000,
-        );
-        await this.prisma.examSession.update({
-          where: { id: sessionId },
-          data: { remainingSeconds, expiresAt },
+        if (!isExtendableSession(session)) throw new BadRequestException(EXTEND_REQUIRES_ACTIVE_SESSION);
+        // Re-read inside the transaction: two proctors extending at the same time
+        // must both be counted, and the fresh row carries the authoritative
+        // expiry rather than the client-writable remainingSeconds snapshot the
+        // session was loaded with above.
+        const { remainingSeconds } = await this.prisma.$transaction(async (tx) => {
+          const fresh = await tx.examSession.findUnique({
+            where: { id: sessionId },
+            select: { expiresAt: true, status: true, submittedAt: true },
+          });
+          if (!fresh) throw new NotFoundException('Exam session not found');
+          if (!isExtendableSession(fresh)) throw new BadRequestException(EXTEND_REQUIRES_ACTIVE_SESSION);
+          const next = computeTimeExtension({ expiresAt: fresh.expiresAt, minutes });
+          await tx.examSession.update({
+            where: { id: sessionId },
+            data: { expiresAt: next.expiresAt, remainingSeconds: next.remainingSeconds },
+          });
+          return next;
         });
         await this.recordInstructorEvent(session, 'TIME_EXTENDED', { minutes });
         this.gateway.emitToSession(session.id, 'exam:control', { type: 'extend', minutes, remainingSeconds });

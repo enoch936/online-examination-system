@@ -8,6 +8,7 @@ import { monitoringService } from '@/services/monitoring.service';
 import { requestsService } from '@/services/requests.service';
 import { getSocket } from '@/services/socket.service';
 import { getIceServers } from '@/services/webrtc';
+import { useAuthStore } from '@/store/auth.store';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,41 @@ const RISK_VARIANT: Record<string, 'success' | 'warning' | 'secondary'> = {
   HIGH: 'warning',
   CRITICAL: 'warning',
 };
+
+// Mirrors PERMISSION_LEVEL_RANK / ACTION_LEVEL in backend/src/common/exam-access.service.ts.
+// Renders each action only where the backend would accept it, so a shared
+// instructor no longer clicks Extend and gets a 403.
+const PERMISSION_RANK: Record<string, number> = {
+  VIEWER: 1,
+  MONITOR: 2,
+  PROCTOR: 3,
+  CO_OWNER: 4,
+};
+
+const RANK_PROCTOR = 3;
+const RANK_CO_OWNER = 4;
+
+type ExamAccess = Pick<ExamSummary, 'isOwner' | 'myPermission'>;
+
+function rankForAccess(access: ExamAccess): number {
+  // Admins and the exam creator are flagged isOwner by the exam list, and the
+  // backend lets both bypass the share level for every action.
+  if (access.isOwner || access.myPermission === 'OWNER') return RANK_CO_OWNER + 1;
+  return access.myPermission ? PERMISSION_RANK[access.myPermission] ?? 0 : 0;
+}
+
+function canPerform(access: ExamAccess, requiredRank: number): boolean {
+  return rankForAccess(access) >= requiredRank;
+}
+
+// The same page serves /instructor/exams/monitor and /admin/exams/monitor, so
+// the badge follows the signed-in role instead of assuming the instructor.
+function useViewerRoleLabel(): string {
+  const primaryRole = useAuthStore((state) => state.user?.roles[0]);
+  if (primaryRole === 'SUPER_ADMIN') return 'Super Admin';
+  if (primaryRole === 'ADMIN') return 'Admin';
+  return 'Instructor';
+}
 
 function ConnectionBadge({ state }: { state: string }) {
   if (state === 'CONNECTED') {
@@ -91,9 +127,11 @@ function StatsCards({ stats }: { stats?: LiveStats | null }) {
 
 function SessionActions({
   session,
+  access,
   onOpenEvents,
 }: {
   session: SessionSnapshot;
+  access: ExamAccess;
   onOpenEvents: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -110,6 +148,9 @@ function SessionActions({
   const active = session.status === 'IN_PROGRESS' || session.status === 'PAUSED';
   if (!active) return null;
 
+  const canProctor = canPerform(access, RANK_PROCTOR);
+  const canCoOwner = canPerform(access, RANK_CO_OWNER);
+
   const run = (action: { action: InstructorAction; message?: string; minutes?: number }) => {
     actionMutation.mutate({ sessionId: session.sessionId, payload: action });
   };
@@ -119,17 +160,19 @@ function SessionActions({
       <Button size="sm" variant="outline" onClick={onOpenEvents}>
         <Eye className="mr-1 h-3.5 w-3.5" /> Events
       </Button>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => {
-          const message = window.prompt('Warning message');
-          if (message) run({ action: 'warning', message });
-        }}
-      >
-        <MessageSquare className="mr-1 h-3.5 w-3.5" /> Warn
-      </Button>
-      {session.status === 'PAUSED' && session.resumePending && (
+      {canProctor && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            const message = window.prompt('Warning message');
+            if (message) run({ action: 'warning', message });
+          }}
+        >
+          <MessageSquare className="mr-1 h-3.5 w-3.5" /> Warn
+        </Button>
+      )}
+      {canCoOwner && session.status === 'PAUSED' && session.resumePending && (
         <>
           <Button size="sm" variant="outline" onClick={() => run({ action: 'approve_resume' })}>
             <CheckCircle className="mr-1 h-3.5 w-3.5" /> Approve
@@ -139,48 +182,71 @@ function SessionActions({
           </Button>
         </>
       )}
-      {session.status === 'PAUSED' && !session.resumePending ? (
-        <Button size="sm" variant="outline" onClick={() => run({ action: 'resume' })}>
-          <Play className="mr-1 h-3.5 w-3.5" /> Resume
+      {canProctor &&
+        (session.status === 'PAUSED' && !session.resumePending ? (
+          <Button size="sm" variant="outline" onClick={() => run({ action: 'resume' })}>
+            <Play className="mr-1 h-3.5 w-3.5" /> Resume
+          </Button>
+        ) : session.status === 'IN_PROGRESS' ? (
+          <Button size="sm" variant="outline" onClick={() => run({ action: 'pause' })}>
+            <Pause className="mr-1 h-3.5 w-3.5" /> Pause
+          </Button>
+        ) : null)}
+      {canProctor && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            const input = window.prompt('Minutes to extend (1-120)', '10');
+            if (input === null) return;
+            // The API takes whole minutes only; round here so a decimal entry is
+            // accepted instead of coming back as a 400.
+            const minutes = Math.round(Number(input));
+            if (!Number.isFinite(minutes) || minutes < 1 || minutes > 120) {
+              toast.error('Enter a whole number of minutes between 1 and 120');
+              return;
+            }
+            run({ action: 'extend', minutes });
+          }}
+        >
+          <Clock className="mr-1 h-3.5 w-3.5" /> Extend
         </Button>
-      ) : session.status === 'IN_PROGRESS' ? (
-        <Button size="sm" variant="outline" onClick={() => run({ action: 'pause' })}>
-          <Pause className="mr-1 h-3.5 w-3.5" /> Pause
+      )}
+      {canCoOwner && (
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => {
+            if (window.confirm('Force submit this session now?')) run({ action: 'force_submit' });
+          }}
+        >
+          <Send className="mr-1 h-3.5 w-3.5" /> Submit
         </Button>
-      ) : null}
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={() => {
-          const minutes = Number(window.prompt('Minutes to extend'));
-          if (minutes > 0) run({ action: 'extend', minutes });
-        }}
-      >
-        <Clock className="mr-1 h-3.5 w-3.5" /> Extend
-      </Button>
-      <Button
-        size="sm"
-        variant="destructive"
-        onClick={() => {
-          if (window.confirm('Force submit this session now?')) run({ action: 'force_submit' });
-        }}
-      >
-        <Send className="mr-1 h-3.5 w-3.5" /> Submit
-      </Button>
-      <Button
-        size="sm"
-        variant="destructive"
-        onClick={() => {
-          if (window.confirm('Disconnect this candidate?')) run({ action: 'disconnect' });
-        }}
-      >
-        <WifiOff className="mr-1 h-3.5 w-3.5" /> Disconnect
-      </Button>
+      )}
+      {canCoOwner && (
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => {
+            if (window.confirm('Disconnect this candidate?')) run({ action: 'disconnect' });
+          }}
+        >
+          <WifiOff className="mr-1 h-3.5 w-3.5" /> Disconnect
+        </Button>
+      )}
     </div>
   );
 }
 
-function SessionTable({ sessions, onOpenEvents }: { sessions: SessionSnapshot[]; onOpenEvents: (s: SessionSnapshot) => void }) {
+function SessionTable({
+  sessions,
+  access,
+  onOpenEvents,
+}: {
+  sessions: SessionSnapshot[];
+  access: ExamAccess;
+  onOpenEvents: (s: SessionSnapshot) => void;
+}) {
   if (sessions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -242,7 +308,7 @@ function SessionTable({ sessions, onOpenEvents }: { sessions: SessionSnapshot[];
                   />
                 </div>
               </div>
-              <SessionActions session={s} onOpenEvents={() => onOpenEvents(s)} />
+              <SessionActions session={s} access={access} onOpenEvents={() => onOpenEvents(s)} />
             </div>
           </CardContent>
         </Card>
@@ -657,8 +723,9 @@ function PendingRequestsPanel({ examId }: { examId: string }) {
   );
 }
 
-function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitle: string; onBack: () => void }) {
+function MonitorDetail({ examId, examTitle, access, onBack }: { examId: string; examTitle: string; access: ExamAccess; onBack: () => void }) {
   const queryClient = useQueryClient();
+  const viewerRoleLabel = useViewerRoleLabel();
   const socketRef = useRef(getSocket());
   const [selectedSession, setSelectedSession] = useState<SessionSnapshot | null>(null);
   const [stats, setStats] = useState<LiveStats | null>(null);
@@ -892,7 +959,7 @@ function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitl
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">Instructor</Badge>
+          <Badge variant="secondary">{viewerRoleLabel}</Badge>
           <Button
             variant="destructive"
             size="sm"
@@ -925,7 +992,7 @@ function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitl
           <Skeleton className="h-16 w-full" />
         </div>
       ) : (
-        <SessionTable sessions={sorted} onOpenEvents={setSelectedSession} />
+        <SessionTable sessions={sorted} access={access} onOpenEvents={setSelectedSession} />
       )}
 
       {selectedSession && (
@@ -936,7 +1003,7 @@ function MonitorDetail({ examId, examTitle, onBack }: { examId: string; examTitl
                 Session detail — {selectedSession.student ? `${selectedSession.student.firstName} ${selectedSession.student.lastName}` : selectedSession.studentId}
               </CardTitle>
               <div className="flex items-center gap-2">
-                <SessionActions session={selectedSession} onOpenEvents={() => undefined} />
+                <SessionActions session={selectedSession} access={access} onOpenEvents={() => undefined} />
                 <Button size="sm" variant="ghost" onClick={() => setSelectedSession(null)}>
                   Close
                 </Button>
@@ -1029,6 +1096,7 @@ function ExamCard({ exam, onClick }: { exam: ExamSummary; onClick: () => void })
 
 export default function MonitorExamPage() {
   const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
+  const viewerRoleLabel = useViewerRoleLabel();
 
   const { data: exams, isLoading } = useQuery({
     queryKey: ['exams'],
@@ -1065,7 +1133,14 @@ export default function MonitorExamPage() {
 
   if (selectedExamId) {
     const exam = exams?.find((e) => e.id === selectedExamId);
-    return <MonitorDetail examId={selectedExamId} examTitle={exam?.title ?? 'Exam details'} onBack={() => setSelectedExamId(null)} />;
+    return (
+      <MonitorDetail
+        examId={selectedExamId}
+        examTitle={exam?.title ?? 'Exam details'}
+        access={{ isOwner: exam?.isOwner, myPermission: exam?.myPermission }}
+        onBack={() => setSelectedExamId(null)}
+      />
+    );
   }
 
   return (
@@ -1077,7 +1152,7 @@ export default function MonitorExamPage() {
             Track live candidates, timers, focus events, AI signals and integrity violations in real time.
           </p>
         </div>
-        <Badge variant="secondary">Instructor</Badge>
+        <Badge variant="secondary">{viewerRoleLabel}</Badge>
       </div>
 
       {myExams.length === 0 && sharedExams.length === 0 ? (

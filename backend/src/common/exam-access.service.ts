@@ -26,7 +26,12 @@ export const ACTION_LEVEL: Record<string, ExamPermissionLevel> = {
   // leaving students permanently blocked at RESUME_PENDING.
   approve_resume: ExamPermissionLevel.CO_OWNER,
   deny_resume: ExamPermissionLevel.CO_OWNER,
-  extend: ExamPermissionLevel.CO_OWNER,
+  // Granting extra time is an in-exam intervention (a crashed browser, a slow
+  // connection, an accessibility need), not an ownership decision, so it sits
+  // with the other PROCTOR actions instead of CO_OWNER. It stayed CO_OWNER for
+  // the life of the feature, which meant every proctor-level share hit a 403 on
+  // the one action they most often need.
+  extend: ExamPermissionLevel.PROCTOR,
   force_submit: ExamPermissionLevel.CO_OWNER,
   disconnect: ExamPermissionLevel.CO_OWNER,
 };

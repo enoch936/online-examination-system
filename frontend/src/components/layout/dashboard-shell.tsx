@@ -99,6 +99,7 @@ const nav: NavGroup[] = [
       { href: '/admin/courses', label: 'Courses', icon: GraduationCap, permission: 'courses.manage' },
       { href: '/admin/classes', label: 'Classes', icon: School, permission: 'classes.manage' },
       { href: '/admin/exams', label: 'Exams', icon: ClipboardList, permission: 'exams.manage' },
+      { href: '/admin/exams/monitor', label: 'Monitor Exam', icon: Monitor, permission: 'sessions.monitor' },
       { href: '/admin/results', label: 'Submitted Exams', icon: Trophy, permission: 'reports.read' },
       { href: '/admin/certificates', label: 'Certificates', icon: Award, permission: 'reports.read' },
       { href: '/admin/analytics', label: 'Analytics', icon: Activity, permission: 'reports.read' },
