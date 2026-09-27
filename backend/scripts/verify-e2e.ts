@@ -398,6 +398,259 @@ async function main() {
     check('the same result is accepted once published', after.eligible === true);
   }
 
+  // -- J: the connection-loss reason really exists in the enum ----------------
+  section('J. AUTO_CONNECTION_LOST is a usable Submission.reason value');
+  {
+    const { exam } = await makeExam(instructorId);
+    const studentId = await makeStudent(11);
+    const { submission, session } = await makeResult(exam.id, studentId, [], 10);
+
+    // Reading the enum from information_schema is what proves the migration
+    // actually ran against this database, rather than the generated client
+    // merely accepting a new string.
+    const enumValues = await prisma.$queryRaw<Array<{ enumlabel: string }>>`
+      SELECT enumlabel FROM pg_enum
+      JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
+      WHERE pg_type.typname = 'SubmissionReason'
+      ORDER BY enumsortorder
+    `;
+    const labels = enumValues.map((row) => row.enumlabel);
+    const expected = [
+      'MANUAL_SUBMIT',
+      'AUTO_TIME_EXPIRY',
+      'AUTO_FORCE_SUBMIT',
+      'AUTO_EXAM_ENDED',
+      'AUTO_INSTRUCTOR_END_SESSION',
+      'AUTO_CONNECTION_LOST',
+      'AUTO_ADMIN_FORCE_SUBMIT',
+    ];
+    check('the enum type exposes AUTO_CONNECTION_LOST', labels.includes('AUTO_CONNECTION_LOST'), `got ${labels.join(',')}`);
+    check(
+      'every pre-existing reason survived the migration',
+      expected.every((reason) => labels.includes(reason)),
+      `missing ${expected.filter((r) => !labels.includes(r)).join(',') || 'none'}`,
+    );
+
+    const updated = await prisma.submission.update({ where: { id: submission.id }, data: { reason: 'AUTO_CONNECTION_LOST' } });
+    const reloaded = await prisma.submission.findUnique({ where: { id: submission.id } });
+    check('a connection loss round-trips through the column', updated.reason === 'AUTO_CONNECTION_LOST' && reloaded?.reason === 'AUTO_CONNECTION_LOST');
+    await prisma.examSession.update({ where: { id: session.id }, data: { status: 'SUBMITTED', submittedAt: new Date() } });
+  }
+
+  // -- K: certificate identity columns are UNIQUE ----------------------------
+  section('K. Certificate.certificateNo and verificationCode are UNIQUE');
+  {
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const studentId = await makeStudent(12);
+    const { result } = await makeResult(exam.id, studentId, [], 10);
+    const certificate = await prisma.certificate.create({
+      data: { resultId: result.id, certificateNo: `E2E-K-${RUN}`, verificationCode: randomUUID() },
+    });
+
+    const duplicateNo = await prisma.$transaction(async (tx) =>
+      tx.certificate.createMany({
+        data: [{ resultId: result.id, certificateNo: `E2E-K-${RUN}`, verificationCode: randomUUID() }],
+        skipDuplicates: true,
+      }),
+    );
+    check('skipDuplicates drops a colliding certificateNo', duplicateNo.count === 0, `got ${duplicateNo.count}`);
+
+    const duplicateCode = await prisma.$transaction(async (tx) =>
+      tx.certificate.createMany({
+        data: [{ resultId: result.id, certificateNo: `E2E-K-${RUN}-other`, verificationCode: certificate.verificationCode }],
+        skipDuplicates: true,
+      }),
+    );
+    check('skipDuplicates drops a colliding verificationCode', duplicateCode.count === 0, `got ${duplicateCode.count}`);
+
+    let codeConflict = false;
+    try {
+      await prisma.certificate.create({
+        data: { resultId: result.id, certificateNo: `E2E-K-${RUN}-third`, verificationCode: certificate.verificationCode },
+      });
+    } catch (error) {
+      codeConflict = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+    }
+    check('a direct insert with a taken code raises P2002', codeConflict);
+  }
+
+  // -- L: bulk issuance counts only what it really inserted ------------------
+  section('L. createMany reports only genuinely new rows at scale');
+  {
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const studentId = await makeStudent(13);
+    const { result } = await makeResult(exam.id, studentId, [], 10);
+    // Three results: one already certified, two fresh.
+    const other = await prisma.result.create({
+      data: { submissionId: (await prisma.submission.create({ data: { sessionId: (await prisma.examSession.create({ data: { examId: exam.id, studentId, attemptNumber: 2, status: 'SUBMITTED', startedAt: new Date(), expiresAt: new Date(), submittedAt: new Date() } })).id, submittedAt: new Date() } })).id, examId: exam.id, studentId, score: 6, maxScore: 10, percentage: 60, passed: true },
+    });
+    await prisma.certificate.create({ data: { resultId: result.id, certificateNo: `E2E-L-${RUN}-pre`, verificationCode: randomUUID() } });
+
+    const firstPass = await prisma.certificate.createMany({
+      data: [result.id, other.id].map((resultId, i) => ({ resultId, certificateNo: `E2E-L-${RUN}-${i}`, verificationCode: randomUUID() })),
+      skipDuplicates: true,
+    });
+    check('the first pass inserts only the uncertified result', firstPass.count === 1, `got ${firstPass.count}`);
+
+    const secondPass = await prisma.certificate.createMany({
+      data: [result.id, other.id].map((resultId, i) => ({ resultId, certificateNo: `E2E-L-${RUN}-r2-${i}`, verificationCode: randomUUID() })),
+      skipDuplicates: true,
+    });
+    check('a second pass inserts nothing', secondPass.count === 0, `got ${secondPass.count}`);
+
+    const live = await prisma.certificate.count({ where: { result: { examId: exam.id } } });
+    check('each result still has exactly one certificate', live === 2, `got ${live}`);
+  }
+
+  // -- M: two concurrent issuances cannot produce a duplicate ---------------
+  section('M. Concurrent bulk issuance yields one certificate per result');
+  {
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const studentId = await makeStudent(14);
+    const { result } = await makeResult(exam.id, studentId, [], 10);
+
+    // Two overlapping transactions racing to certify the same result. One must
+    // win outright; a second row would mean a student holds two certificates.
+    const issue = (tag: string) =>
+      prisma.$transaction(async (tx) => {
+        // `SELECT 1 FROM pg_sleep(...)` rather than a bare pg_sleep, whose void
+        // result Prisma cannot deserialise.
+        await tx.$queryRaw`SELECT 1 FROM pg_sleep(0.2)`;
+        return tx.certificate.createMany({
+          data: [{ resultId: result.id, certificateNo: `E2E-M-${RUN}-${tag}`, verificationCode: randomUUID() }],
+          skipDuplicates: true,
+        });
+      });
+
+    const [a, b] = await Promise.all([issue('a'), issue('b')]);
+    const inserted = a.count + b.count;
+    const live = await prisma.certificate.count({ where: { resultId: result.id } });
+    check('the race inserted at most one row', inserted <= 1, `inserted ${inserted}`);
+    check('exactly one certificate exists for the result', live === 1, `got ${live}`);
+  }
+
+  // -- N: report aggregation counts a retake once ---------------------------
+  section('N. A report counts a retaking student once, on their official attempt');
+  {
+    const { exam } = await makeExam(instructorId);
+    const studentId = await makeStudent(15);
+    const quiet = await makeStudent(16);
+
+    for (const [index, score] of [4, 8, 6].entries()) {
+      const session = await prisma.examSession.create({
+        data: {
+          examId: exam.id,
+          studentId,
+          attemptNumber: index + 1,
+          status: 'SUBMITTED',
+          startedAt: new Date(Date.now() - (index + 1) * 600_000),
+          expiresAt: new Date(Date.now() - index * 600_000),
+          submittedAt: new Date(Date.now() - index * 600_000),
+        },
+      });
+      const submitted = session.submittedAt ?? new Date();
+      const submission = await prisma.submission.create({ data: { sessionId: session.id, submittedAt: submitted } });
+      await prisma.result.create({
+        data: { submissionId: submission.id, examId: exam.id, studentId, score, maxScore: 10, percentage: score * 10, passed: score >= 5 },
+      });
+    }
+    // A second student with a single attempt, so the average is not degenerate.
+    const solo = await makeResult(exam.id, quiet, [], 4);
+    await prisma.result.update({ where: { id: solo.result.id }, data: { score: 4, percentage: 40, passed: false } });
+
+    const { selectOfficialResults } = await import('../src/results/result-calculation.util');
+    const rows = await prisma.result.findMany({
+      where: { examId: exam.id },
+      include: { submission: { include: { session: true } } },
+    });
+    const mapped = rows.map((r) => {
+      const session = r.submission.session;
+      const startedAt = session.startedAt ? new Date(session.startedAt) : null;
+      const submittedAt = new Date(r.submission.submittedAt ?? session.submittedAt ?? new Date());
+      return {
+        id: r.id,
+        studentId: r.studentId,
+        examId: r.examId,
+        score: Number(r.score),
+        percentage: Number(r.percentage),
+        startedAt,
+        submittedAt,
+        attemptNumber: session.attemptNumber,
+      };
+    });
+    const official = selectOfficialResults(mapped);
+
+    check('four attempts collapse to two official results', official.length === 2, `got ${official.length}`);
+    const retaker = official.find((r) => r.studentId === studentId);
+    check('the retaker is represented by the 80% attempt', retaker?.percentage === 80, `got ${retaker?.percentage}`);
+    const mean = official.reduce((sum, r) => sum + r.percentage, 0) / official.length;
+    check('the cohort average uses official attempts only (60%)', mean === 60, `got ${mean}`);
+    const passedCount = official.filter((r) => r.percentage >= 50).length;
+    check('exactly one student counts as passing', passedCount === 1, `got ${passedCount}`);
+  }
+
+  // -- O: child-first teardown leaves no orphans ----------------------------
+  section('O. Deleting a session cascades to its answers and submission');
+  {
+    const { exam } = await makeExam(instructorId);
+    const studentId = await makeStudent(17);
+    const { session, submission } = await makeResult(exam.id, studentId, [], 6);
+    const examQuestion = await prisma.examQuestion.findFirstOrThrow({ where: { examId: exam.id } });
+    await prisma.studentAnswer.create({
+      data: {
+        sessionId: session.id,
+        questionId: examQuestion.questionId,
+        selectedOptionIds: '[]',
+        score: 3,
+        answerJson: 'null',
+      },
+    });
+
+    await prisma.examSession.delete({ where: { id: session.id } });
+    const orphans = await Promise.all([
+      prisma.studentAnswer.count({ where: { sessionId: session.id } }),
+      prisma.submission.count({ where: { id: submission.id } }),
+    ]);
+    check('the answer rows are removed with the session', orphans[0] === 0, `got ${orphans[0]}`);
+    check('the submission is removed with the session', orphans[1] === 0, `got ${orphans[1]}`);
+  }
+
+  // -- P: fixtures are fully reclaimable -------------------------------------
+  section('P. The fixtures this run created are reclaimable in child-first order');
+  {
+    const before = await prisma.user.count({ where: { id: { in: created.userIds } } });
+    check('the run still owns its fixtures before teardown', before === created.userIds.length, `got ${before}`);
+
+    // The same order the teardown uses: sessions first, then the exam, then the
+    // bank, course, subject and finally the users. If any of these were blocked
+    // by a RESTRICT constraint the real teardown would leak.
+    const examIds = [...created.examIds];
+    await prisma.examSession.deleteMany({ where: { examId: { in: examIds } } });
+    await prisma.examQuestion.deleteMany({ where: { examId: { in: examIds } } });
+    await prisma.exam.deleteMany({ where: { id: { in: examIds } } });
+    await prisma.question.deleteMany({ where: { prompt: { startsWith: 'E2E ' } } });
+    await prisma.questionBank.deleteMany({ where: { id: { in: created.bankIds } } });
+    await prisma.course.deleteMany({ where: { id: { in: created.courseIds } } });
+    await prisma.subject.deleteMany({ where: { id: { in: created.subjectIds } } });
+    await prisma.user.deleteMany({ where: { id: { in: created.userIds } } });
+
+    const leftover = await Promise.all([
+      prisma.exam.count({ where: { id: { in: examIds } } }),
+      prisma.user.count({ where: { id: { in: created.userIds } } }),
+      prisma.question.count({ where: { prompt: { startsWith: 'E2E ' } } }),
+    ]);
+    check('no exam survives', leftover[0] === 0, `got ${leftover[0]}`);
+    check('no user survives', leftover[1] === 0, `got ${leftover[1]}`);
+    check('no question survives', leftover[2] === 0, `got ${leftover[2]}`);
+
+    // The teardown block runs afterwards; clearing the lists keeps it a no-op.
+    created.examIds.length = 0;
+    created.userIds.length = 0;
+    created.courseIds.length = 0;
+    created.subjectIds.length = 0;
+    created.bankIds.length = 0;
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed > 0) process.exitCode = 1;
 }

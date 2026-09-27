@@ -11,7 +11,7 @@
     "start": "node dist/src/main.js",
     "build": "nest build",
     "lint": "eslint \"src/**/*.ts\"",
-    "test": "jest --passWithNoTests",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --passWithNoTests",
     "verify:e2e": "tsx scripts/verify-e2e.ts",
     "verify:e2e:cleanup": "tsx scripts/cleanup-e2e-fixtures.ts",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.prisma\"",
