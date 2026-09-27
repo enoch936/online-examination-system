@@ -23,6 +23,25 @@ type ListOptions = {
 const GENERATE_BATCH_SIZE = 100;
 
 /**
+ * Public, unauthenticated verification payload. Intentionally omits the
+ * student's email and the internal `resultId` / `submissionId` / `sessionId`
+ * chain, none of which a verifier needs in order to trust the certificate.
+ */
+export type CertificateVerification = {
+  valid: false;
+} | {
+  valid: true;
+  certificateNo: string;
+  issuedAt: Date;
+  expiresAt: Date | null;
+  expired: boolean;
+  recipientName: string;
+  examTitle: string;
+  grade: string | null;
+  percentage: Prisma.Decimal | null;
+};
+
+/**
  * `satisfies` (rather than a `: Prisma.CertificateInclude` annotation) keeps the
  * literal shape so `findUnique`/`findFirst` can infer the full payload. The plain
  * annotation erased the relation types and broke the PDF builder.
@@ -502,18 +521,37 @@ export class CertificatesService {
    * Public verification. Accepts either the opaque `verificationCode` or the
    * human-facing `certificateNo`, because a printed certificate shows both and
    * an employer will naturally try the shorter one first.
+   *
+   * This route is unauthenticated, so it returns a deliberately narrow payload
+   * rather than the record: enough to prove authenticity and nothing more. The
+   * full chain returned by the authenticated list contains the student's email
+   * address along with `resultId` / `submissionId` / `sessionId`, and all of
+   * that would otherwise be readable by anyone holding a printed certificate
+   * number.
+   *
+   * Unknown codes return `{ valid: false }` with 200 rather than null, so a
+   * verification page does not have to distinguish "no match" from "valid" by
+   * null-checking.
    */
-  async verify(codeOrNumber: string) {
+  async verify(codeOrNumber: string): Promise<CertificateVerification> {
     const value = codeOrNumber?.trim();
-    if (!value) return null;
+    if (!value) return { valid: false };
     const certificate = await this.prisma.certificate.findFirst({
       where: { OR: [{ verificationCode: value }, { certificateNo: value }] },
       include: CERTIFICATE_INCLUDE,
     });
-    if (!certificate) return null;
+    if (!certificate) return { valid: false };
+    const student = certificate.result.submission.session.student;
     return {
-      ...certificate,
+      valid: true,
+      certificateNo: certificate.certificateNo,
+      issuedAt: certificate.issuedAt,
+      expiresAt: certificate.expiresAt,
       expired: isExpired(certificate.expiresAt),
+      recipientName: [student?.firstName, student?.lastName].filter(Boolean).join(' '),
+      examTitle: certificate.result.exam.title,
+      grade: certificate.result.grade,
+      percentage: certificate.result.percentage,
     };
   }
 }

@@ -323,9 +323,34 @@ export type Certificate = {
   issuedAt: string;
   expiresAt?: string | null;
   result?: CertificateResult;
-  /** Present on the public verification response only. */
+  /**
+   * Server-derived expiry flag. Returned by the authenticated `list` endpoint
+   * only — the public verification endpoint returns `CertificateVerification`.
+   * Clients must not recompute this from `expiresAt`, otherwise the browser
+   * clock would decide whether a certificate is still valid.
+   */
   expired?: boolean;
 };
+
+/**
+ * Response of the public (unauthenticated) verification endpoint. The backend
+ * deliberately returns this narrow shape rather than a full `Certificate`, so
+ * the student's email and the internal result/submission/session ids are not
+ * exposed to anyone holding a printed certificate number.
+ */
+export type CertificateVerification =
+  | { valid: false }
+  | {
+      valid: true;
+      certificateNo: string;
+      issuedAt: string;
+      expiresAt: string | null;
+      expired: boolean;
+      recipientName: string;
+      examTitle: string;
+      grade: string | null;
+      percentage: number | null;
+    };
 
 export type Result = {
   id: string;

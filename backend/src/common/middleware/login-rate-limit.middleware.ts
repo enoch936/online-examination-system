@@ -1,5 +1,5 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
-import { rateLimit } from 'express-rate-limit';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 import type { NextFunction, Request, Response } from 'express';
 
 /**
@@ -9,7 +9,8 @@ import type { NextFunction, Request, Response } from 'express';
  * - standardHeaders (RateLimit-*) + legacyHeaders (X-RateLimit-*) on every
  *   response including 429 (fixes the throttler gap where 429 responses had
  *   empty headers).
- * - keyGenerator uses req.ip (trust proxy=1 configured in main.ts).
+ * - keyGenerator uses req.ip (trust proxy=1 configured in main.ts), normalised
+ *   through `ipKeyGenerator`.
  * - Response body matches GlobalExceptionFilter shape for consistency.
  */
 const loginRateLimiter = rateLimit({
@@ -17,7 +18,12 @@ const loginRateLimiter = rateLimit({
   limit: 5,
   standardHeaders: 'draft-8',
   legacyHeaders: true,
-  keyGenerator: (req: Request): string => req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+  // `ipKeyGenerator` buckets IPv6 addresses to their /64 subnet. Keying on the
+  // raw `req.ip` instead would let anyone with an IPv6 prefix bypass the login
+  // limit simply by rotating the host part of their address — and express-rate-limit
+  // rejects a custom generator that falls back to the raw IP for this reason.
+  keyGenerator: (req: Request): string =>
+    ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? 'unknown'),
   message: (_req: Request, _res: Response) => ({
     success: false,
     statusCode: 429,

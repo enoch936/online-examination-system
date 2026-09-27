@@ -1,5 +1,5 @@
 import { api, unwrap } from './api';
-import type { Certificate, PaginatedResponse } from '@/types/api';
+import type { Certificate, CertificateVerification, PaginatedResponse } from '@/types/api';
 
 /** Summary returned by the bulk issuance endpoint. */
 export type CertificateGenerationSummary = {
@@ -17,9 +17,10 @@ export const certificatesService = {
   /**
    * Accepts either the verification code or the certificate number — a printed
    * certificate shows both, and an employer will try the shorter one first.
+   * An unknown code resolves to `{ valid: false }`, not an error.
    */
   async verify(codeOrNumber: string) {
-    return unwrap<(Certificate & { expired: boolean }) | null>(
+    return unwrap<CertificateVerification>(
       await api.get(`/certificates/verify/${encodeURIComponent(codeOrNumber)}`),
     );
   },
