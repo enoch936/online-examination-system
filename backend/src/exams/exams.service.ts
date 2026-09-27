@@ -508,6 +508,10 @@ export class ExamsService {
         connectionLossPolicy: policies.connectionLossPolicy,
         resumePolicy: policies.resumePolicy,
         retakePolicy: policies.retakePolicy,
+        certificateEnabled: dto.certificateEnabled ?? false,
+        certificateMinPercentage: dto.certificateMinPercentage ?? null,
+        certificateValidityDays: dto.certificateValidityDays ?? null,
+        certificateAutoIssue: dto.certificateAutoIssue ?? false,
         startsAt: new Date(dto.startsAt),
         endsAt: new Date(dto.endsAt),
         status: ExamStatus.SCHEDULED,
@@ -700,6 +704,10 @@ export class ExamsService {
     if (dto.connectionLossPolicy !== undefined) data.connectionLossPolicy = dto.connectionLossPolicy;
     if (dto.resumePolicy !== undefined) data.resumePolicy = dto.resumePolicy;
     if (dto.retakePolicy !== undefined) data.retakePolicy = dto.retakePolicy;
+    if (dto.certificateEnabled !== undefined) data.certificateEnabled = dto.certificateEnabled;
+    if (dto.certificateMinPercentage !== undefined) data.certificateMinPercentage = dto.certificateMinPercentage;
+    if (dto.certificateValidityDays !== undefined) data.certificateValidityDays = dto.certificateValidityDays;
+    if (dto.certificateAutoIssue !== undefined) data.certificateAutoIssue = dto.certificateAutoIssue;
     if (dto.negativeMarkingRate !== undefined) data.negativeMarkingRate = dto.negativeMarkingRate;
     if (dto.startsAt !== undefined) data.startsAt = new Date(dto.startsAt);
     if (dto.endsAt !== undefined) data.endsAt = new Date(dto.endsAt);

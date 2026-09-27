@@ -4,6 +4,7 @@ import { MonitoringService } from '../monitoring/monitoring.service';
 import { EventQueueService, GradingJob } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeResultMetrics, scoreAttempt, AttemptScoringConfig } from '../results/result-calculation.util';
+import { classifySubmission, isUniqueConstraintCollision } from './finalize-policy.util';
 import { SubmitExamDto } from './dto/submit-exam.dto';
 
 const LIFECYCLE_INTERVAL_MS = 60_000;
@@ -214,9 +215,14 @@ export class SubmissionsService implements OnModuleInit {
     // Server-authoritative classification. A student-initiated submit that lands
     // after `expiresAt` is still a legitimate attempt, but it must never be
     // recorded as on-time, so it is filed as an automatic submission.
-    const expired = !session.expiresAt || Date.now() > session.expiresAt.getTime();
-    const reason = options.reason ?? (expired ? SubmissionReason.AUTO_TIME_EXPIRY : SubmissionReason.MANUAL_SUBMIT);
-    const autoSubmitted = reason !== SubmissionReason.MANUAL_SUBMIT;
+    // `dto.autoSubmitted` is deliberately not consulted: expiry is a server-side
+    // fact, so a client can neither fabricate an on-time submission nor hide an
+    // automatic one.
+    const { reason, autoSubmitted, sessionStatus } = classifySubmission({
+      expiresAt: session.expiresAt,
+      now: new Date(),
+      requestedReason: options.reason,
+    });
 
     const breakdown = scoreAttempt(
       session.exam.questions.map((examQuestion) => ({
@@ -276,7 +282,7 @@ export class SubmissionsService implements OnModuleInit {
         await tx.examSession.update({
           where: { id: session.id },
           data: {
-            status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
+            status: sessionStatus,
             submittedAt: now,
             connectionState: 'CONNECTED',
             lastActivityAt: now,
@@ -289,10 +295,7 @@ export class SubmissionsService implements OnModuleInit {
       .catch(async (error: unknown) => {
         // A concurrent submit (or the 60s sweep) already finalised this session.
         // Return that authoritative row untouched rather than re-grading.
-        if (
-          !(error instanceof Prisma.PrismaClientKnownRequestError) ||
-          error.code !== 'P2002'
-        ) {
+        if (!isUniqueConstraintCollision(error)) {
           throw error;
         }
         const existing = await this.prisma.submission.findUnique({
@@ -312,7 +315,7 @@ export class SubmissionsService implements OnModuleInit {
         .update({
           where: { id: session.id },
           data: {
-            status: autoSubmitted ? SessionStatus.AUTO_SUBMITTED : SessionStatus.SUBMITTED,
+            status: sessionStatus,
             submittedAt: session.submittedAt ?? now,
             connectionState: 'CONNECTED',
             lastActivityAt: now,

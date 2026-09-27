@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit';
 import { RoleName } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { selectBestAttempt } from '../results/result-calculation.util';
 
 const ADMIN_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN];
 
@@ -48,6 +49,16 @@ export class ReportsService {
     }
   }
 
+  /**
+   * Per-exam analytics.
+   *
+   * Score statistics are computed from each student's *official* attempt only.
+   * Previously every attempt was averaged in, so a student who retook an exam
+   * three times contributed three rows — inflating the cohort size, dragging the
+   * average around, and making the pass rate meaningless. The full per-attempt
+   * breakdown is still returned, now flagged with `isOfficial`, so nothing is
+   * hidden — it is just no longer what the headline numbers are built from.
+   */
   async examAnalytics(examId: string) {
     const exam = await this.prisma.exam.findUnique({ where: { id: examId }, include: { course: true } });
     if (!exam) throw new NotFoundException('Exam not found');
@@ -57,33 +68,93 @@ export class ReportsService {
       this.prisma.submission.aggregate({ where: { session: { examId } }, _count: true }),
       this.prisma.result.findMany({
         where: { examId },
-        include: { submission: { include: { session: { include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } } } } } },
+        include: {
+          submission: {
+            include: {
+              session: {
+                include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } },
+              },
+            },
+          },
+        },
         orderBy: { percentage: 'desc' },
       }),
     ]);
 
-    const results = resultsRaw as any[];
-    const scores = results.map((r) => Number(r.score));
-    const percentages = results.map((r) => Number(r.percentage));
-    const passed = results.filter((r) => r.passed).length;
-    const total = results.length;
+    // Official attempt per student.
+    type ResultRow = {
+      id: string;
+      studentId: string;
+      score: unknown;
+      percentage: unknown;
+      grade: string | null;
+      passed: boolean;
+      publishedAt: Date | null;
+      submission: {
+        submittedAt: Date;
+        session: {
+          attemptNumber: number;
+          startedAt: Date | null;
+          submittedAt: Date | null;
+          student: { id: string; firstName: string; lastName: string; email: string } | null;
+        };
+      } | null;
+    };
+
+    const results = resultsRaw as unknown as ResultRow[];
+
+    const byStudent = new Map<string, ResultRow[]>();
+    for (const r of results) {
+      const bucket = byStudent.get(r.studentId);
+      if (bucket) bucket.push(r);
+      else byStudent.set(r.studentId, [r]);
+    }
+    const officialResultIds = new Set<string>();
+    for (const attempts of byStudent.values()) {
+      const best = selectBestAttempt(
+        attempts.map((r) => {
+          const session = r.submission?.session;
+          const startedAt = session?.startedAt ? new Date(session.startedAt) : null;
+          const submittedAt = new Date(r.submission?.submittedAt ?? session?.submittedAt ?? new Date());
+          return {
+            id: r.id,
+            percentage: Number(r.percentage),
+            durationMinutes: startedAt ? (submittedAt.getTime() - startedAt.getTime()) / 60_000 : 0,
+            submittedAt,
+            attemptNumber: Number(session?.attemptNumber ?? 0),
+          };
+        }),
+      );
+      if (best) officialResultIds.add(best.id);
+    }
+
+    const official = results.filter((r) => officialResultIds.has(r.id));
+    const scores = official.map((r) => Number(r.score));
+    const percentages = official.map((r) => Number(r.percentage));
+    const passed = official.filter((r) => r.passed).length;
+    const total = official.length;
 
     return {
       exam: { id: exam.id, title: exam.title, totalMarks: exam.totalMarks, passingMarks: exam.passingMarks },
       summary: {
         totalSessions: sessions.length,
         totalSubmissions: submissionAgg._count,
-        totalResults: total,
+        totalResults: results.length,
+        totalAttempts: results.length,
+        officialResults: total,
+        retakes: results.length - total,
         averageScore: scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0,
         averagePercentage: percentages.length ? Number((percentages.reduce((a, b) => a + b, 0) / percentages.length).toFixed(2)) : 0,
         passRate: total ? Number((passed / total).toFixed(4)) : 0,
         highestScore: scores.length ? Math.max(...scores) : 0,
         lowestScore: scores.length ? Math.min(...scores) : 0,
       },
-      results: results.map((r: any) => {
+      results: results.map((r) => {
         const stu = r.submission?.session?.student;
         return {
           id: r.id,
+          attemptNumber: Number(r.submission?.session?.attemptNumber ?? 0),
+          isOfficial: officialResultIds.has(r.id),
           student: stu ? { id: stu.id, firstName: stu.firstName, lastName: stu.lastName, email: stu.email } : null,
           score: Number(r.score),
           percentage: Number(r.percentage),
@@ -95,6 +166,7 @@ export class ReportsService {
       sessions: sessions.map((s) => ({
         student: s.student ? { firstName: s.student.firstName, lastName: s.student.lastName } : null,
         status: s.status,
+        attemptNumber: s.attemptNumber,
         startedAt: s.startedAt,
       })),
     };

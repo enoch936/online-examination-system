@@ -387,6 +387,14 @@ model Exam {
   connectionLossPolicy   ExamConnectionLossPolicy @default(APPROVAL_REQUIRED)
   resumePolicy           ExamResumePolicy         @default(INSTRUCTOR_APPROVAL)
   retakePolicy           ExamRetakePolicy         @default(INSTRUCTOR_APPROVAL)
+  // Certificate eligibility. All optional/disabled by default so an existing
+  // exam keeps issuing exactly the way it did before these columns existed.
+  // `certificateMinPercentage` is an extra gate on top of the pass mark, so an
+  // exam can require e.g. 80% even though 40% passes.
+  certificateEnabled         Boolean @default(false)
+  certificateMinPercentage   Decimal?
+  certificateValidityDays    Int?
+  certificateAutoIssue       Boolean @default(false)
   startsAt               DateTime
   endsAt                 DateTime
   status                 ExamStatus               @default(DRAFT)

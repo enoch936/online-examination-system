@@ -1,6 +1,23 @@
 export const OPTION_BASED_QUESTION_TYPES = new Set(['MULTIPLE_CHOICE', 'MULTIPLE_SELECT', 'TRUE_FALSE']);
 export const TEXT_BASED_QUESTION_TYPES = new Set(['FILL_BLANK', 'SHORT_ANSWER']);
 
+/**
+ * Question types the scorer can settle on its own.
+ *
+ * `gradeQuestion` grades these; everything else (ESSAY, MATCHING, and any type
+ * added later) falls through to `needsManualGrading: true`. Exposing the
+ * complement as a predicate keeps "does this answer need a grader?" a single
+ * decision, so the `NEEDS_MANUAL_GRADING` transition cannot drift from the
+ * per-question grading rule.
+ */
+export function isAutoGradableType(type: string): boolean {
+  return OPTION_BASED_QUESTION_TYPES.has(type) || TEXT_BASED_QUESTION_TYPES.has(type);
+}
+
+export function requiresManualGrading(type: string): boolean {
+  return !isAutoGradableType(type);
+}
+
 export interface ScorableOption {
   id: string;
   text: string;
@@ -103,7 +120,7 @@ export function gradeQuestion(input: GradeQuestionInput): GradeQuestionOutput {
     return { score: round2(-points * rate), needsManualGrading: false };
   }
 
-  return { score: 0, needsManualGrading: true };
+  return { score: 0, needsManualGrading: requiresManualGrading(input.type) };
 }
 
 /** Clamp the raw accumulated score into [0, maxScore] and round to 2 decimals. */

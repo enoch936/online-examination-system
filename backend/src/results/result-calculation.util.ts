@@ -115,11 +115,21 @@ export function scoreAttempt(
       negativeMarkingRate,
     });
 
-    if (graded.needsManualGrading) needsManualGrading = true;
-    if (graded.score > 0) correctAnswers += 1;
-    if (graded.score < 0) incorrectAnswers += 1;
-    if (isAnswerPopulated(answer)) answeredQuestions += 1;
+    if (graded.needsManualGrading) {
+      // Neither correct nor incorrect: nobody has judged it yet.
+      needsManualGrading = true;
+    } else {
+      const answered = isAnswerPopulated(answer);
+      if (answered) {
+        // Correct/incorrect is about the student's response, not the mark
+        // awarded. Counting "score < 0" would have reported a wrong answer as
+        // neither correct nor incorrect whenever negative marking was disabled.
+        if (graded.score >= toNumber(question.points)) correctAnswers += 1;
+        else incorrectAnswers += 1;
+      }
+    }
 
+    if (isAnswerPopulated(answer)) answeredQuestions += 1;
     rawTotal += graded.score;
     if (answer) answerScores.push({ answerId: answer.answerId, score: graded.score });
   }

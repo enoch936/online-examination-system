@@ -103,6 +103,40 @@ export class CreateExamDto {
   @IsEnum(ExamRetakePolicy)
   retakePolicy?: ExamRetakePolicy;
 
+  @ApiPropertyOptional({
+    description: 'Allow bulk/auto certificate generation for this exam. Hand-issued certificates are unaffected.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  certificateEnabled?: boolean;
+
+  @ApiPropertyOptional({
+    example: 80,
+    description: 'Extra eligibility gate on top of passingMarks. Omit for no additional gate.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  certificateMinPercentage?: number;
+
+  @ApiPropertyOptional({
+    example: 365,
+    description: 'Days before an issued certificate expires. Omit for a certificate that never expires.',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(3650)
+  certificateValidityDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'Issue a certificate automatically once a result is published and eligible',
+  })
+  @IsOptional()
+  @IsBoolean()
+  certificateAutoIssue?: boolean;
+
   @ApiPropertyOptional({ example: 0 })
   @IsOptional()
   @IsNumber()

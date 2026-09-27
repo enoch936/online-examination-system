@@ -1,6 +1,7 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
+import type { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -30,10 +31,34 @@ export class CertificatesController {
     });
   }
 
+  // Declared before the `:id/pdf` route so the literal `verify` segment can
+  // never be swallowed by the `:id` parameter.
+  @Public()
+  @Get('verify/:code')
+  verify(@Param('code') code: string) {
+    return this.certificates.verify(code);
+  }
+
+  @Post('exams/:examId/generate')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  generate(@Param('examId', ParseUUIDPipe) examId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.certificates.generateForExam(examId, user);
+  }
+
   @Post(':resultId/issue')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   issue(@Param('resultId', ParseUUIDPipe) resultId: string, @CurrentUser() user: AuthenticatedUser) {
     return this.certificates.issue(resultId, user);
+  }
+
+  @Get(':id/pdf')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR, RoleName.STUDENT)
+  async pdf(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
+    const { filename, buffer } = await this.certificates.buildPdf(id, user);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   }
 
   @Post(':id/revoke')
@@ -46,11 +71,5 @@ export class CertificatesController {
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
   reissue(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.certificates.reissue(id, user);
-  }
-
-  @Public()
-  @Get('verify/:verificationCode')
-  verify(@Param('verificationCode') verificationCode: string) {
-    return this.certificates.verify(verificationCode);
   }
 }

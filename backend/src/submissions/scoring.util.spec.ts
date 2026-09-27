@@ -1,6 +1,64 @@
-import { clampScore, distributePoints, gradeQuestion, round2, sameSet } from './scoring.util';
+import {
+  clampScore,
+  distributePoints,
+  gradeQuestion,
+  isAutoGradableType,
+  requiresManualGrading,
+  round2,
+  sameSet,
+} from './scoring.util';
 
 describe('scoring.util', () => {
+  describe('requiresManualGrading', () => {
+    it('classifies option-based types as auto-gradable', () => {
+      for (const type of ['MULTIPLE_CHOICE', 'MULTIPLE_SELECT', 'TRUE_FALSE']) {
+        expect(isAutoGradableType(type)).toBe(true);
+        expect(requiresManualGrading(type)).toBe(false);
+      }
+    });
+
+    it('classifies text-based types as auto-gradable', () => {
+      for (const type of ['FILL_BLANK', 'SHORT_ANSWER']) {
+        expect(isAutoGradableType(type)).toBe(true);
+        expect(requiresManualGrading(type)).toBe(false);
+      }
+    });
+
+    it('classifies subjective types as needing a grader', () => {
+      for (const type of ['ESSAY', 'MATCHING']) {
+        expect(requiresManualGrading(type)).toBe(true);
+      }
+    });
+
+    it('treats an unknown future type as needing a grader rather than auto-scoring it', () => {
+      expect(requiresManualGrading('SOME_TYPE_ADDED_LATER')).toBe(true);
+    });
+
+    it('is exactly the complement of isAutoGradableType', () => {
+      const types = [
+        'MULTIPLE_CHOICE',
+        'MULTIPLE_SELECT',
+        'TRUE_FALSE',
+        'FILL_BLANK',
+        'SHORT_ANSWER',
+        'ESSAY',
+        'MATCHING',
+        '',
+      ];
+      for (const type of types) {
+        expect(requiresManualGrading(type)).toBe(!isAutoGradableType(type));
+      }
+    });
+
+    // The predicate exists so the NEEDS_MANUAL_GRADING transition agrees with
+    // per-question grading. These cases pin that agreement.
+    it('agrees with gradeQuestion for every supported type', () => {
+      for (const type of ['MULTIPLE_CHOICE', 'MULTIPLE_SELECT', 'TRUE_FALSE', 'FILL_BLANK', 'SHORT_ANSWER', 'ESSAY', 'MATCHING']) {
+        const outcome = gradeQuestion({ type, points: 10, options: [], answer: null, negativeMarkingRate: 0 });
+        expect(outcome.needsManualGrading).toBe(requiresManualGrading(type));
+      }
+    });
+  });
   describe('distributePoints', () => {
     it('20 questions over 100 marks -> 5 each, sum exactly 100', () => {
       const points = distributePoints(100, 20);

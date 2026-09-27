@@ -99,6 +99,30 @@ export class UpdateExamDto {
   @IsEnum(ExamRetakePolicy)
   retakePolicy?: ExamRetakePolicy;
 
+  @ApiPropertyOptional({ description: 'Allow bulk/auto certificate generation for this exam' })
+  @IsOptional()
+  @IsBoolean()
+  certificateEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Extra certificate eligibility gate, 0-100' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  certificateMinPercentage?: number;
+
+  @ApiPropertyOptional({ description: 'Days before an issued certificate expires' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(3650)
+  certificateValidityDays?: number;
+
+  @ApiPropertyOptional({ description: 'Issue a certificate automatically when an eligible result is published' })
+  @IsOptional()
+  @IsBoolean()
+  certificateAutoIssue?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()

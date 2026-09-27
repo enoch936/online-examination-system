@@ -3,7 +3,8 @@ import { Prisma, RoleName, SubmissionStatus } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ExamAccessService } from '../common/exam-access.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { clampScore } from '../submissions/scoring.util';
+import { CertificatesService } from '../certificates/certificates.service';
+import { clampScore, requiresManualGrading } from '../submissions/scoring.util';
 import { GradeAnswerItemDto } from './dto/grade-answers.dto';
 import { OverrideResultDto } from './dto/override-result.dto';
 import { computeLetterGrade } from './grading.util';
@@ -24,6 +25,7 @@ export class ResultsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly examAccess: ExamAccessService,
+    private readonly certificates: CertificatesService,
   ) {}
 
   private resultScope(user: AuthenticatedUser): { OR?: Array<Record<string, unknown>> } {
@@ -103,17 +105,23 @@ export class ResultsService {
     await this.examAccess.assertCanManage(result.examId, user);
     if (result.publishedAt) return this.prisma.result.findUnique({ where: { id } });
 
-    return this.prisma.result.update({
+    const published = await this.prisma.result.update({
       where: { id },
       data: { publishedAt: new Date() },
     });
+
+    // Auto-issue is best-effort by design: `issueOnPublish` never throws, so an
+    // unreachable certificate insert can never undo a successful publication.
+    await this.certificates.issueOnPublish(id, user.sub);
+
+    return published;
   }
 
   async gradeManually(id: string, user: AuthenticatedUser, answers: GradeAnswerItemDto[]) {
     const result = await this.prisma.result.findUnique({
       where: { id },
       include: {
-        exam: { include: { questions: { select: { questionId: true, points: true } } } },
+        exam: { include: { questions: { select: { questionId: true, points: true, question: { select: { type: true } } } } } },
         submission: {
           include: {
             session: { include: { answers: true } },
@@ -199,9 +207,25 @@ export class ResultsService {
     // Manual grading finishing the last outstanding answer transitions the
     // submission out of NEEDS_MANUAL_GRADING. Previously it stayed stuck, so
     // `pendingGradings` never cleared even after a grader had finished.
-    const stillPending = await this.prisma.studentAnswer.count({
-      where: { sessionId: result.submission!.sessionId, graderId: null },
-    });
+    //
+    // Only questions that actually need a human count as outstanding. Counting
+    // every `graderId: null` answer also counted the auto-graded ones — and since
+    // auto-grading never sets a grader, a 10-question exam with one essay could
+    // never leave NEEDS_MANUAL_GRADING no matter how much work the grader did.
+    const manualQuestionIds = result.exam.questions
+      .filter((q) => requiresManualGrading(String(q.question.type)))
+      .map((q) => q.questionId);
+
+    const stillPending =
+      manualQuestionIds.length === 0
+        ? 0
+        : await this.prisma.studentAnswer.count({
+            where: {
+              sessionId: result.submission!.sessionId,
+              questionId: { in: manualQuestionIds },
+              graderId: null,
+            },
+          });
     const fullyGraded = stillPending === 0;
     const publishedAt = result.publishedAt ?? (result.exam.showResultImmediately && fullyGraded ? new Date() : null);
 
@@ -249,6 +273,12 @@ export class ResultsService {
         },
       })
       .catch(() => undefined);
+
+    // Manual grading can be what finally publishes the result, so it needs the
+    // same auto-issue trigger as an explicit publish.
+    if (updated.publishedAt) {
+      await this.certificates.issueOnPublish(id, graderId);
+    }
 
     return updated;
   }
