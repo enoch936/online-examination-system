@@ -196,10 +196,18 @@ export function assertValidTemplateDesign(design: unknown): TemplateDesign {
       throw new BadRequestException(`design.${key} must be a hex colour such as #1e40af`);
     }
   }
-  for (const key of ['borderWidth', 'logoWidth'] as const) {
+  // Ranges mirror the admin editor's inputs (template-editor.tsx) so anything a
+  // user is able to type is accepted, and anything beyond that is still refused.
+  // logoWidth is a millimetre width fed to the PDF renderer, so it is far wider
+  // than a border stroke and must not share the borderWidth ceiling.
+  const NUMERIC_RANGES = {
+    borderWidth: { min: 0, max: 12 },
+    logoWidth: { min: 40, max: 400 },
+  } as const;
+  for (const [key, range] of Object.entries(NUMERIC_RANGES) as [keyof typeof NUMERIC_RANGES, (typeof NUMERIC_RANGES)[keyof typeof NUMERIC_RANGES]][]) {
     const value = record[key];
-    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 40)) {
-      throw new BadRequestException(`design.${key} must be a number between 0 and 40`);
+    if (value !== undefined && (typeof value !== 'number' || !Number.isFinite(value) || value < range.min || value > range.max)) {
+      throw new BadRequestException(`design.${key} must be a number between ${range.min} and ${range.max}`);
     }
   }
   if (record.showBorder !== undefined && typeof record.showBorder !== 'boolean') {

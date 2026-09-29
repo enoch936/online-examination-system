@@ -85,8 +85,36 @@ describe('assertValidTemplateDesign', () => {
   });
 
   it('rejects an out-of-range border width', () => {
-    expect(() => assertValidTemplateDesign({ borderWidth: -1 })).toThrow(/between 0 and 40/);
-    expect(() => assertValidTemplateDesign({ borderWidth: 999 })).toThrow(/between 0 and 40/);
+    expect(() => assertValidTemplateDesign({ borderWidth: -1 })).toThrow(/between 0 and 12/);
+    expect(() => assertValidTemplateDesign({ borderWidth: 999 })).toThrow(/between 0 and 12/);
+  });
+
+  it('rejects an out-of-range logo width', () => {
+    expect(() => assertValidTemplateDesign({ logoWidth: 0 })).toThrow(/between 40 and 400/);
+    expect(() => assertValidTemplateDesign({ logoWidth: 401 })).toThrow(/between 40 and 400/);
+  });
+
+  it('accepts the full logo-width range the admin editor offers', () => {
+    for (const logoWidth of [40, 120, 400]) {
+      expect(assertValidTemplateDesign({ logoWidth }).logoWidth).toBe(logoWidth);
+    }
+  });
+
+  // The default design has to satisfy the validator that guards it. When these
+  // ranges drifted apart, every template created through the API became
+  // permanently uneditable: the stored design failed validation on the next
+  // save, so the admin editor could never save a change again.
+  it('accepts its own defaults', () => {
+    expect(() => assertValidTemplateDesign(DEFAULT_TEMPLATE_DESIGN)).not.toThrow();
+  });
+
+  it('round-trips a design through storage and back, as a re-save would', () => {
+    const stored = JSON.stringify(assertValidTemplateDesign({ accentColor: '#0f766e' }));
+    expect(() => assertValidTemplateDesign(JSON.parse(stored))).not.toThrow();
+  });
+
+  it('round-trips the default content through validation as well', () => {
+    expect(() => assertValidTemplateContent(DEFAULT_TEMPLATE_CONTENT)).not.toThrow();
   });
 });
 
