@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { saveBlob } from '@/services/certificates.service';
 import { contentService, type TemplateContent, type TemplateDesign, type TemplateInput } from '@/services/content.service';
 import { DocumentEditor } from './document-editor';
 import { TemplateEditor, type EditorAction } from './template-editor';
@@ -112,12 +113,16 @@ export function ContentManager() {
   );
 
   /**
-   * Renders the editor's current state and opens the PDF in a new tab.
+   * Renders the editor's current state and saves the PDF.
    *
    * Deliberately not a `useTrackedMutation`: that helper invalidates the content
    * queries and toasts on success, neither of which applies to a read-only render
-   * that changed nothing. The object URL is revoked once the new tab has taken
-   * the blob, and the tab is only closed if the browser refused to open it.
+   * that changed nothing.
+   *
+   * Downloads rather than opening a new tab. The site's CSP restricts `frame-src`
+   * to Turnstile, and a tab pointed at a `blob:` URL inherits the opener's policy,
+   * so the browser's PDF viewer can end up blocked. A download is the same
+   * interaction the issued-certificate download already uses.
    */
   const previewTemplate = useMutation({
     mutationFn: (state: { content: TemplateContent; design: TemplateDesign }) =>
@@ -125,13 +130,8 @@ export function ContentManager() {
     onMutate: () => setPendingAction('preview'),
     onSettled: () => setPendingAction(null),
     onSuccess: (blob) => {
-      const url = window.URL.createObjectURL(blob);
-      const tab = window.open(url, '_blank', 'noopener');
-      if (!tab) {
-        toast.error('Your browser blocked the preview tab. Allow pop-ups for this site.');
-      }
-      // Give the new tab time to read the blob before the URL is revoked.
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      saveBlob(blob, `${slugify(selectedTemplate!.name) || 'certificate'}-preview.pdf`);
+      toast.success('Preview downloaded. Nothing was saved.');
     },
     onError: (error: Error) => toast.error(error?.message || 'Preview failed'),
   });

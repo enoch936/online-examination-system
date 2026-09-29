@@ -332,7 +332,7 @@ export function TemplateEditor({
             variant="outline"
             onClick={() => onPreview({ content, design })}
             disabled={pendingAction !== null}
-            title="Render the current wording and design as a PDF with sample data. Nothing is saved."
+            title="Render the current wording and design as a PDF with sample data and download it. Nothing is saved."
           >
             {pendingAction === 'preview' ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
