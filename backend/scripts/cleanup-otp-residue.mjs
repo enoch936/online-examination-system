@@ -18,7 +18,7 @@ const PROBE_EMAILS = [
   'probe-rewrite-99@example.com',
 ];
 
-const OTP_TABLES = ['OtpChallenge', 'OtpRateLimit'];
+const OTP_TABLES = ['otp_challenges', 'otp_rate_limits'];
 
 const [dbUrl] = process.argv.slice(2);
 
@@ -73,7 +73,7 @@ async function main() {
         console.log(`  ${table} -> not present`);
         continue;
       }
-      await prisma.$executeRawUnsafe(`drop table if exists "${table}"`);
+      await prisma.$executeRawUnsafe(`drop table if exists "${table}" cascade`);
       console.log(`  ${table} -> dropped`);
     }
   }
@@ -83,7 +83,7 @@ async function main() {
   console.log(
     remaining.length
       ? `WARNING: tables still present: ${remaining.join(', ')}`
-      : 'verified: no OtpChallenge / OtpRateLimit tables remain',
+      : 'verified: no otp_challenges / otp_rate_limits tables remain',
   );
 }
 
