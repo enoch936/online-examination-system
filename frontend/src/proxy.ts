@@ -37,16 +37,27 @@ function toSocketOrigin(value: string | undefined): string {
 const isDev = process.env.NODE_ENV !== 'production';
 
 // Socket origins are still direct (not proxied), so the CSP must allowlist them.
+// API and socket URLs are usually the same host, so dedupe: repeating an origin
+// in a header value is noise and makes the policy harder to audit.
 const socketOrigins = [
-  toOrigin(process.env.NEXT_PUBLIC_API_URL),
-  toSocketOrigin(process.env.NEXT_PUBLIC_API_URL),
-  toOrigin(process.env.NEXT_PUBLIC_SOCKET_URL),
-  toSocketOrigin(process.env.NEXT_PUBLIC_SOCKET_URL),
-]
-  .filter(Boolean)
-  .join(' ');
+  ...new Set(
+    [
+      toOrigin(process.env.NEXT_PUBLIC_API_URL),
+      toSocketOrigin(process.env.NEXT_PUBLIC_API_URL),
+      toOrigin(process.env.NEXT_PUBLIC_SOCKET_URL),
+      toSocketOrigin(process.env.NEXT_PUBLIC_SOCKET_URL),
+    ].filter(Boolean),
+  ),
+].join(' ');
 
 const turnstileSrc = 'https://challenges.cloudflare.com';
+
+// Registration checks new passwords against the HIBP breach database from the
+// browser (k-anonymity, frontend/src/lib/sanitize.ts). Without this in
+// connect-src the request is blocked, the lookup fails open, and breached
+// passwords are silently accepted in production while the dev server (which
+// serves no CSP) appears to work fine.
+const hibpSrc = 'https://api.pwnedpasswords.com';
 
 // Proctoring is a real feature: the exam-taking flow under /student/exams/
 // (take/resume pages) uses the webcam + microphone for face/audio monitoring.
@@ -72,7 +83,7 @@ function buildCsp(nonce: string): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
-    `connect-src 'self' ${socketOrigins} ${turnstileSrc}`.trim(),
+    `connect-src 'self' ${socketOrigins} ${turnstileSrc} ${hibpSrc}`.trim(),
     "media-src 'self' blob:",
     "worker-src 'self' blob:",
     `frame-src ${turnstileSrc}`,
