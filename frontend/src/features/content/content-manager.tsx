@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { contentService, type TemplateInput } from '@/services/content.service';
+import { contentService, type TemplateContent, type TemplateDesign, type TemplateInput } from '@/services/content.service';
 import { DocumentEditor } from './document-editor';
 import { TemplateEditor, type EditorAction } from './template-editor';
 
@@ -110,6 +110,31 @@ export function ContentManager() {
     ({ slug, name }) => contentService.createTemplate({ slug, name }),
     'Template created',
   );
+
+  /**
+   * Renders the editor's current state and opens the PDF in a new tab.
+   *
+   * Deliberately not a `useTrackedMutation`: that helper invalidates the content
+   * queries and toasts on success, neither of which applies to a read-only render
+   * that changed nothing. The object URL is revoked once the new tab has taken
+   * the blob, and the tab is only closed if the browser refused to open it.
+   */
+  const previewTemplate = useMutation({
+    mutationFn: (state: { content: TemplateContent; design: TemplateDesign }) =>
+      contentService.previewTemplate(state.content, state.design),
+    onMutate: () => setPendingAction('preview'),
+    onSettled: () => setPendingAction(null),
+    onSuccess: (blob) => {
+      const url = window.URL.createObjectURL(blob);
+      const tab = window.open(url, '_blank', 'noopener');
+      if (!tab) {
+        toast.error('Your browser blocked the preview tab. Allow pop-ups for this site.');
+      }
+      // Give the new tab time to read the blob before the URL is revoked.
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    },
+    onError: (error: Error) => toast.error(error?.message || 'Preview failed'),
+  });
 
   const saveDocument = useTrackedMutation<{ key: string; input: Parameters<typeof contentService.createDocument>[0] }>(
     'save',
@@ -242,6 +267,7 @@ export function ContentManager() {
                 pendingAction={pendingAction}
                 onSave={(input) => saveTemplate.mutate(input)}
                 onPublish={(note) => publishTemplate.mutate({ id: selectedTemplate.id, note })}
+                onPreview={(state) => previewTemplate.mutate(state)}
                 onMakeDefault={() => defaultTemplate.mutate({ id: selectedTemplate.id })}
                 onArchive={() => archiveTemplate.mutate({ id: selectedTemplate.id })}
                 onShowRevisions={() => setShowTemplateRevisions((value) => !value)}

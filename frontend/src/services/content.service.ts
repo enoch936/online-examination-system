@@ -143,6 +143,18 @@ export const contentService = {
     return unwrap<CertificateTemplate>(await api.delete(`/content/templates/${id}`));
   },
 
+  /**
+   * Renders the template as it currently stands in the editor and returns the
+   * PDF bytes. Nothing is persisted, so this reflects unsaved edits.
+   *
+   * The response is the raw PDF rather than the usual JSON envelope, hence
+   * `responseType: 'blob'` and no `unwrap`.
+   */
+  async previewTemplate(content?: TemplateContent, design?: TemplateDesign) {
+    const response = await api.post('/content/templates/preview', { content, design }, { responseType: 'blob' });
+    return response.data as Blob;
+  },
+
   async listTemplateRevisions(id: string) {
     return unwrap<TemplateRevision[]>(await api.get(`/content/templates/${id}/revisions`));
   },

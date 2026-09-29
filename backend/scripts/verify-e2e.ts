@@ -828,6 +828,74 @@ async function main() {
     });
   }
 
+  // -- V: the visibility fix, proved against the real scoping predicate ------
+  section('V. Assigning a certificate publishes its result, so the student can see it');
+  {
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const studentId = await makeStudent(40);
+    const { result } = await makeResult(exam.id, studentId, [], 10);
+
+    // The exact predicate `scopeClauses` builds for a student.
+    const ownerScope = { result: { studentId, publishedAt: { not: null } } } as Prisma.CertificateWhereInput;
+
+    const beforeCount = await prisma.certificate.count({ where: { resultId: result.id } });
+    check('the student starts with no certificate', beforeCount === 0);
+
+    // What `CertificatesService.issue` now does: publish and insert in one
+    // transaction. Driven through the real service rather than reimplemented
+    // here, so this fails if the service stops publishing.
+    const { CertificatesService } = await import('../src/certificates/certificates.service');
+    const { CertificateRendererService } = await import('../src/content/certificate-renderer.service');
+    const { ContentService } = await import('../src/content/content.service');
+    const access = { assertCanManage: async () => undefined } as never;
+    const content = { resolveForExam: async () => null } as never;
+    const renderer = new CertificateRendererService({ get: () => 'https://app.example.test' } as never);
+    const service = new CertificatesService(prisma as never, access, content, renderer);
+    const actor = { sub: instructorId, roles: [RoleName.INSTRUCTOR] } as never;
+
+    await service.issue(result.id, actor, 'E2E: student asked for a certificate after the fact');
+
+    const afterIssue = await prisma.result.findUnique({ where: { id: result.id }, select: { publishedAt: true } });
+    check('issuing published the result', afterIssue?.publishedAt !== null);
+    const visible = await prisma.certificate.count({ where: { resultId: result.id, OR: [ownerScope] } });
+    check('the student can now see their certificate', visible === 1, `got ${visible}`);
+
+    // Re-running must stay idempotent, and must not re-publish.
+    const reissueCountBefore = await prisma.certificate.count({ where: { resultId: result.id } });
+    const publishedAtBefore = afterIssue?.publishedAt;
+    await service.issue(result.id, actor, 'E2E: repeated assign');
+    check('a repeat assign creates no second certificate', (await prisma.certificate.count({ where: { resultId: result.id } })) === reissueCountBefore);
+    check('a repeat assign leaves the original publication time alone', (await prisma.result.findUnique({ where: { id: result.id }, select: { publishedAt: true } }))?.publishedAt?.getTime() === publishedAtBefore?.getTime());
+
+    // The stranded case: a certificate that exists under an unpublished result.
+    // Re-running the assign has to repair it, not return the invisible one again.
+    const { exam: strandedExam } = await makeExam(instructorId, { certificateEnabled: true });
+    const strandedStudent = await makeStudent(41);
+    const { result: stranded } = await makeResult(strandedExam.id, strandedStudent, [], 10);
+    const strandedCert = await prisma.certificate.create({
+      data: { resultId: stranded.id, certificateNo: `E2E-V-${RUN}-stranded`, verificationCode: randomUUID() },
+    });
+    const strandedScope = { result: { studentId: strandedStudent, publishedAt: { not: null } } } as Prisma.CertificateWhereInput;
+    check('a certificate on an unpublished result is invisible to its owner', (await prisma.certificate.count({ where: { id: strandedCert.id, OR: [strandedScope] } })) === 0);
+
+    const repaired = await service.issue(stranded.id, actor, 'E2E: repair a stranded certificate');
+    check('re-assigning returns the same certificate', repaired.id === strandedCert.id);
+    check('re-assigning makes it visible', (await prisma.certificate.count({ where: { id: strandedCert.id, OR: [strandedScope] } })) === 1);
+
+    // An override must still be demanded for an ineligible result, so publishing
+    // cannot become a back door around the eligibility rules.
+    const { exam: failExam } = await makeExam(instructorId, { certificateEnabled: true, certificateMinPercentage: 90 });
+    const { result: failed } = await makeResult(failExam.id, await makeStudent(42), [], 2); // scored 20%
+    let demandedReason = false;
+    try {
+      await service.issue(failed.id, actor);
+    } catch (error) {
+      demandedReason = (error as { getResponse?: () => { code?: string } }).getResponse?.()?.code === 'CERTIFICATE_OVERRIDE_REASON_REQUIRED';
+    }
+    check('an ineligible result still requires a justification', demandedReason);
+    check('the refused result was not published', (await prisma.result.findUnique({ where: { id: failed.id }, select: { publishedAt: true } }))?.publishedAt === null);
+  }
+
   // -- P: fixtures are fully reclaimable -------------------------------------
   section('P. The fixtures this run created are reclaimable in child-first order');
   {

@@ -1,5 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 import { CertificatesService } from './certificates.service';
+import { CertificateRendererService } from '../content/certificate-renderer.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ExamAccessService } from '../common/exam-access.service';
 import type { ContentService } from '../content/content.service';
@@ -49,15 +51,25 @@ function makeService(overrides: { access?: Partial<ExamAccessService>; content?:
       count: jest.fn().mockResolvedValue(1),
     },
     submission: { findUnique: jest.fn(), update: jest.fn() },
-    $transaction: jest.fn(),
+    // Default runs the callback against the same fake, so transactional paths
+    // work without every test having to stub it. Tests that assert on the
+    // transaction itself override this.
+    $transaction: jest.fn((arg: unknown) =>
+      typeof arg === 'function' ? (arg as (tx: FakePrisma) => unknown)(prisma) : Promise.all(arg as unknown[]),
+    ),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
   };
   const access = { assertCanManage: jest.fn(), ...overrides.access } as unknown as ExamAccessService;
   // Defaults to "no template configured", which is the pre-CMS behaviour the
   // existing assertions were written against.
   const content = { resolveForExam: jest.fn().mockResolvedValue(null), ...overrides.content } as unknown as ContentService;
-  const service = new CertificatesService(prisma as unknown as PrismaService, access, content);
-  return { service, prisma, access, content };
+  // The real renderer, so the buildPdf tests keep asserting on actual PDF bytes.
+  // The config stub only supplies the asset origin; the fixtures here have no
+  // logo, so nothing is fetched.
+  const config = { get: jest.fn().mockReturnValue('https://app.example.test') } as unknown as ConfigService;
+  const renderer = new CertificateRendererService(config);
+  const service = new CertificatesService(prisma as unknown as PrismaService, access, content, renderer);
+  return { service, prisma, access, content, renderer };
 }
 
 const passedResult = (id: string, percentage = 80) => ({
@@ -397,15 +409,21 @@ describe('CertificatesService.reissue', () => {
     },
   };
 
+  const txClient = (over: { create?: jest.Mock } = {}) => ({
+    // `reissue` publishes an unpublished result through the same transaction, so
+    // the fake client has to expose `result` as well as `certificate`.
+    result: { update: jest.fn().mockResolvedValue({}) },
+    certificate: {
+      delete: jest.fn().mockResolvedValue({}),
+      create: over.create ?? jest.fn().mockResolvedValue({ id: 'cert-new', certificateNo: 'OES-NEW' }),
+    },
+  });
+
   it('deletes and recreates inside a single transaction so a failure cannot strand the student', async () => {
     const { service, prisma } = makeService();
     prisma.certificate.findUnique.mockResolvedValue(existing);
     // Interactive transaction: the callback receives a client.
-    prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
-      cb({
-        certificate: { delete: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'cert-new', certificateNo: 'OES-NEW' }) },
-      }),
-    );
+    prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) => cb(txClient()));
 
     const out = await service.reissue('cert-old', instructor);
 
@@ -418,16 +436,36 @@ describe('CertificatesService.reissue', () => {
     const { service, prisma } = makeService();
     prisma.certificate.findUnique.mockResolvedValue(existing);
     prisma.$transaction.mockImplementation(async (cb: (tx: unknown) => Promise<unknown>) =>
-      cb({
-        certificate: {
-          delete: jest.fn().mockResolvedValue({}),
-          create: jest.fn().mockRejectedValue(new Error('unique violation')),
-        },
-      }),
+      cb(txClient({ create: jest.fn().mockRejectedValue(new Error('unique violation')) })),
     );
 
     // The rejection must propagate so the transaction rolls the delete back.
     await expect(service.reissue('cert-old', instructor)).rejects.toThrow('unique violation');
+  });
+
+  it('publishes an unpublished result in the same transaction, so a reissued certificate is actually visible', async () => {
+    const { service, prisma } = makeService();
+    prisma.certificate.findUnique.mockResolvedValue({ ...existing, result: { ...existing.result, publishedAt: null } });
+    const tx = txClient();
+    prisma.$transaction.mockImplementation(async (cb: (client: unknown) => Promise<unknown>) => cb(tx));
+
+    await service.reissue('cert-old', instructor);
+
+    expect(tx.result.update).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      data: { publishedAt: expect.any(Date) },
+    });
+  });
+
+  it('leaves an already-published result untouched on reissue', async () => {
+    const { service, prisma } = makeService();
+    prisma.certificate.findUnique.mockResolvedValue({ ...existing, result: { ...existing.result, publishedAt: new Date('2026-01-02') } });
+    const tx = txClient();
+    prisma.$transaction.mockImplementation(async (cb: (client: unknown) => Promise<unknown>) => cb(tx));
+
+    await service.reissue('cert-old', instructor);
+
+    expect(tx.result.update).not.toHaveBeenCalled();
   });
 
   it('authorises against the exam that owns the certificate', async () => {
@@ -547,6 +585,72 @@ describe('CertificatesService.issue (manual assignment)', () => {
     expect(data.assignment).toBe('MANUAL');
     expect(data.overrideReason).toBeNull();
     expect(data.issuedById).toBe(instructor.sub);
+  });
+
+  it('publishes an unpublished result in the same transaction, so the student can see the certificate', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, publishedAt: null });
+    prisma.certificate.create.mockResolvedValue(createdCertificate);
+
+    await service.issue('result-1', instructor);
+
+    // One interactive transaction covering both writes: publishing outside it
+    // would release the result even if the certificate insert then failed.
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(typeof prisma.$transaction.mock.calls[0][0]).toBe('function');
+    expect(prisma.result.update).toHaveBeenCalledWith({
+      where: { id: 'result-1' },
+      data: { publishedAt: expect.any(Date) },
+    });
+  });
+
+  it('leaves an already-published result untouched', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue(eligibleResult);
+    prisma.certificate.create.mockResolvedValue(createdCertificate);
+
+    await service.issue('result-1', instructor);
+
+    expect(prisma.result.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unpublished certificate create without publishing the result', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, publishedAt: null });
+    prisma.certificate.create.mockRejectedValue(new Error('db down'));
+
+    await expect(service.issue('result-1', instructor)).rejects.toThrow('db down');
+    // The fake $transaction is not a real one, so this only proves the
+    // publication is issued *through* the transaction rather than alongside it.
+    expect(prisma.result.update).toHaveBeenCalled();
+  });
+
+  it('repairs a stranded certificate instead of returning the same invisible one', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({
+      ...eligibleResult,
+      publishedAt: null,
+      certificate: createdCertificate,
+    });
+
+    const out = await service.issue('result-1', instructor);
+
+    expect(out).toEqual(createdCertificate);
+    expect(prisma.certificate.create).not.toHaveBeenCalled();
+    expect(prisma.result.update).toHaveBeenCalledWith({
+      where: { id: 'result-1' },
+      data: { publishedAt: expect.any(Date) },
+    });
+  });
+
+  it('does not republish a stranded-looking result that is already visible', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, certificate: createdCertificate });
+
+    const out = await service.issue('result-1', instructor);
+
+    expect(out).toEqual(createdCertificate);
+    expect(prisma.result.update).not.toHaveBeenCalled();
   });
 
   /** Captures the structured error body the global exception filter would emit. */

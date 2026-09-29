@@ -2,11 +2,14 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, TemplateStatus } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { CertificateRendererService } from './certificate-renderer.service';
 import {
   assertValidTemplateContent,
   assertValidTemplateDesign,
   parseTemplateContent,
   parseTemplateDesign,
+  DEFAULT_TEMPLATE_CONTENT,
+  DEFAULT_TEMPLATE_DESIGN,
 } from './template-content.util';
 
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -19,6 +22,16 @@ export type UpsertTemplateInput = {
   content?: unknown;
   design?: unknown;
   note?: string | null;
+};
+
+/**
+ * A preview request carries the editor's unsaved content and design. Both are
+ * optional so a client can preview against the defaults, and neither is
+ * persisted: nothing here touches the database.
+ */
+export type PreviewTemplateInput = {
+  content?: unknown;
+  design?: unknown;
 };
 
 export type UpsertDocumentInput = {

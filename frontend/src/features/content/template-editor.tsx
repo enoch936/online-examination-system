@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Archive, Check, Loader2, Star } from 'lucide-react';
+import { Archive, Check, Eye, Loader2, Star } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,6 +27,7 @@ const MAX_LEN = 500;
 export type EditorAction =
   | 'save'
   | 'publish'
+  | 'preview'
   | 'default'
   | 'archive'
   | 'revert'
@@ -43,6 +44,7 @@ export function TemplateEditor({
   pendingAction,
   onSave,
   onPublish,
+  onPreview,
   onMakeDefault,
   onArchive,
   onShowRevisions,
@@ -51,6 +53,8 @@ export function TemplateEditor({
   pendingAction: EditorAction;
   onSave: (input: TemplateInput) => void;
   onPublish: (note: string) => void;
+  /** Receives the live, unsaved state so a preview can be rendered before saving. */
+  onPreview: (state: { content: TemplateContent; design: TemplateDesign }) => void;
   onMakeDefault: () => void;
   onArchive: () => void;
   onShowRevisions: () => void;
@@ -323,6 +327,19 @@ export function TemplateEditor({
           >
             {pendingAction === 'save' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Save draft
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onPreview({ content, design })}
+            disabled={pendingAction !== null}
+            title="Render the current wording and design as a PDF with sample data. Nothing is saved."
+          >
+            {pendingAction === 'preview' ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Eye className="mr-2 h-4 w-4" />
+            )}
+            Preview PDF
           </Button>
           <Button
             variant="outline"

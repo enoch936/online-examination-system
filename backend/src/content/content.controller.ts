@@ -1,10 +1,30 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
+import { Response } from 'express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
-import { ContentService } from './content.service';
+import { CertificateRendererService } from './certificate-renderer.service';
+import { ContentService, PreviewTemplateInput } from './content.service';
+import {
+  assertValidTemplateContent,
+  assertValidTemplateDesign,
+  DEFAULT_TEMPLATE_CONTENT,
+  DEFAULT_TEMPLATE_DESIGN,
+} from './template-content.util';
 
 /**
  * Template and copy editing is restricted to admins. Instructors can issue
@@ -18,7 +38,10 @@ const ADMIN_ONLY = [RoleName.SUPER_ADMIN, RoleName.ADMIN];
 @Controller('content')
 @Roles(...ADMIN_ONLY)
 export class ContentController {
-  constructor(private readonly content: ContentService) {}
+  constructor(
+    private readonly content: ContentService,
+    private readonly renderer: CertificateRendererService,
+  ) {}
 
   // -- Certificate templates --------------------------------------------------
 
@@ -68,6 +91,29 @@ export class ContentController {
   @Get('templates/:id/revisions')
   listTemplateRevisions(@Param('id', ParseUUIDPipe) id: string) {
     return this.content.listTemplateRevisions(id);
+  }
+
+  /**
+   * Renders a certificate PDF for the template as it currently stands in the
+   * editor, so wording and layout can be checked before publishing. Returns a
+   * PDF rather than HTML because the issued certificate is drawn with pdfkit, and
+   * a DOM mock-up would not match what students actually receive. Placeholders
+   * are filled with sample values, so no real student data is involved.
+   */
+  @Post('templates/preview')
+  async previewTemplate(@Body() body: PreviewTemplateInput, @Res() res: Response): Promise<void> {
+    // Validated exactly as a save would be, so a template that could not be
+    // saved fails here the same way rather than previewing something that will
+    // be rejected on publish.
+    const content = assertValidTemplateContent(body?.content ?? { ...DEFAULT_TEMPLATE_CONTENT });
+    const design = assertValidTemplateDesign(body?.design ?? { ...DEFAULT_TEMPLATE_DESIGN });
+
+    const { filename, buffer } = await this.renderer.renderPreview(content, design);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(buffer);
   }
 
   // -- Content documents -------------------------------------------------------

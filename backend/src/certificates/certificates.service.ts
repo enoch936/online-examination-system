@@ -1,19 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CertificateAssignment, Prisma, RoleName } from '@prisma/client';
 import { randomUUID } from 'crypto';
-import PDFDocument from 'pdfkit';
 import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { CertificateRendererService } from '../content/certificate-renderer.service';
 import { ContentService } from '../content/content.service';
 import {
   DEFAULT_TEMPLATE_CONTENT,
   DEFAULT_TEMPLATE_DESIGN,
-  interpolate,
   parseTemplateContent,
   parseTemplateDesign,
   TemplateContent,
   TemplateDesign,
-  TemplatePlaceholders,
 } from '../content/template-content.util';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -98,6 +96,7 @@ export class CertificatesService {
     private readonly prisma: PrismaService,
     private readonly access: ExamAccessService,
     private readonly content: ContentService,
+    private readonly renderer: CertificateRendererService,
   ) {}
 
   /**
@@ -254,6 +253,20 @@ export class CertificatesService {
     }
     await this.access.assertCanManage(result.examId, user);
     if (result.certificate) {
+      // Certificates issued before issuing published their result are stranded:
+      // they exist, but the owner cannot see them because visibility follows
+      // `publishedAt`. Re-running the assign repairs that instead of returning
+      // the same invisible certificate again.
+      if (!result.publishedAt) {
+        await this.prisma.result.update({ where: { id: resultId }, data: { publishedAt: new Date() } });
+        this.audit(
+          user.sub,
+          'CERTIFICATE_ISSUED',
+          resultId,
+          { resultId, publishedResultNow: true, repairedExistingCertificate: true },
+          { id: result.certificate.id, certificateNo: result.certificate.certificateNo, verificationCode: result.certificate.verificationCode, assignment: result.certificate.assignment },
+        );
+      }
       return result.certificate;
     }
 
@@ -273,19 +286,42 @@ export class CertificatesService {
       });
     }
 
+    // Issuing a certificate publishes its result. A student may only see
+    // certificates on results that are published (see `scopeClauses`), so
+    // assigning one onto an unpublished result would otherwise create a
+    // certificate that exists for staff, appears on the student's results page,
+    // and is nonetheless invisible on their certificate dashboard. Staff
+    // assigning a certificate is a deliberate release decision, so this keeps
+    // the early-release gate intact rather than dropping it.
+    //
+    // The publish and the insert share one transaction: publishing outside it
+    // would release the student's result to them even if the certificate then
+    // failed to be written.
     const template = await this.content.resolveForExam(result.examId);
-    const certificate = await this.create(resultId, result.exam.certificateValidityDays, {
-      // `assignment` records how the certificate came to exist, and a person
-      // clicking "assign" on the results list is by definition a manual issue.
-      // Whether eligibility was bypassed is carried separately by
-      // `overrideReason`, so the two questions stay independent.
-      assignment: CertificateAssignment.MANUAL,
-      overrideReason: isOverride ? reason! : null,
-      issuedById: user.sub,
-      templateId: template?.id ?? null,
-      templateSnapshot: template
-        ? JSON.stringify({ id: template.id, slug: template.slug, name: template.name, version: template.version, content: template.content, design: template.design })
-        : null,
+    let publishedNow = false;
+    const certificate = await this.prisma.$transaction(async (tx) => {
+      if (!result.publishedAt) {
+        await tx.result.update({ where: { id: resultId }, data: { publishedAt: new Date() } });
+        publishedNow = true;
+      }
+      return this.create(
+        resultId,
+        result.exam.certificateValidityDays,
+        {
+          // `assignment` records how the certificate came to exist, and a person
+          // clicking "assign" on the results list is by definition a manual issue.
+          // Whether eligibility was bypassed is carried separately by
+          // `overrideReason`, so the two questions stay independent.
+          assignment: CertificateAssignment.MANUAL,
+          overrideReason: isOverride ? reason! : null,
+          issuedById: user.sub,
+          templateId: template?.id ?? null,
+          templateSnapshot: template
+            ? JSON.stringify({ id: template.id, slug: template.slug, name: template.name, version: template.version, content: template.content, design: template.design })
+            : null,
+        },
+        tx,
+      );
     });
 
     this.audit(
@@ -298,6 +334,9 @@ export class CertificatesService {
         percentage: Number(result.percentage),
         eligible: !isOverride,
         ...(isOverride ? { ineligibilityReason: eligibility.reason, overrideReason: reason } : {}),
+        // Recorded so an auditor can tell that issuing this certificate was also
+        // what released the result to the student.
+        ...(publishedNow ? { publishedResultNow: true } : {}),
       },
       {
         id: certificate.id,
@@ -485,6 +524,9 @@ export class CertificatesService {
   /**
    * Renders the certificate itself as a PDF. Read access mirrors `list`: a
    * student may download their own published certificate, staff may download any
+  /**
+   * Renders the certificate itself as a PDF. Read access mirrors `list`: a
+   * student may download their own published certificate, staff may download any
    * certificate for an exam they manage.
    */
   async buildPdf(id: string, user: AuthenticatedUser): Promise<{ filename: string; buffer: Buffer }> {
@@ -500,9 +542,6 @@ export class CertificatesService {
     const result = certificate.result;
     const student = result.submission?.session.student;
     const fullName = student ? `${student.firstName} ${student.lastName}` : 'Student';
-    const score = Number(result.score);
-    const maxScore = Number(result.maxScore);
-    const percentage = Number(result.percentage);
     const expired = isExpired(certificate.expiresAt);
 
     // The snapshot taken at issue time is the source of truth, never the live
@@ -510,124 +549,22 @@ export class CertificatesService {
     // already holds. Only a certificate issued before the CMS existed has no
     // snapshot, and those render the built-in wording.
     const { content: text, design } = this.snapshotFor(certificate.templateSnapshot);
+    const logo = text.logoUrl ? await this.renderer.loadLogo(text.logoUrl) : null;
 
-    const issuedOn = certificate.issuedAt.toISOString().slice(0, 10);
-    const expiryOn = certificate.expiresAt ? certificate.expiresAt.toISOString().slice(0, 10) : '';
-    const values: TemplatePlaceholders = {
-      recipient: fullName,
-      email: student?.email ?? '',
-      exam: result.exam.title,
-      score: String(score),
-      maxScore: String(maxScore),
-      percentage: `${percentage}%`,
+    const buffer = await this.renderer.render(text, design, {
+      recipientName: fullName,
+      recipientEmail: student?.email ?? '',
+      examTitle: result.exam.title,
+      score: Number(result.score),
+      maxScore: Number(result.maxScore),
+      percentage: Number(result.percentage),
       grade: String(result.grade ?? ''),
-      issueDate: issuedOn,
-      expiryDate: expiryOn,
+      issuedOn: certificate.issuedAt.toISOString().slice(0, 10),
+      expiryOn: certificate.expiresAt ? certificate.expiresAt.toISOString().slice(0, 10) : null,
+      expired,
       certificateNo: certificate.certificateNo,
       verificationCode: certificate.verificationCode,
-    };
-
-    const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 56 });
-    const chunks: Buffer[] = [];
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
-
-    const draw = () => {
-      if (design.showBorder) {
-        const { width, height } = doc.page;
-        const inset = 28;
-        doc
-          .save()
-          .lineWidth(design.borderWidth)
-          .strokeColor(design.accentColor)
-          .rect(inset, inset, width - inset * 2, height - inset * 2)
-          .stroke()
-          .restore();
-        doc.y = inset + 24;
-      }
-      doc.fillColor(design.textColor);
-
-      const drawLogo = (url: string) => {
-        doc.image(url, { fit: [design.logoWidth, design.logoWidth], align: 'center' });
-        doc.moveDown(0.6);
-      };
-
-      if (text.logoUrl) {
-        try {
-          drawLogo(text.logoUrl);
-        } catch {
-          // An unreachable or corrupt logo must not fail the whole download.
-        }
-      }
-
-      doc.fontSize(26).text(interpolate(text.title, values), { align: 'center' });
-      doc.moveDown(0.8);
-      if (text.issuerName) {
-        doc.fontSize(13).text(interpolate(text.issuerName, values), { align: 'center' });
-        doc.moveDown(1.6);
-      }
-
-      if (text.introText) {
-        doc.fontSize(14).text(interpolate(text.introText, values), { align: 'center' });
-        doc.moveDown(0.4);
-      }
-      doc.fontSize(24).text(interpolate(fullName, values), { align: 'center' });
-      if (text.showRecipientEmail && student?.email) {
-        doc.moveDown(0.2);
-        doc.fontSize(10).text(student.email, { align: 'center' });
-      }
-      doc.moveDown(1.4);
-
-      if (text.bodyText) {
-        doc.fontSize(14).text(interpolate(text.bodyText, values), { align: 'center' });
-        doc.moveDown(0.4);
-      }
-      doc.fontSize(20).text(result.exam.title, { align: 'center' });
-      doc.moveDown(1.6);
-
-      if (text.showScore) {
-        doc.fontSize(12).text(`Score: ${score} / ${maxScore}  (${percentage}%)`, { align: 'center' });
-        doc.moveDown(0.3);
-      }
-      doc.fontSize(12).text(`Issued on: ${issuedOn}`, { align: 'center' });
-      if (text.showValidity && certificate.expiresAt) {
-        doc.moveDown(0.3);
-        doc.fontSize(12).text(
-          expired ? `Expired on: ${expiryOn}` : `Valid until: ${expiryOn}`,
-          { align: 'center' },
-        );
-      }
-      doc.moveDown(2);
-
-      if (text.showSignatory && text.signatoryName) {
-        doc.fontSize(12).text(interpolate(text.signatoryName, values), { align: 'center' });
-        if (text.signatoryTitle) {
-          doc.moveDown(0.2);
-          doc.fontSize(9).text(interpolate(text.signatoryTitle, values), { align: 'center' });
-        }
-        doc.moveDown(0.8);
-      }
-
-      if (text.sealText) {
-        doc.fontSize(9).text(interpolate(text.sealText, values), { align: 'center' });
-        doc.moveDown(0.4);
-      }
-      doc.fontSize(9).text(`Certificate No: ${certificate.certificateNo}`, { align: 'center' });
-      doc.moveDown(0.2);
-      doc.fontSize(9).text(`Verification code: ${certificate.verificationCode}`, { align: 'center' });
-      if (text.footerNote) {
-        doc.moveDown(1.4);
-        doc
-          .fontSize(8)
-          .fillColor('#666666')
-          .text(interpolate(text.footerNote, values), { align: 'center' });
-      }
-      doc.end();
-    };
-
-    const buffer = await new Promise<Buffer>((resolve, reject) => {
-      doc.on('end', () => resolve(Buffer.concat(chunks)));
-      doc.on('error', reject);
-      draw();
+      logo,
     });
 
     return { filename: `certificate-${certificate.certificateNo}.pdf`, buffer };
@@ -704,6 +641,16 @@ export class CertificatesService {
     // certificate could be inserted *before* the delete and trip the UNIQUE
     // constraint on resultId, leaving the student with no certificate at all.
     const next = await this.prisma.$transaction(async (tx) => {
+      // Same reasoning as `issue`: a reissued certificate must be visible to its
+      // owner, and visibility follows the result being published. Applied inside
+      // the transaction so a failure cannot leave a published result with no
+      // certificate.
+      if (!certificate.result.publishedAt) {
+        await tx.result.update({
+          where: { id: certificate.resultId },
+          data: { publishedAt: new Date() },
+        });
+      }
       await tx.certificate.delete({ where: { id } });
       // A reissue stands in for the same achievement, so it keeps the original's
       // provenance and, critically, its template snapshot: reissuing must not
