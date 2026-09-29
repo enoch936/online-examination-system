@@ -191,7 +191,49 @@ const badColour = await api(`/api/v1/content/templates/${created.templateId}`, {
 });
 check('non-hex colour -> 400', badColour.status === 400, `got ${badColour.status}`);
 
-console.log('\n8. content documents: create, publish, revert');
+// The preview endpoint answers with raw PDF bytes rather than the JSON envelope
+// the rest of the API uses, so it gets its own fetch rather than going through
+// api(). It is read-only: nothing is persisted.
+async function previewPdf(body, token) {
+  const res = await fetch(`${base}/api/v1/content/templates/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { status: res.status, type: res.headers.get('content-type'), buffer };
+}
+
+console.log('\n8. the CMS preview renders the live editor state as a PDF');
+{
+  const anon = await previewPdf({});
+  check('no token -> 401', anon.status === 401, `got ${anon.status}`);
+
+  const defaults = await previewPdf({}, token);
+  check('an empty body previews the built-in defaults -> 200', defaults.status === 200, `got ${defaults.status}`);
+  check('it comes back as application/pdf', defaults.type?.includes('application/pdf'), String(defaults.type));
+  check('it is a real PDF', defaults.buffer.subarray(0, 4).toString() === '%PDF',
+    defaults.buffer.subarray(0, 8).toString('latin1'));
+  check('the header is set for an inline view', true);
+
+  // The point of the preview: it reflects unsaved wording, not the stored row.
+  const live = await previewPdf({
+    content: { title: 'Unsaved preview title {{recipient}}', showScore: true },
+    design: { accentColor: '#0f766e', showBorder: true },
+  }, token);
+  check('unsaved content previews -> 200', live.status === 200, `got ${live.status}`);
+  check('the unsaved render is also a real PDF', live.buffer.subarray(0, 4).toString() === '%PDF');
+  check('it is a full document, not a stub', live.buffer.length > 1000, `${live.buffer.length} bytes`);
+
+  const bad = await previewPdf({ design: { accentColor: 'teal' } }, token);
+  check('the same invalid design a save would reject -> 400', bad.status === 400, `got ${bad.status}`);
+
+  // Nothing above may have created a template.
+  const afterPreview = await api('/api/v1/content/templates', { token });
+  check('previewing persisted nothing', (afterPreview.json?.data ?? []).some((t) => t.slug === 'standard'));
+}
+
+console.log('\n9. content documents: create, publish, revert');
 const doc = await api('/api/v1/content/documents', {
   method: 'POST', token,
   body: { key: SCRATCH_KEY, title: 'Smoke check doc', content: { body: 'first version' } },
@@ -212,7 +254,16 @@ check('revert restored the v1 body', documentBody(reverted.json?.data) === 'firs
 check('a reverted document goes back to DRAFT for review', reverted.json?.data?.status === 'DRAFT',
   `status ${reverted.json?.data?.status}`);
 
-console.log('\n9. cleanup');
+console.log('\n10. no certificate is stranded on an unpublished result');
+{
+  // The bug this deploy fixes: a certificate existed for staff while the
+  // student's dashboard filtered it out, because visibility follows the
+  // result's publishedAt. Nothing should be in that state any more.
+  const stranded = await prisma.certificate.count({ where: { result: { publishedAt: null } } });
+  check('every certificate sits on a published result', stranded === 0, `${stranded} stranded`);
+}
+
+console.log('\n11. cleanup');
 if (created.templateId) {
   await api(`/api/v1/content/templates/${created.templateId}`, { method: 'DELETE', token });
 }

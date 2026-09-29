@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -100,7 +102,10 @@ export class ContentController {
    * a DOM mock-up would not match what students actually receive. Placeholders
    * are filled with sample values, so no real student data is involved.
    */
+  // 200 rather than POST's default 201: nothing is created, and a client that
+  // checks for a created resource should not be told one was.
   @Post('templates/preview')
+  @HttpCode(HttpStatus.OK)
   async previewTemplate(@Body() body: PreviewTemplateInput, @Res() res: Response): Promise<void> {
     // Validated exactly as a save would be, so a template that could not be
     // saved fails here the same way rather than previewing something that will
