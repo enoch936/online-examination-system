@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RoleName } from '@prisma/client';
 import type { Response } from 'express';
@@ -45,10 +45,19 @@ export class CertificatesController {
     return this.certificates.generateForExam(examId, user);
   }
 
+  /**
+   * `overrideReason` is only meaningful when the result is not otherwise
+   * eligible. The service decides which case applies, so the client can send it
+   * unconditionally and let the server reject an unjustified override.
+   */
   @Post(':resultId/issue')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
-  issue(@Param('resultId', ParseUUIDPipe) resultId: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.certificates.issue(resultId, user);
+  issue(
+    @Param('resultId', ParseUUIDPipe) resultId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body?: { overrideReason?: string | null },
+  ) {
+    return this.certificates.issue(resultId, user, body?.overrideReason);
   }
 
   @Get(':id/pdf')
@@ -69,7 +78,11 @@ export class CertificatesController {
 
   @Post(':id/reissue')
   @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
-  reissue(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.certificates.reissue(id, user);
+  reissue(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body?: { overrideReason?: string | null },
+  ) {
+    return this.certificates.reissue(id, user, body?.overrideReason);
   }
 }

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { examsService, EXAM_PERMISSION_LEVELS, type ExamPermissionLevel } from '@/services/exams.service';
 import { usersService } from '@/services/users.service';
 import { coursesService } from '@/services/courses.service';
+import { contentService } from '@/services/content.service';
 import { classesService } from '@/services/classes.service';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -126,6 +127,15 @@ export default function ManageExamPage() {
     certificateAutoIssue: false,
     certificateMinPercentage: '',
     certificateValidityDays: '',
+    certificateTemplateId: '',
+  });
+
+  // Only admins may read templates, so a non-admin instructor simply gets an
+  // empty list and the select collapses to "use the default".
+  const { data: certificateTemplates } = useQuery({
+    queryKey: ['content', 'templates'],
+    queryFn: () => contentService.listTemplates(),
+    retry: false,
   });
 
   const { data: exams, isLoading, error, refetch } = useQuery({
@@ -363,6 +373,7 @@ export default function ManageExamPage() {
         exam.certificateValidityDays === null || exam.certificateValidityDays === undefined
           ? ''
           : String(exam.certificateValidityDays),
+      certificateTemplateId: exam.certificateTemplateId ?? '',
     });
     setEditingId(exam.id);
   }
@@ -412,6 +423,12 @@ export default function ManageExamPage() {
     data.certificateValidityDays =
       editForm.certificateEnabled && editForm.certificateValidityDays !== ''
         ? Number(editForm.certificateValidityDays)
+        : null;
+    // Always sent for the same reason: an empty selection must detach the exam
+    // from its pinned template and put it back on the system default.
+    data.certificateTemplateId =
+      editForm.certificateEnabled && editForm.certificateTemplateId
+        ? editForm.certificateTemplateId
         : null;
     updateMutation.mutate({ id: editingId, data });
   }
@@ -672,6 +689,28 @@ export default function ManageExamPage() {
                         placeholder="No expiry"
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">Certificate template</label>
+                    <select
+                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      value={editForm.certificateTemplateId}
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, certificateTemplateId: e.target.value })
+                      }
+                    >
+                      <option value="">Use the default template</option>
+                      {certificateTemplates?.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                          {template.isDefault ? ' (default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pin a specific wording and design to this exam. Leave blank to follow whichever
+                      template is the system default at the moment a certificate is issued.
+                    </p>
                   </div>
                 </>
               )}

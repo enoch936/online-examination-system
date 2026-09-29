@@ -13,7 +13,8 @@ import { RolesGuard } from './common/guards/roles.guard';
 import { appConfig, validateConfig } from './config/app.config';
 import { CertificatesModule } from './certificates/certificates.module';
 import { ClassesModule } from './classes/classes.module';
-import { ContactModule } from './contact/contact.module';
+  import { ContactModule } from './contact/contact.module';
+  import { ContentModule } from './content/content.module';
 import { CoursesModule } from './courses/courses.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ExamsModule } from './exams/exams.module';
@@ -78,8 +79,9 @@ import { QueueModule } from './queue/queue.module';
     ExamSessionsModule,
     SubmissionsModule,
     ResultsModule,
-    CertificatesModule,
-    ContactModule,
+  CertificatesModule,
+  ContentModule,
+  ContactModule,
     MessagesModule,
     NotificationsModule,
     ReportsModule,

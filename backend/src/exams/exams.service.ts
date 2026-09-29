@@ -512,6 +512,7 @@ export class ExamsService {
         certificateMinPercentage: dto.certificateMinPercentage ?? null,
         certificateValidityDays: dto.certificateValidityDays ?? null,
         certificateAutoIssue: dto.certificateAutoIssue ?? false,
+        certificateTemplateId: await this.resolveTemplateId(dto.certificateTemplateId),
         startsAt: new Date(dto.startsAt),
         endsAt: new Date(dto.endsAt),
         status: ExamStatus.SCHEDULED,
@@ -654,6 +655,19 @@ export class ExamsService {
     };
   }
 
+  /**
+   * An exam may only pin a template that actually exists, so a bad id fails at
+   * write time rather than silently falling back to the default template and
+   * leaving the exam looking configured when it is not. `null` means "use the
+   * published default", which is why it is passed through untouched.
+   */
+  private async resolveTemplateId(templateId: string | null | undefined): Promise<string | null> {
+    if (!templateId) return null;
+    const template = await this.prisma.certificateTemplate.findUnique({ where: { id: templateId }, select: { id: true } });
+    if (!template) throw new BadRequestException('Certificate template not found');
+    return template.id;
+  }
+
   private assertScoringBounds(totalMarks: number, passingMarks: number, negativeMarkingRate: number) {
     if (!(totalMarks >= 1)) {
       throw new BadRequestException('Total marks must be at least 1');
@@ -708,6 +722,9 @@ export class ExamsService {
     if (dto.certificateMinPercentage !== undefined) data.certificateMinPercentage = dto.certificateMinPercentage;
     if (dto.certificateValidityDays !== undefined) data.certificateValidityDays = dto.certificateValidityDays;
     if (dto.certificateAutoIssue !== undefined) data.certificateAutoIssue = dto.certificateAutoIssue;
+    if (dto.certificateTemplateId !== undefined) {
+      data.certificateTemplateId = await this.resolveTemplateId(dto.certificateTemplateId);
+    }
     if (dto.negativeMarkingRate !== undefined) data.negativeMarkingRate = dto.negativeMarkingRate;
     if (dto.startsAt !== undefined) data.startsAt = new Date(dto.startsAt);
     if (dto.endsAt !== undefined) data.endsAt = new Date(dto.endsAt);

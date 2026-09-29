@@ -23,6 +23,11 @@ export type CreateExamData = {
   certificateMinPercentage?: number | null;
   certificateValidityDays?: number | null;
   certificateAutoIssue?: boolean;
+  /**
+   * Pins a specific certificate template to this exam. `null` means "follow the
+   * system default at issuance time", which is the default for every exam.
+   */
+  certificateTemplateId?: string | null;
   negativeMarkingRate?: number;
   startsAt: string;
   endsAt: string;

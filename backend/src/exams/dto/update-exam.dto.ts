@@ -123,6 +123,13 @@ export class UpdateExamDto {
   @IsBoolean()
   certificateAutoIssue?: boolean;
 
+  @ApiPropertyOptional({
+    description: 'Pin a specific certificate template to this exam. Omit or send null to use the published default template.',
+  })
+  @IsOptional()
+  @IsUUID()
+  certificateTemplateId?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsNumber()

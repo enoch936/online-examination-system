@@ -396,6 +396,9 @@ model Exam {
   certificateMinPercentage   Decimal?
   certificateValidityDays    Int?
   certificateAutoIssue       Boolean @default(false)
+  /// Optional per-exam template. When null the certificate falls back to the
+  /// published template flagged `isDefault`, so existing exams need no change.
+  certificateTemplateId  String?
   startsAt               DateTime
   endsAt                 DateTime
   status                 ExamStatus               @default(DRAFT)
@@ -417,10 +420,12 @@ model Exam {
   shares           ExamShare[]
   retakeRequests   RetakeRequest[]
   resumeRequests   ResumeRequest[]
+  certificateTemplate CertificateTemplate? @relation("ExamCertificateTemplate", fields: [certificateTemplateId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([courseId])
   @@index([createdById])
+  @@index([certificateTemplateId])
   @@index([status, startsAt, endsAt])
   @@map("exams")
 }
@@ -744,18 +749,137 @@ model Result {
   @@map("results")
 }
 
+/// How a certificate came to exist. `MANUAL` means staff overrode the normal
+/// eligibility rules, which is always recorded with a reason.
+enum CertificateAssignment {
+  AUTO
+  BULK
+  MANUAL
+}
+
 model Certificate {
-  id               String    @id @default(uuid())
-  resultId         String    @unique
-  certificateNo    String    @unique
-  verificationCode String    @unique
+  id               String   @id @default(uuid())
+  resultId         String   @unique
+  certificateNo    String   @unique
+  verificationCode String   @unique
   fileUrl          String?
-  issuedAt         DateTime  @default(now())
+  issuedAt         DateTime @default(now())
   expiresAt        DateTime?
 
-  result Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  assignment    CertificateAssignment @default(BULK)
+  /// Required when `assignment` is MANUAL; enforced in the service.
+  overrideReason String?
+  issuedById     String?
 
+  templateId String?
+  /// Frozen copy of the template used at issue time. Editing a template must
+  /// not retroactively change how an already-issued certificate looks.
+  templateSnapshot String?
+
+  result   Result               @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  template CertificateTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  @@index([assignment])
+  @@index([templateId])
   @@map("certificates")
+}
+
+// -- Content management -------------------------------------------------------
+// Every editable string in the product lives here rather than in source, so
+// staff can change it without a deploy. `content` is a JSON blob whose shape is
+// validated per key by the service, not by the database.
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model ContentDocument {
+  id          String        @id @default(uuid())
+  key         String        @unique
+  title       String
+  description String?
+  content     String        @default("{}")
+  status      ContentStatus @default(DRAFT)
+  version     Int           @default(1)
+  publishedAt DateTime?
+  createdById  String
+  updatedById  String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  revisions   ContentRevision[]
+
+  @@index([status])
+  @@map("content_documents")
+}
+
+/// Append-only history. Publishing snapshots the document here first, so a
+/// published page can always be traced back and rolled forward again.
+model ContentRevision {
+  id         String   @id @default(uuid())
+  documentId String
+  version    Int
+  content    String
+  status     ContentStatus
+  note       String?
+  authorId   String
+  createdAt  DateTime @default(now())
+  document   ContentDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+  @@map("content_revisions")
+}
+
+// -- Certificate templates ----------------------------------------------------
+
+enum TemplateStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model CertificateTemplate {
+  id          String         @id @default(uuid())
+  slug        String         @unique
+  name        String
+  description String?
+  status      TemplateStatus @default(DRAFT)
+  isDefault   Boolean        @default(false)
+  /// Visual layer: colours, fonts, border style, logo and seal keys.
+  design      String         @default("{}")
+  /// Wording layer: title, intro, signatory, footer, placeholders.
+  content     String         @default("{}")
+  version     Int            @default(1)
+  publishedAt DateTime?
+  createdById  String
+  updatedById  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  revisions   TemplateRevision[]
+  certificates Certificate[]
+  /// Back-relation for `Exam.certificateTemplateId`. Named so the two
+  /// relationships to this model stay unambiguous.
+  exams       Exam[]               @relation("ExamCertificateTemplate")
+
+  @@index([status])
+  @@map("certificate_templates")
+}
+
+model TemplateRevision {
+  id         String   @id @default(uuid())
+  templateId String
+  version    Int
+  design     String
+  content    String
+  status     TemplateStatus
+  note       String?
+  authorId   String
+  createdAt  DateTime @default(now())
+  template   CertificateTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@map("template_revisions")
 }
 
 model Notification {

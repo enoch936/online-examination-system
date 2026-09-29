@@ -6,11 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { certificatesService } from '@/services/certificates.service';
+import { Switch } from '@/components/ui/switch';
+import { certificatesService, overrideRequiredFrom } from '@/services/certificates.service';
 import { examsService } from '@/services/exams.service';
 import { resultsService } from '@/services/results.service';
 import { toast } from 'sonner';
-import { Award, Loader2, RotateCcw, ShieldOff } from 'lucide-react';
+import { Award, Loader2, RotateCcw, ShieldAlert, ShieldOff } from 'lucide-react';
+import { CertificateOverrideDialog, type OverrideRequest } from './certificate-override-dialog';
 
 const PAGE_SIZE = 20;
 
@@ -23,6 +25,10 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
   const [tab, setTab] = useState<'issued' | 'eligible'>('issued');
   const [examFilter, setExamFilter] = useState('');
   const [page, setPage] = useState(1);
+  // Off by default so the awaiting-issue list stays a to-do queue; turning it on
+  // surfaces students who can only be certified through a documented override.
+  const [showIneligible, setShowIneligible] = useState(false);
+  const [override, setOverride] = useState<OverrideRequest | null>(null);
 
   const { data: exams } = useQuery({
     queryKey: ['exams'],
@@ -41,12 +47,14 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
   });
 
   const eligibleQuery = useQuery({
-    queryKey: ['certificates', 'eligible', examFilter, page],
+    queryKey: ['certificates', 'eligible', examFilter, page, showIneligible],
     queryFn: () =>
       resultsService.list({
         page,
         limit: PAGE_SIZE,
-        passed: true,
+        // Omitting `passed` once ineligible students are shown is what makes
+        // manual assignment to a failed result possible.
+        ...(showIneligible ? {} : { passed: true }),
         certificateStatus: 'none',
         ...(examFilter ? { examId: examFilter } : {}),
       }),
@@ -58,13 +66,36 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
     queryClient.invalidateQueries({ queryKey: ['results'] });
   };
 
+  type IssueVars = { resultId: string; studentName: string; examTitle: string; overrideReason?: string };
+  type ReissueVars = { id: string; studentName: string; examTitle: string; overrideReason?: string };
+
+  // The server owns the eligibility decision. A plain request either succeeds or
+  // comes back asking for a justification, at which point the dialog is opened
+  // with the server's own wording rather than a guess made in the browser.
   const issueMutation = useMutation({
-    mutationFn: (resultId: string) => certificatesService.issue(resultId),
+    mutationFn: ({ resultId, overrideReason }: IssueVars) =>
+      certificatesService.issue(resultId, overrideReason),
     onSuccess: () => {
       invalidate();
+      setOverride(null);
       toast.success('Certificate issued');
     },
-    onError: (err: Error) => toast.error(err?.message || 'Failed to issue certificate'),
+    onError: (err: Error, vars: IssueVars) => {
+      const required = overrideRequiredFrom(err);
+      if (required) {
+        setOverride({
+          action: 'issue',
+          targetId: vars.resultId,
+          studentName: vars.studentName,
+          examTitle: vars.examTitle,
+          ineligibilityReason: required.message,
+          prompt: required.overridePrompt,
+          minReasonLength: required.minReasonLength,
+        });
+        return;
+      }
+      toast.error(err?.message || 'Failed to issue certificate');
+    },
   });
 
   const revokeMutation = useMutation({
@@ -77,13 +108,49 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
   });
 
   const reissueMutation = useMutation({
-    mutationFn: (id: string) => certificatesService.reissue(id),
+    mutationFn: ({ id, overrideReason }: ReissueVars) =>
+      certificatesService.reissue(id, overrideReason),
     onSuccess: () => {
       invalidate();
+      setOverride(null);
       toast.success('Certificate reissued with a new verification code');
     },
-    onError: (err: Error) => toast.error(err?.message || 'Failed to reissue certificate'),
+    onError: (err: Error, vars: ReissueVars) => {
+      const required = overrideRequiredFrom(err);
+      if (required) {
+        setOverride({
+          action: 'reissue',
+          targetId: vars.id,
+          studentName: vars.studentName,
+          examTitle: vars.examTitle,
+          ineligibilityReason: required.message,
+          prompt: required.overridePrompt,
+          minReasonLength: required.minReasonLength,
+        });
+        return;
+      }
+      toast.error(err?.message || 'Failed to reissue certificate');
+    },
   });
+
+  const confirmOverride = (reason: string) => {
+    if (!override) return;
+    if (override.action === 'issue') {
+      issueMutation.mutate({
+        resultId: override.targetId,
+        studentName: override.studentName,
+        examTitle: override.examTitle,
+        overrideReason: reason,
+      });
+    } else {
+      reissueMutation.mutate({
+        id: override.targetId,
+        studentName: override.studentName,
+        examTitle: override.examTitle,
+        overrideReason: reason,
+      });
+    }
+  };
 
   // Bulk issuance is idempotent, so this doubles as "pick up anything that
   // became eligible since last time" — no confirmation of partial risk needed.
@@ -165,6 +232,18 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
             </option>
           ))}
         </select>
+        {tab === 'eligible' && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Switch
+              checked={showIneligible}
+              onCheckedChange={(checked) => {
+                setShowIneligible(checked);
+                setPage(1);
+              }}
+            />
+            Include ineligible
+          </label>
+        )}
         <Button
           variant="outline"
           className="gap-2"
@@ -221,6 +300,7 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
                     <th className="px-4 py-3 text-left text-sm font-medium">Exam</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Score</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Certificate no</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium">Source</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Issued</th>
                     <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                   </tr>
@@ -242,6 +322,25 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
                             {certificate.verificationCode}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-sm">
+                          {certificate.overrideReason ? (
+                            <span
+                              className="inline-flex items-center gap-1 font-medium text-destructive"
+                              title={`Manual override: ${certificate.overrideReason}`}
+                            >
+                              <ShieldAlert className="h-3.5 w-3.5" />
+                              Override
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {certificate.assignment === 'MANUAL'
+                                ? 'Manual'
+                                : certificate.assignment === 'AUTO'
+                                  ? 'Automatic'
+                                  : 'Bulk'}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           {new Date(certificate.issuedAt).toLocaleDateString()}
                         </td>
@@ -252,7 +351,13 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
                               size="icon"
                               className="h-7 w-7"
                               title="Reissue with a new verification code"
-                              onClick={() => reissueMutation.mutate(certificate.id)}
+                              onClick={() =>
+                                reissueMutation.mutate({
+                                  id: certificate.id,
+                                  studentName: studentName(student) ?? 'Unknown',
+                                  examTitle: certificate.result?.exam.title ?? 'Exam',
+                                })
+                              }
                               disabled={reissueMutation.isPending}
                             >
                               {reissueMutation.isPending ? (
@@ -305,6 +410,7 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
                   <th className="px-4 py-3 text-left text-sm font-medium">Exam</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Score</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Percentage</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Result</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Actions</th>
                 </tr>
               </thead>
@@ -320,10 +426,25 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
                         <span className="text-muted-foreground"> / {result.maxScore}</span>
                       </td>
                       <td className="px-4 py-3 text-sm">{Number(result.percentage).toFixed(1)}%</td>
+                      <td className="px-4 py-3 text-sm">
+                        {result.passed ? (
+                          <Badge variant="secondary">Passed</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-destructive">
+                            Failed
+                          </Badge>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <Button
                           size="sm"
-                          onClick={() => issueMutation.mutate(result.id)}
+                          onClick={() =>
+                            issueMutation.mutate({
+                              resultId: result.id,
+                              studentName: studentName(student) ?? 'Unknown',
+                              examTitle: result.exam.title,
+                            })
+                          }
                           disabled={issueMutation.isPending}
                         >
                           {issueMutation.isPending ? (
@@ -360,6 +481,15 @@ export function CertificatesManager({ role }: { role: 'Instructor' | 'Admin' }) 
             Next
           </Button>
         </div>
+      )}
+
+      {override && (
+        <CertificateOverrideDialog
+          request={override}
+          pending={issueMutation.isPending || reissueMutation.isPending}
+          onCancel={() => setOverride(null)}
+          onConfirm={confirmOverride}
+        />
       )}
     </div>
   );

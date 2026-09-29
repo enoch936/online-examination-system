@@ -218,6 +218,8 @@ export type ExamSummary = {
   /** Days until an issued certificate expires; null means it never expires. */
   certificateValidityDays?: number | null;
   certificateAutoIssue?: boolean;
+  /** Template pinned to this exam; null/undefined means "follow the default". */
+  certificateTemplateId?: string | null;
   course?: { name: string; subject?: { name: string } };
   courses?: Array<{ id: string; course: Course }>;
   questionBank?: { id: string; name: string } | null;
@@ -314,6 +316,8 @@ export type CertificateResult = {
   submission?: { session?: { student?: { id: string; firstName: string; lastName: string; email: string } } };
 };
 
+export type CertificateAssignment = 'AUTO' | 'BULK' | 'MANUAL';
+
 export type Certificate = {
   id: string;
   resultId: string;
@@ -323,6 +327,15 @@ export type Certificate = {
   issuedAt: string;
   expiresAt?: string | null;
   result?: CertificateResult;
+  /** How the certificate came to exist: auto on publish, bulk run, or staff. */
+  assignment?: CertificateAssignment;
+  /**
+   * Set when a staff member overrode an ineligibility rule. Present only on
+   * manually-assigned certificates, and surfaced so reviewers can see why an
+   * otherwise ineligible student holds one.
+   */
+  overrideReason?: string | null;
+  templateId?: string | null;
   /**
    * Server-derived expiry flag. Returned by the authenticated `list` endpoint
    * only — the public verification endpoint returns `CertificateVerification`.

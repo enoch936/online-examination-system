@@ -1,9 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RoleName } from '@prisma/client';
+import { CertificateAssignment, Prisma, RoleName } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import PDFDocument from 'pdfkit';
 import { ExamAccessService } from '../common/exam-access.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
+import { ContentService } from '../content/content.service';
+import {
+  DEFAULT_TEMPLATE_CONTENT,
+  DEFAULT_TEMPLATE_DESIGN,
+  interpolate,
+  parseTemplateContent,
+  parseTemplateDesign,
+  TemplateContent,
+  TemplateDesign,
+  TemplatePlaceholders,
+} from '../content/template-content.util';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CERTIFICATE_INELIGIBILITY_MESSAGES,
@@ -21,6 +32,12 @@ type ListOptions = {
 
 /** Bounded so a 5,000-student cohort cannot open 5,000 connections at once. */
 const GENERATE_BATCH_SIZE = 100;
+
+/**
+ * A justification has to be a sentence, not "ok", so an override record stays
+ * meaningful in an audit months later.
+ */
+const MIN_OVERRIDE_REASON_LENGTH = 10;
 
 /**
  * Public, unauthenticated verification payload. Intentionally omits the
@@ -80,6 +97,7 @@ export class CertificatesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ExamAccessService,
+    private readonly content: ContentService,
   ) {}
 
   /**
@@ -123,7 +141,18 @@ export class CertificatesService {
       .catch(() => undefined);
   }
 
-  private create(resultId: string, validityDays?: number | null, tx: Prisma.TransactionClient = this.prisma) {
+  private create(
+    resultId: string,
+    validityDays?: number | null,
+    options: {
+      assignment?: CertificateAssignment;
+      overrideReason?: string | null;
+      issuedById?: string | null;
+      templateId?: string | null;
+      templateSnapshot?: string | null;
+    } = {},
+    tx: Prisma.TransactionClient = this.prisma,
+  ) {
     const suffix = `${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`;
     return tx.certificate.create({
       data: {
@@ -131,6 +160,11 @@ export class CertificatesService {
         certificateNo: `OES-${suffix}`,
         verificationCode: randomUUID(),
         expiresAt: certificateExpiry(validityDays),
+        assignment: options.assignment ?? CertificateAssignment.BULK,
+        overrideReason: options.overrideReason ?? null,
+        issuedById: options.issuedById ?? null,
+        templateId: options.templateId ?? null,
+        templateSnapshot: options.templateSnapshot ?? null,
       },
     });
   }
@@ -199,7 +233,18 @@ export class CertificatesService {
     };
   }
 
-  async issue(resultId: string, user: AuthenticatedUser) {
+  /**
+   * Staff assignment. The exam access check is unchanged — only someone who can
+   * manage the exam reaches this point.
+   *
+   * A student who already meets the eligibility rules is issued a certificate
+   * normally. One who does not (failed, scored under the exam's extra
+   * certificate threshold, results unpublished, or certificates disabled for the
+   * exam) can still be issued one, but only with a written justification: the
+   * certificate is then recorded as `MANUAL` with `overrideReason` set, so a
+   * later reader can always tell an earned certificate from an overridden one.
+   */
+  async issue(resultId: string, user: AuthenticatedUser, overrideReason?: string | null) {
     const result = await this.prisma.result.findUnique({
       where: { id: resultId },
       include: { certificate: true, exam: { select: ELIGIBILITY_EXAM_SELECT } },
@@ -208,24 +253,59 @@ export class CertificatesService {
       throw new NotFoundException('Result not found');
     }
     await this.access.assertCanManage(result.examId, user);
-
-    const eligibility = this.eligibilityFor(result, false);
-    if (!eligibility.eligible) {
-      throw new BadRequestException(
-        CERTIFICATE_INELIGIBILITY_MESSAGES[eligibility.reason as keyof typeof CERTIFICATE_INELIGIBILITY_MESSAGES],
-      );
-    }
     if (result.certificate) {
       return result.certificate;
     }
 
-    const certificate = await this.create(resultId, result.exam.certificateValidityDays);
+    const reason = overrideReason?.trim();
+    const eligibility = this.eligibilityFor(result, false);
+    const isOverride = !eligibility.eligible;
+    if (isOverride && (!reason || reason.length < MIN_OVERRIDE_REASON_LENGTH)) {
+      throw new BadRequestException({
+        code: 'CERTIFICATE_OVERRIDE_REASON_REQUIRED',
+        message: CERTIFICATE_INELIGIBILITY_MESSAGES[eligibility.reason as keyof typeof CERTIFICATE_INELIGIBILITY_MESSAGES],
+        ineligibilityReason: eligibility.reason,
+        minReasonLength: MIN_OVERRIDE_REASON_LENGTH,
+        // The wording is assembled here so every client asks for consent in the
+        // same terms rather than inventing its own.
+        overridePrompt:
+          'This result is not eligible for a certificate. Provide a justification to issue one anyway; it will be recorded as a manual override.',
+      });
+    }
+
+    const template = await this.content.resolveForExam(result.examId);
+    const certificate = await this.create(resultId, result.exam.certificateValidityDays, {
+      // `assignment` records how the certificate came to exist, and a person
+      // clicking "assign" on the results list is by definition a manual issue.
+      // Whether eligibility was bypassed is carried separately by
+      // `overrideReason`, so the two questions stay independent.
+      assignment: CertificateAssignment.MANUAL,
+      overrideReason: isOverride ? reason! : null,
+      issuedById: user.sub,
+      templateId: template?.id ?? null,
+      templateSnapshot: template
+        ? JSON.stringify({ id: template.id, slug: template.slug, name: template.name, version: template.version, content: template.content, design: template.design })
+        : null,
+    });
+
     this.audit(
       user.sub,
-      'CERTIFICATE_ISSUED',
+      isOverride ? 'CERTIFICATE_ISSUED_OVERRIDE' : 'CERTIFICATE_ISSUED',
       resultId,
-      { resultId, passed: true, percentage: Number(result.percentage) },
-      { id: certificate.id, certificateNo: certificate.certificateNo, verificationCode: certificate.verificationCode },
+      {
+        resultId,
+        passed: result.passed,
+        percentage: Number(result.percentage),
+        eligible: !isOverride,
+        ...(isOverride ? { ineligibilityReason: eligibility.reason, overrideReason: reason } : {}),
+      },
+      {
+        id: certificate.id,
+        certificateNo: certificate.certificateNo,
+        verificationCode: certificate.verificationCode,
+        assignment: certificate.assignment,
+        templateId: certificate.templateId,
+      },
     );
     return certificate;
   }
@@ -284,6 +364,15 @@ export class CertificatesService {
       }
 
       if (issueable.length > 0) {
+        // Resolved once for the whole run: every certificate from this bulk
+        // operation must render from the same template version, even if an
+        // admin publishes a new default mid-run.
+        const template = await this.content.resolveForExam(examId);
+        const snapshot = template
+          ? JSON.stringify({ id: template.id, slug: template.slug, name: template.name, version: template.version, content: template.content, design: template.design })
+          : null;
+        const templateId = template?.id ?? null;
+
         // createMany + skipDuplicates makes a concurrent second run a no-op
         // instead of a P2002 crash.
         const inserted = await this.prisma.certificate.createMany({
@@ -292,6 +381,9 @@ export class CertificatesService {
             certificateNo: `OES-${Date.now().toString(36).toUpperCase()}-${randomUUID().slice(0, 6).toUpperCase()}`,
             verificationCode: randomUUID(),
             expiresAt: certificateExpiry(exam.certificateValidityDays),
+            assignment: CertificateAssignment.BULK,
+            templateId,
+            templateSnapshot: snapshot,
           })),
           skipDuplicates: true,
         });
@@ -339,13 +431,20 @@ export class CertificatesService {
     if (!eligibility.eligible) return null;
 
     try {
-      const certificate = await this.create(result.id, result.exam.certificateValidityDays);
+      const template = await this.content.resolveForExam(result.exam.id);
+      const certificate = await this.create(result.id, result.exam.certificateValidityDays, {
+        assignment: CertificateAssignment.AUTO,
+        templateId: template?.id ?? null,
+        templateSnapshot: template
+          ? JSON.stringify({ id: template.id, slug: template.slug, name: template.name, version: template.version, content: template.content, design: template.design })
+          : null,
+      });
       this.audit(
         actorId,
         'CERTIFICATE_AUTO_ISSUED',
         resultId,
         { resultId },
-        { id: certificate.id, certificateNo: certificate.certificateNo },
+        { id: certificate.id, certificateNo: certificate.certificateNo, templateId: certificate.templateId },
       );
       return certificate;
     } catch (error) {
@@ -360,6 +459,26 @@ export class CertificatesService {
       if (existing) return existing;
       this.audit(actorId, 'CERTIFICATE_AUTO_ISSUE_FAILED', resultId, { resultId }, { reason: String(error) });
       return null;
+    }
+  }
+
+  /**
+   * Reads the frozen template copy stored on the certificate. Falls back to the
+   * built-in wording for certificates issued before the CMS existed, and treats
+   * any corrupt or partial snapshot the same way rather than failing the render.
+   */
+  private snapshotFor(snapshot: string | null): { content: TemplateContent; design: TemplateDesign } {
+    if (!snapshot) {
+      return { content: { ...DEFAULT_TEMPLATE_CONTENT }, design: { ...DEFAULT_TEMPLATE_DESIGN } };
+    }
+    try {
+      const parsed = JSON.parse(snapshot) as { content?: unknown; design?: unknown };
+      return {
+        content: parseTemplateContent(typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content ?? {})),
+        design: parseTemplateDesign(typeof parsed.design === 'string' ? parsed.design : JSON.stringify(parsed.design ?? {})),
+      };
+    } catch {
+      return { content: { ...DEFAULT_TEMPLATE_CONTENT }, design: { ...DEFAULT_TEMPLATE_DESIGN } };
     }
   }
 
@@ -386,52 +505,122 @@ export class CertificatesService {
     const percentage = Number(result.percentage);
     const expired = isExpired(certificate.expiresAt);
 
+    // The snapshot taken at issue time is the source of truth, never the live
+    // template: editing a template must not change a certificate a student
+    // already holds. Only a certificate issued before the CMS existed has no
+    // snapshot, and those render the built-in wording.
+    const { content: text, design } = this.snapshotFor(certificate.templateSnapshot);
+
+    const issuedOn = certificate.issuedAt.toISOString().slice(0, 10);
+    const expiryOn = certificate.expiresAt ? certificate.expiresAt.toISOString().slice(0, 10) : '';
+    const values: TemplatePlaceholders = {
+      recipient: fullName,
+      email: student?.email ?? '',
+      exam: result.exam.title,
+      score: String(score),
+      maxScore: String(maxScore),
+      percentage: `${percentage}%`,
+      grade: String(result.grade ?? ''),
+      issueDate: issuedOn,
+      expiryDate: expiryOn,
+      certificateNo: certificate.certificateNo,
+      verificationCode: certificate.verificationCode,
+    };
+
     const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 56 });
     const chunks: Buffer[] = [];
     doc.on('data', (chunk: Buffer) => chunks.push(chunk));
 
     const draw = () => {
-      doc.fontSize(26).text('Certificate of Achievement', { align: 'center' });
-      doc.moveDown(0.8);
-      doc.fontSize(13).text('Online Examination System', { align: 'center' });
-      doc.moveDown(1.6);
+      if (design.showBorder) {
+        const { width, height } = doc.page;
+        const inset = 28;
+        doc
+          .save()
+          .lineWidth(design.borderWidth)
+          .strokeColor(design.accentColor)
+          .rect(inset, inset, width - inset * 2, height - inset * 2)
+          .stroke()
+          .restore();
+        doc.y = inset + 24;
+      }
+      doc.fillColor(design.textColor);
 
-      doc.fontSize(14).text('This is to certify that', { align: 'center' });
-      doc.moveDown(0.4);
-      doc.fontSize(24).text(fullName, { align: 'center' });
-      if (student?.email) {
+      const drawLogo = (url: string) => {
+        doc.image(url, { fit: [design.logoWidth, design.logoWidth], align: 'center' });
+        doc.moveDown(0.6);
+      };
+
+      if (text.logoUrl) {
+        try {
+          drawLogo(text.logoUrl);
+        } catch {
+          // An unreachable or corrupt logo must not fail the whole download.
+        }
+      }
+
+      doc.fontSize(26).text(interpolate(text.title, values), { align: 'center' });
+      doc.moveDown(0.8);
+      if (text.issuerName) {
+        doc.fontSize(13).text(interpolate(text.issuerName, values), { align: 'center' });
+        doc.moveDown(1.6);
+      }
+
+      if (text.introText) {
+        doc.fontSize(14).text(interpolate(text.introText, values), { align: 'center' });
+        doc.moveDown(0.4);
+      }
+      doc.fontSize(24).text(interpolate(fullName, values), { align: 'center' });
+      if (text.showRecipientEmail && student?.email) {
         doc.moveDown(0.2);
         doc.fontSize(10).text(student.email, { align: 'center' });
       }
       doc.moveDown(1.4);
 
-      doc.fontSize(14).text('has successfully completed', { align: 'center' });
-      doc.moveDown(0.4);
+      if (text.bodyText) {
+        doc.fontSize(14).text(interpolate(text.bodyText, values), { align: 'center' });
+        doc.moveDown(0.4);
+      }
       doc.fontSize(20).text(result.exam.title, { align: 'center' });
       doc.moveDown(1.6);
 
-      doc.fontSize(12).text(`Score: ${score} / ${maxScore}  (${percentage}%)`, { align: 'center' });
-      doc.moveDown(0.3);
-      doc.fontSize(12).text(`Issued on: ${certificate.issuedAt.toISOString().slice(0, 10)}`, { align: 'center' });
-      if (certificate.expiresAt) {
+      if (text.showScore) {
+        doc.fontSize(12).text(`Score: ${score} / ${maxScore}  (${percentage}%)`, { align: 'center' });
+        doc.moveDown(0.3);
+      }
+      doc.fontSize(12).text(`Issued on: ${issuedOn}`, { align: 'center' });
+      if (text.showValidity && certificate.expiresAt) {
         doc.moveDown(0.3);
         doc.fontSize(12).text(
-          expired
-            ? `Expired on: ${certificate.expiresAt.toISOString().slice(0, 10)}`
-            : `Valid until: ${certificate.expiresAt.toISOString().slice(0, 10)}`,
+          expired ? `Expired on: ${expiryOn}` : `Valid until: ${expiryOn}`,
           { align: 'center' },
         );
       }
       doc.moveDown(2);
 
+      if (text.showSignatory && text.signatoryName) {
+        doc.fontSize(12).text(interpolate(text.signatoryName, values), { align: 'center' });
+        if (text.signatoryTitle) {
+          doc.moveDown(0.2);
+          doc.fontSize(9).text(interpolate(text.signatoryTitle, values), { align: 'center' });
+        }
+        doc.moveDown(0.8);
+      }
+
+      if (text.sealText) {
+        doc.fontSize(9).text(interpolate(text.sealText, values), { align: 'center' });
+        doc.moveDown(0.4);
+      }
       doc.fontSize(9).text(`Certificate No: ${certificate.certificateNo}`, { align: 'center' });
       doc.moveDown(0.2);
       doc.fontSize(9).text(`Verification code: ${certificate.verificationCode}`, { align: 'center' });
-      doc.moveDown(1.4);
-      doc
-        .fontSize(8)
-        .fillColor('#666666')
-        .text('Verify this certificate using the verification code at the public verification endpoint.', { align: 'center' });
+      if (text.footerNote) {
+        doc.moveDown(1.4);
+        doc
+          .fontSize(8)
+          .fillColor('#666666')
+          .text(interpolate(text.footerNote, values), { align: 'center' });
+      }
       doc.end();
     };
 
@@ -470,7 +659,7 @@ export class CertificatesService {
     return { id, revoked: true as const };
   }
 
-  async reissue(id: string, user: AuthenticatedUser) {
+  async reissue(id: string, user: AuthenticatedUser, overrideReason?: string | null) {
     const certificate = await this.prisma.certificate.findUnique({
       where: { id },
       include: {
@@ -492,10 +681,22 @@ export class CertificatesService {
     await this.access.assertCanManage(certificate.result.examId, user);
 
     const eligibility = this.eligibilityFor(certificate.result, false);
-    if (!eligibility.eligible) {
-      throw new BadRequestException(
-        CERTIFICATE_INELIGIBILITY_MESSAGES[eligibility.reason as keyof typeof CERTIFICATE_INELIGIBILITY_MESSAGES],
-      );
+    const reason = overrideReason?.trim();
+    // An override reason is accepted here for the same reason it is on issue: a
+    // certificate that was legitimately issued under a manual override must
+    // still be replaceable after the exam's rules tighten, otherwise revoking
+    // it would permanently strand the student.
+    const carriedReason = certificate.overrideReason;
+    const isOverride = !eligibility.eligible;
+    if (isOverride && !carriedReason && (!reason || reason.length < MIN_OVERRIDE_REASON_LENGTH)) {
+      throw new BadRequestException({
+        code: 'CERTIFICATE_OVERRIDE_REASON_REQUIRED',
+        message: CERTIFICATE_INELIGIBILITY_MESSAGES[eligibility.reason as keyof typeof CERTIFICATE_INELIGIBILITY_MESSAGES],
+        ineligibilityReason: eligibility.reason,
+        minReasonLength: MIN_OVERRIDE_REASON_LENGTH,
+        overridePrompt:
+          'This result is no longer eligible for a certificate. Provide a justification to reissue it anyway; it will be recorded as a manual override.',
+      });
     }
 
     // An interactive callback, not `$transaction([...])`: passing already-created
@@ -504,7 +705,21 @@ export class CertificatesService {
     // constraint on resultId, leaving the student with no certificate at all.
     const next = await this.prisma.$transaction(async (tx) => {
       await tx.certificate.delete({ where: { id } });
-      return this.create(certificate.resultId, certificate.result.exam.certificateValidityDays, tx);
+      // A reissue stands in for the same achievement, so it keeps the original's
+      // provenance and, critically, its template snapshot: reissuing must not
+      // silently re-render the certificate with a template edited since.
+      return this.create(
+        certificate.resultId,
+        certificate.result.exam.certificateValidityDays,
+        {
+          assignment: certificate.assignment,
+          overrideReason: carriedReason ?? (isOverride ? reason! : null),
+          issuedById: user.sub,
+          templateId: certificate.templateId,
+          templateSnapshot: certificate.templateSnapshot,
+        },
+        tx,
+      );
     });
 
     this.audit(

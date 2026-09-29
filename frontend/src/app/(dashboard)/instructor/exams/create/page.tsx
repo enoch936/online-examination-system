@@ -4,6 +4,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { coursesService } from '@/services/courses.service';
+import { contentService } from '@/services/content.service';
 import { examsService } from '@/services/exams.service';
 import type { Question, QuestionBankPoolItem, QuestionPoolCourse } from '@/types/api';
 import { Badge } from '@/components/ui/badge';
@@ -64,6 +65,15 @@ export default function CreateExamPage() {
   const [certificateAutoIssue, setCertificateAutoIssue] = useState(false);
   const [certificateMinPercentage, setCertificateMinPercentage] = useState('');
   const [certificateValidityDays, setCertificateValidityDays] = useState('');
+  const [certificateTemplateId, setCertificateTemplateId] = useState('');
+
+  // Only admins may edit templates, so a non-admin instructor simply gets an
+  // empty list and the select collapses to "use the default".
+  const { data: certificateTemplates } = useQuery({
+    queryKey: ['content', 'templates'],
+    queryFn: () => contentService.listTemplates(),
+    retry: false,
+  });
 
   const { data: courses, isLoading: coursesLoading } = useQuery({
     queryKey: ['courses'],
@@ -180,6 +190,7 @@ export default function CreateExamPage() {
         certificateEnabled && certificateMinPercentage !== '' ? Number(certificateMinPercentage) : null,
       certificateValidityDays:
         certificateEnabled && certificateValidityDays !== '' ? Number(certificateValidityDays) : null,
+      certificateTemplateId: certificateEnabled && certificateTemplateId ? certificateTemplateId : null,
       startsAt: new Date(startsAt).toISOString(),
       endsAt: new Date(endsAt).toISOString(),
       questionIds: selectedQuestionIds,
@@ -524,6 +535,7 @@ export default function CreateExamPage() {
                         setCertificateAutoIssue(false);
                         setCertificateMinPercentage('');
                         setCertificateValidityDays('');
+                        setCertificateTemplateId('');
                       }
                     }}
                   />
@@ -561,6 +573,29 @@ export default function CreateExamPage() {
                         onChange={(e) => setCertificateValidityDays(e.target.value)}
                         placeholder="e.g. 365 — leave blank for no expiry"
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="certTemplate">Certificate template</Label>
+                      <select
+                        id="certTemplate"
+                        className="flex h-10 w-full rounded-lg border bg-background px-3 py-2 text-sm shadow-sm"
+                        value={certificateTemplateId}
+                        onChange={(e) => setCertificateTemplateId(e.target.value)}
+                      >
+                        <option value="">
+                          Use the default template
+                        </option>
+                        {certificateTemplates?.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name}
+                            {template.isDefault ? ' (default)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        Pin a specific wording and design to this exam. Leave blank to follow whichever
+                        template is the system default at the moment a certificate is issued.
+                      </p>
                     </div>
                     <label className="flex items-start gap-3 cursor-pointer">
                       <input

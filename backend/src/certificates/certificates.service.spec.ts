@@ -1,7 +1,8 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CertificatesService } from './certificates.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { ExamAccessService } from '../common/exam-access.service';
+import type { ContentService } from '../content/content.service';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.type';
 
 /**
@@ -21,13 +22,13 @@ const instructor = { sub: 'instructor-1', roles: ['INSTRUCTOR'] } as unknown as 
 interface FakePrisma {
   exam: { findUnique: jest.Mock };
   result: { findMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
-  certificate: { createMany: jest.Mock; create: jest.Mock; findFirst: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock; delete: jest.Mock; update: jest.Mock };
+  certificate: { createMany: jest.Mock; create: jest.Mock; findFirst: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock; delete: jest.Mock; update: jest.Mock; count: jest.Mock };
   submission: { findUnique: jest.Mock; update: jest.Mock };
   $transaction: jest.Mock;
   auditLog: { create: jest.Mock };
 }
 
-function makeService(overrides: { access?: Partial<ExamAccessService> } = {}) {
+function makeService(overrides: { access?: Partial<ExamAccessService>; content?: Partial<ContentService> } = {}) {
   const prisma: FakePrisma = {
     exam: { findUnique: jest.fn() },
     result: {
@@ -44,14 +45,19 @@ function makeService(overrides: { access?: Partial<ExamAccessService> } = {}) {
       findMany: jest.fn(),
       delete: jest.fn(),
       update: jest.fn(),
+      // Used by `scopeClauses` visibility checks in buildPdf.
+      count: jest.fn().mockResolvedValue(1),
     },
     submission: { findUnique: jest.fn(), update: jest.fn() },
     $transaction: jest.fn(),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
   };
   const access = { assertCanManage: jest.fn(), ...overrides.access } as unknown as ExamAccessService;
-  const service = new CertificatesService(prisma as unknown as PrismaService, access);
-  return { service, prisma, access };
+  // Defaults to "no template configured", which is the pre-CMS behaviour the
+  // existing assertions were written against.
+  const content = { resolveForExam: jest.fn().mockResolvedValue(null), ...overrides.content } as unknown as ContentService;
+  const service = new CertificatesService(prisma as unknown as PrismaService, access, content);
+  return { service, prisma, access, content };
 }
 
 const passedResult = (id: string, percentage = 80) => ({
@@ -499,5 +505,274 @@ describe('CertificatesService.verify', () => {
     expect(serialised).not.toContain('john@secret.test');
     expect(serialised).not.toContain('resultId');
     expect(serialised).not.toContain('verificationCode');
+  });
+});
+
+describe('CertificatesService.issue (manual assignment)', () => {
+  const eligibleResult = {
+    id: 'result-1',
+    examId: EXAM_ID,
+    passed: true,
+    percentage: 80,
+    publishedAt: new Date('2026-01-02'),
+    certificate: null,
+    exam: {
+      id: EXAM_ID,
+      title: 'Exam',
+      totalMarks: 100,
+      passingMarks: 40,
+      certificateEnabled: true,
+      certificateMinPercentage: null,
+      certificateValidityDays: null,
+      certificateAutoIssue: false,
+    },
+  };
+
+  const createdCertificate = {
+    id: 'cert-1',
+    certificateNo: 'OES-X',
+    verificationCode: 'code',
+    assignment: 'MANUAL',
+    templateId: null,
+  };
+
+  it('issues an eligible result and records it as a MANUAL assignment', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue(eligibleResult);
+    prisma.certificate.create.mockResolvedValue(createdCertificate);
+
+    await service.issue('result-1', instructor);
+
+    const [{ data }] = prisma.certificate.create.mock.calls[0];
+    expect(data.assignment).toBe('MANUAL');
+    expect(data.overrideReason).toBeNull();
+    expect(data.issuedById).toBe(instructor.sub);
+  });
+
+  /** Captures the structured error body the global exception filter would emit. */
+  async function rejectionBody(promise: Promise<unknown>): Promise<Record<string, unknown>> {
+    try {
+      await promise;
+    } catch (error) {
+      if (error instanceof BadRequestException) return error.getResponse() as Record<string, unknown>;
+      throw error;
+    }
+    throw new Error('expected the call to reject');
+  }
+
+  it('refuses an ineligible result with no justification and never writes', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, passed: false });
+
+    const body = await rejectionBody(service.issue('result-1', instructor));
+
+    // The structured code is what lets the UI open the justification dialog
+    // rather than pattern-match a human-readable message.
+    expect(body.code).toBe('CERTIFICATE_OVERRIDE_REASON_REQUIRED');
+    expect(body.minReasonLength).toBeGreaterThan(0);
+    expect(prisma.certificate.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a justification shorter than the minimum as not a real reason', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, passed: false });
+
+    const body = await rejectionBody(service.issue('result-1', instructor, 'ok'));
+
+    expect(body.code).toBe('CERTIFICATE_OVERRIDE_REASON_REQUIRED');
+    expect(prisma.certificate.create).not.toHaveBeenCalled();
+  });
+
+  it('issues an ineligible result when a justification is supplied', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, passed: false });
+    prisma.certificate.create.mockResolvedValue(createdCertificate);
+
+    await service.issue('result-1', instructor, 'Medical exemption approved by the dean');
+
+    const [{ data }] = prisma.certificate.create.mock.calls[0];
+    expect(data.assignment).toBe('MANUAL');
+    expect(data.overrideReason).toBe('Medical exemption approved by the dean');
+  });
+
+  it('is idempotent: an existing certificate is returned untouched', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue({ ...eligibleResult, certificate: { id: 'cert-existing' } });
+
+    expect(await service.issue('result-1', instructor)).toEqual({ id: 'cert-existing' });
+    expect(prisma.certificate.create).not.toHaveBeenCalled();
+  });
+
+  it('authorises before deciding anything', async () => {
+    const { service, prisma, access } = makeService();
+    prisma.result.findUnique.mockResolvedValue(eligibleResult);
+    (access.assertCanManage as jest.Mock).mockRejectedValue(new NotFoundException('nope'));
+
+    await expect(service.issue('result-1', instructor)).rejects.toThrow(NotFoundException);
+    expect(prisma.certificate.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('CertificatesService template snapshot', () => {
+  const result = {
+    id: 'result-1',
+    examId: EXAM_ID,
+    passed: true,
+    percentage: 80,
+    publishedAt: new Date('2026-01-02'),
+    certificate: null,
+    exam: {
+      id: EXAM_ID,
+      title: 'Exam',
+      totalMarks: 100,
+      passingMarks: 40,
+      certificateEnabled: true,
+      certificateMinPercentage: null,
+      certificateValidityDays: null,
+      certificateAutoIssue: false,
+    },
+  };
+
+  const template = {
+    id: 'tpl-1',
+    slug: 'standard',
+    name: 'Standard',
+    version: 3,
+    content: { title: 'Custom title' },
+    design: { accentColor: '#123456' },
+  };
+
+  it('freezes a resolvable template onto the certificate at issue time', async () => {
+    const { service, prisma } = makeService({ content: { resolveForExam: jest.fn().mockResolvedValue(template) } as never });
+    prisma.result.findUnique.mockResolvedValue(result);
+    prisma.certificate.create.mockResolvedValue({ id: 'cert-1' });
+
+    await service.issue('result-1', instructor);
+
+    const [{ data }] = prisma.certificate.create.mock.calls[0];
+    expect(data.templateId).toBe('tpl-1');
+    // The snapshot carries the version, which is what makes an already-issued
+    // certificate immune to later template edits.
+    expect(JSON.parse(data.templateSnapshot)).toMatchObject({ id: 'tpl-1', version: 3 });
+  });
+
+  it('leaves templateId null when no template is configured at all', async () => {
+    const { service, prisma } = makeService();
+    prisma.result.findUnique.mockResolvedValue(result);
+    prisma.certificate.create.mockResolvedValue({ id: 'cert-1' });
+
+    await service.issue('result-1', instructor);
+
+    const [{ data }] = prisma.certificate.create.mock.calls[0];
+    expect(data.templateId).toBeNull();
+    expect(data.templateSnapshot).toBeNull();
+  });
+
+  it('snapshots the same template for every certificate in a bulk run', async () => {
+    const resolveForExam = jest.fn().mockResolvedValue(template);
+    const { service, prisma } = makeService({ content: { resolveForExam } as never });
+    prisma.exam.findUnique.mockResolvedValue({
+      id: EXAM_ID,
+      title: 'Exam',
+      totalMarks: 100,
+      passingMarks: 40,
+      certificateEnabled: true,
+      certificateMinPercentage: null,
+      certificateValidityDays: null,
+      certificateAutoIssue: false,
+    });
+    prisma.result.findMany.mockResolvedValueOnce([
+      { id: 'r1', passed: true, percentage: 80, publishedAt: new Date() },
+      { id: 'r2', passed: true, percentage: 90, publishedAt: new Date() },
+    ]);
+    prisma.certificate.createMany.mockResolvedValue({ count: 2 });
+    prisma.result.count.mockResolvedValue(2);
+
+    await service.generateForExam(EXAM_ID, instructor);
+
+    const [{ data }] = prisma.certificate.createMany.mock.calls[0];
+    expect(data.every((row: { templateId: string }) => row.templateId === 'tpl-1')).toBe(true);
+    // Resolved once, not once per certificate: a mid-run publish cannot split
+    // one batch across two template versions.
+    expect(resolveForExam).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CertificatesService.buildPdf', () => {
+  it('renders the frozen snapshot rather than the live template', async () => {
+    const { service, prisma } = makeService();
+    prisma.certificate.findUnique.mockResolvedValue({
+      id: 'cert-1',
+      certificateNo: 'OES-ABC-123',
+      verificationCode: 'code-1',
+      issuedAt: new Date('2026-01-01'),
+      expiresAt: null,
+      templateSnapshot: JSON.stringify({
+        id: 'tpl-1',
+        version: 2,
+        content: { title: 'Frozen title wording', showScore: false },
+        design: { accentColor: '#000000' },
+      }),
+      result: {
+        score: 10,
+        maxScore: 20,
+        percentage: 50,
+        grade: 'B',
+        exam: { title: 'Exam', totalMarks: 20, passingMarks: 10 },
+        submission: { session: { student: { firstName: 'John', lastName: 'Doe', email: 'j@x.test' } } },
+      },
+    });
+
+    const { buffer } = await service.buildPdf('cert-1', instructor);
+
+    expect(buffer.subarray(0, 4).toString()).toBe('%PDF');
+  });
+
+  it('still renders for a certificate issued before the CMS existed', async () => {
+    const { service, prisma } = makeService();
+    prisma.certificate.findUnique.mockResolvedValue({
+      id: 'cert-1',
+      certificateNo: 'OES-ABC-123',
+      verificationCode: 'code-1',
+      issuedAt: new Date('2026-01-01'),
+      expiresAt: null,
+      templateSnapshot: null,
+      result: {
+        score: 10,
+        maxScore: 20,
+        percentage: 50,
+        grade: 'B',
+        exam: { title: 'Exam', totalMarks: 20, passingMarks: 10 },
+        submission: { session: { student: { firstName: 'John', lastName: 'Doe', email: 'j@x.test' } } },
+      },
+    });
+
+    const { buffer } = await service.buildPdf('cert-1', instructor);
+
+    expect(buffer.subarray(0, 4).toString()).toBe('%PDF');
+  });
+
+  it('does not fail on a corrupt snapshot', async () => {
+    const { service, prisma } = makeService();
+    prisma.certificate.findUnique.mockResolvedValue({
+      id: 'cert-1',
+      certificateNo: 'OES-ABC-123',
+      verificationCode: 'code-1',
+      issuedAt: new Date('2026-01-01'),
+      expiresAt: null,
+      templateSnapshot: '{not valid json',
+      result: {
+        score: 10,
+        maxScore: 20,
+        percentage: 50,
+        grade: 'B',
+        exam: { title: 'Exam', totalMarks: 20, passingMarks: 10 },
+        submission: { session: { student: { firstName: 'John', lastName: 'Doe', email: 'j@x.test' } } },
+      },
+    });
+
+    const { buffer } = await service.buildPdf('cert-1', instructor);
+
+    expect(buffer.subarray(0, 4).toString()).toBe('%PDF');
   });
 });

@@ -24,14 +24,24 @@ export const certificatesService = {
       await api.get(`/certificates/verify/${encodeURIComponent(codeOrNumber)}`),
     );
   },
-  async issue(resultId: string) {
-    return unwrap<Certificate>(await api.post(`/certificates/${resultId}/issue`));
+  /**
+   * Assigns a certificate to a result. A result that meets the eligibility rules
+   * issues immediately. One that does not is rejected with the
+   * `CERTIFICATE_OVERRIDE_REASON_REQUIRED` code, and the caller must retry with
+   * a justification, which is stored on the certificate as a manual override.
+   */
+  async issue(resultId: string, overrideReason?: string) {
+    return unwrap<Certificate>(
+      await api.post(`/certificates/${resultId}/issue`, overrideReason ? { overrideReason } : {}),
+    );
   },
   async revoke(id: string) {
     return unwrap<{ id: string; revoked: true }>(await api.post(`/certificates/${id}/revoke`));
   },
-  async reissue(id: string) {
-    return unwrap<Certificate>(await api.post(`/certificates/${id}/reissue`));
+  async reissue(id: string, overrideReason?: string) {
+    return unwrap<Certificate>(
+      await api.post(`/certificates/${id}/reissue`, overrideReason ? { overrideReason } : {}),
+    );
   },
   /**
    * Issues a certificate for every eligible, not-yet-certified result of an exam.
@@ -63,4 +73,31 @@ export function saveBlob(blob: Blob, filename: string) {
   anchor.click();
   document.body.removeChild(anchor);
   window.URL.revokeObjectURL(url);
+}
+
+/**
+ * The structured body the backend sends when a certificate can only be issued
+ * with a written justification. The global exception filter nests the raw
+ * `HttpException` payload under `error`.
+ */
+export type CertificateOverrideRequired = {
+  code: 'CERTIFICATE_OVERRIDE_REASON_REQUIRED';
+  message: string;
+  ineligibilityReason: string;
+  minReasonLength: number;
+  overridePrompt: string;
+};
+
+/**
+ * Returns the override payload when the server rejected a request specifically
+ * because it needs a justification, and `null` for any other failure. Detecting
+ * this by a stable code — not by matching a message — is what makes the UI
+ * robust to wording changes.
+ */
+export function overrideRequiredFrom(error: unknown): CertificateOverrideRequired | null {
+  const body = (error as { response?: { data?: { error?: Record<string, unknown> } } })?.response?.data?.error;
+  if (body && body.code === 'CERTIFICATE_OVERRIDE_REASON_REQUIRED') {
+    return body as unknown as CertificateOverrideRequired;
+  }
+  return null;
 }

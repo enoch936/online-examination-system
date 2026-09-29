@@ -37,7 +37,15 @@ function section(title: string) {
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const created = { examIds: [] as string[], userIds: [] as string[], courseIds: [] as string[], subjectIds: [] as string[], bankIds: [] as string[] };
+const created = {
+  examIds: [] as string[],
+  userIds: [] as string[],
+  courseIds: [] as string[],
+  subjectIds: [] as string[],
+  bankIds: [] as string[],
+  templateIds: [] as string[],
+  documentIds: [] as string[],
+};
 let examCounter = 0;
 
 async function makeInstructor(): Promise<string> {
@@ -172,6 +180,33 @@ async function makeResult(examId: string, studentId: string, questionIds: string
 // ---------------------------------------------------------------------------
 // Scenarios
 // ---------------------------------------------------------------------------
+
+/**
+ * Runs `fn` while `templateId` is the only default template, then restores
+ * whichever templates were default beforehand. Several scenarios need to reason
+ * about "the default", and this script must not permanently change the default
+ * of a database it did not create.
+ */
+async function withSoleDefaultTemplate<T>(templateId: string, fn: () => Promise<T>): Promise<T> {
+  const prior = await prisma.certificateTemplate.findMany({ where: { isDefault: true }, select: { id: true } });
+  const restore = async () => {
+    await prisma.certificateTemplate.updateMany({ where: { isDefault: true }, data: { isDefault: false } });
+    if (prior.length > 0) {
+      await prisma.certificateTemplate.updateMany({ where: { id: { in: prior.map((p) => p.id) } }, data: { isDefault: true } });
+    }
+  };
+
+  await prisma.$transaction([
+    prisma.certificateTemplate.updateMany({ where: { isDefault: true }, data: { isDefault: false } }),
+    prisma.certificateTemplate.update({ where: { id: templateId }, data: { isDefault: true } }),
+  ]);
+
+  try {
+    return await fn();
+  } finally {
+    await restore();
+  }
+}
 
 async function main() {
   const instructorId = await makeInstructor();
@@ -615,6 +650,184 @@ async function main() {
     check('the submission is removed with the session', orphans[1] === 0, `got ${orphans[1]}`);
   }
 
+  // -- Q: certificate assignment provenance persists -------------------------
+  section('Q. A manual certificate records its assignment and override reason');
+  {
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const studentId = await makeStudent(30);
+    const { result } = await makeResult(exam.id, studentId, [], 2); // failed, overridden
+
+    const certificate = await prisma.certificate.create({
+      data: {
+        resultId: result.id,
+        certificateNo: `E2E-Q-${RUN}`,
+        verificationCode: randomUUID(),
+        assignment: 'MANUAL',
+        overrideReason: 'Dean approved a special exemption',
+        issuedById: instructorId,
+      },
+    });
+    const reloaded = await prisma.certificate.findUnique({ where: { id: certificate.id } });
+    check('assignment persisted as MANUAL', reloaded?.assignment === 'MANUAL');
+    check('overrideReason persisted', reloaded?.overrideReason === 'Dean approved a special exemption');
+    check('issuedById persisted', reloaded?.issuedById === instructorId);
+
+    // The default must stay BULK so an earned certificate is distinguishable.
+    const earned = await prisma.certificate.create({
+      data: { resultId: (await makeResult(exam.id, await makeStudent(31), [], 10)).result.id, certificateNo: `E2E-Q2-${RUN}`, verificationCode: randomUUID() },
+    });
+    check('an unspecified assignment defaults to BULK', earned.assignment === 'BULK');
+    check('an unspecified override reason defaults to null', earned.overrideReason === null);
+  }
+
+  // -- R: the snapshot is frozen against template edits and deletion ---------
+  section('R. templateSnapshot stays valid after the template is edited or deleted');
+  {
+    const template = await prisma.certificateTemplate.create({
+      data: {
+        slug: `e2e-frozen-${RUN}`,
+        name: 'E2E Frozen',
+        status: 'PUBLISHED',
+        content: JSON.stringify({ title: 'Original wording' }),
+        design: JSON.stringify({ accentColor: '#111111' }),
+        createdById: instructorId,
+        isDefault: false,
+      },
+    });
+    created.templateIds.push(template.id);
+
+    const { exam } = await makeExam(instructorId, { certificateEnabled: true });
+    const { result } = await makeResult(exam.id, await makeStudent(32), [], 10);
+    const certificate = await prisma.certificate.create({
+      data: {
+        resultId: result.id,
+        certificateNo: `E2E-R-${RUN}`,
+        verificationCode: randomUUID(),
+        templateId: template.id,
+        templateSnapshot: JSON.stringify({ id: template.id, version: 1, content: { title: 'Original wording' } }),
+      },
+    });
+
+    // Edit the live template. The snapshot must not move.
+    await prisma.certificateTemplate.update({ where: { id: template.id }, data: { content: JSON.stringify({ title: 'CHANGED' }) } });
+    const afterEdit = await prisma.certificate.findUnique({ where: { id: certificate.id } });
+    check('editing the template leaves the snapshot untouched', JSON.parse(afterEdit!.templateSnapshot!).content.title === 'Original wording');
+    check('the live template really did change', JSON.parse((await prisma.certificateTemplate.findUniqueOrThrow({ where: { id: template.id } })).content).title === 'CHANGED');
+
+    // Delete the template: the FK is SET NULL, the snapshot must survive.
+    await prisma.certificateTemplate.delete({ where: { id: template.id } });
+    const afterDelete = await prisma.certificate.findUnique({ where: { id: certificate.id } });
+    check('deleting the template nulls templateId', afterDelete?.templateId === null);
+    check('the issued certificate keeps its frozen snapshot', JSON.parse(afterDelete!.templateSnapshot!).content.title === 'Original wording');
+  }
+
+  // -- S: unique constraints on templates, revisions and documents -----------
+  section('S. Template, revision and content-document uniqueness is enforced');
+  {
+    const slug = `e2e-unique-${RUN}`;
+    const template = await prisma.certificateTemplate.create({
+      data: { slug, name: 'E2E Unique', createdById: instructorId, content: '{}', design: '{}' },
+    });
+    created.templateIds.push(template.id);
+
+    let slugConflict = false;
+    try {
+      await prisma.certificateTemplate.create({ data: { slug, name: 'Duplicate', createdById: instructorId, content: '{}', design: '{}' } });
+    } catch (error) {
+      slugConflict = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+    }
+    check('a duplicate template slug raises P2002', slugConflict);
+
+    await prisma.templateRevision.create({
+      data: { templateId: template.id, version: 1, content: '{}', design: '{}', status: 'DRAFT', authorId: instructorId },
+    });
+    let revisionConflict = false;
+    try {
+      await prisma.templateRevision.create({
+        data: { templateId: template.id, version: 1, content: '{}', design: '{}', status: 'DRAFT', authorId: instructorId },
+      });
+    } catch (error) {
+      revisionConflict = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+    }
+    check('a duplicate (templateId, version) revision raises P2002', revisionConflict);
+
+    const key = `e2e.doc.${RUN}`;
+    const document = await prisma.contentDocument.create({
+      data: { key, title: 'E2E Doc', content: '{}', createdById: instructorId },
+    });
+    created.documentIds.push(document.id);
+    let keyConflict = false;
+    try {
+      await prisma.contentDocument.create({ data: { key, title: 'Duplicate', content: '{}', createdById: instructorId } });
+    } catch (error) {
+      keyConflict = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+    }
+    check('a duplicate content-document key raises P2002', keyConflict);
+  }
+
+  // -- T: the default-template swap leaves exactly one default ---------------
+  section('T. Promoting a default template atomically clears the previous one');
+  {
+    const a = await prisma.certificateTemplate.create({
+      data: { slug: `e2e-default-a-${RUN}`, name: 'A', status: 'PUBLISHED', isDefault: false, createdById: instructorId, content: '{}', design: '{}' },
+    });
+    const b = await prisma.certificateTemplate.create({
+      data: { slug: `e2e-default-b-${RUN}`, name: 'B', status: 'PUBLISHED', isDefault: false, createdById: instructorId, content: '{}', design: '{}' },
+    });
+    created.templateIds.push(a.id, b.id);
+
+    await prisma.certificateTemplate.update({ where: { id: a.id }, data: { isDefault: true } });
+
+    // The exact statement pair the service runs, to prove the swap is safe.
+    await prisma.$transaction([
+      prisma.certificateTemplate.updateMany({ where: { isDefault: true, id: { not: b.id } }, data: { isDefault: false } }),
+      prisma.certificateTemplate.update({ where: { id: b.id }, data: { isDefault: true } }),
+    ]);
+
+    const defaults = await prisma.certificateTemplate.count({ where: { isDefault: true, id: { in: [a.id, b.id] } } });
+    check('exactly one of the two templates is the default afterwards', defaults === 1, `got ${defaults}`);
+    check('the promoted template is the default', (await prisma.certificateTemplate.findUniqueOrThrow({ where: { id: b.id } })).isDefault === true);
+    check('the previous default was cleared', (await prisma.certificateTemplate.findUniqueOrThrow({ where: { id: a.id } })).isDefault === false);
+
+    // Leave the database's own default exactly as it was found.
+    await prisma.certificateTemplate.update({ where: { id: b.id }, data: { isDefault: false } });
+  }
+
+  // -- U: an exam pin wins over the default at resolution time ---------------
+  section('U. An exam-pinned template resolves ahead of the default');
+  {
+    const pinned = await prisma.certificateTemplate.create({
+      data: { slug: `e2e-pinned-${RUN}`, name: 'Pinned', status: 'PUBLISHED', isDefault: false, createdById: instructorId, content: JSON.stringify({ title: 'Pinned title' }), design: '{}' },
+    });
+    const fallback = await prisma.certificateTemplate.create({
+      data: { slug: `e2e-fallback-${RUN}`, name: 'Fallback', status: 'PUBLISHED', isDefault: false, createdById: instructorId, content: JSON.stringify({ title: 'Fallback title' }), design: '{}' },
+    });
+    created.templateIds.push(pinned.id, fallback.id);
+
+    const { exam: pinnedExam } = await makeExam(instructorId, { certificateEnabled: true });
+    await prisma.exam.update({ where: { id: pinnedExam.id }, data: { certificateTemplateId: pinned.id } });
+    const { exam: plainExam } = await makeExam(instructorId, { certificateEnabled: true });
+
+    const resolve = async (examId: string) => {
+      const exam = await prisma.exam.findUnique({
+        where: { id: examId },
+        select: { certificateTemplate: { select: { id: true } } },
+      });
+      if (exam?.certificateTemplate) return exam.certificateTemplate.id;
+      const def = await prisma.certificateTemplate.findFirst({ where: { isDefault: true, status: 'PUBLISHED' } });
+      return def?.id ?? null;
+    };
+
+    await withSoleDefaultTemplate(fallback.id, async () => {
+      check('the pinned exam resolves to its own template', (await resolve(pinnedExam.id)) === pinned.id);
+      check('an unpinned exam resolves to the published default', (await resolve(plainExam.id)) === fallback.id);
+
+      // Deleting the pin must fall back rather than leave nothing.
+      await prisma.certificateTemplate.delete({ where: { id: pinned.id } });
+      check('deleting the pin falls back to the default', (await resolve(pinnedExam.id)) === fallback.id);
+    });
+  }
+
   // -- P: fixtures are fully reclaimable -------------------------------------
   section('P. The fixtures this run created are reclaimable in child-first order');
   {
@@ -632,6 +845,10 @@ async function main() {
     await prisma.questionBank.deleteMany({ where: { id: { in: created.bankIds } } });
     await prisma.course.deleteMany({ where: { id: { in: created.courseIds } } });
     await prisma.subject.deleteMany({ where: { id: { in: created.subjectIds } } });
+    await prisma.templateRevision.deleteMany({ where: { templateId: { in: created.templateIds } } });
+    await prisma.certificateTemplate.deleteMany({ where: { id: { in: created.templateIds } } });
+    await prisma.contentRevision.deleteMany({ where: { documentId: { in: created.documentIds } } });
+    await prisma.contentDocument.deleteMany({ where: { id: { in: created.documentIds } } });
     await prisma.user.deleteMany({ where: { id: { in: created.userIds } } });
 
     const leftover = await Promise.all([
@@ -649,6 +866,8 @@ async function main() {
     created.courseIds.length = 0;
     created.subjectIds.length = 0;
     created.bankIds.length = 0;
+    created.templateIds.length = 0;
+    created.documentIds.length = 0;
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);
@@ -685,6 +904,10 @@ main()
     await prisma.questionBank.deleteMany({ where: { id: { in: created.bankIds } } }).catch(note('banks'));
     await prisma.course.deleteMany({ where: { id: { in: created.courseIds } } }).catch(note('courses'));
     await prisma.subject.deleteMany({ where: { id: { in: created.subjectIds } } }).catch(note('subjects'));
+    await prisma.templateRevision.deleteMany({ where: { templateId: { in: created.templateIds } } }).catch(note('templateRevisions'));
+    await prisma.certificateTemplate.deleteMany({ where: { id: { in: created.templateIds } } }).catch(note('certificateTemplates'));
+    await prisma.contentRevision.deleteMany({ where: { documentId: { in: created.documentIds } } }).catch(note('contentRevisions'));
+    await prisma.contentDocument.deleteMany({ where: { id: { in: created.documentIds } } }).catch(note('contentDocuments'));
     await prisma.user.deleteMany({ where: { id: { in: created.userIds } } }).catch(note('users'));
 
     if (problems.length > 0) {
