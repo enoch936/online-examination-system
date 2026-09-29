@@ -66,6 +66,41 @@ const token = signAccessToken(
   accessSecret,
 );
 
+// A previous run that died mid-flight (a connection reset, a closed laptop)
+// leaves its scratch rows behind, and the next run then fails on the duplicate
+// slug instead of on anything real. Clearing them up front is what makes the
+// script safe to re-run after an interrupted run.
+async function clearResidue() {
+  const templates = await prisma.certificateTemplate.findMany({
+    where: { slug: SCRATCH_SLUG },
+    select: { id: true, isDefault: true },
+  });
+  const documents = await prisma.contentDocument.findMany({ where: { key: SCRATCH_KEY }, select: { id: true } });
+  if (templates.length === 0 && documents.length === 0) return;
+
+  if (templates.some((t) => t.isDefault)) {
+    const real = await prisma.certificateTemplate.findFirst({
+      where: { isDefault: true, slug: { not: SCRATCH_SLUG } },
+      select: { id: true, slug: true },
+    });
+    if (!real) throw new Error('the scratch template is the only default; refusing to clean up');
+    await prisma.certificateTemplate.update({ where: { id: real.id }, data: { isDefault: true } });
+    await prisma.certificateTemplate.updateMany({
+      where: { id: { in: templates.map((t) => t.id) }, isDefault: true },
+      data: { isDefault: false },
+    });
+  }
+  await prisma.templateRevision.deleteMany({ where: { template: { slug: SCRATCH_SLUG } } });
+  await prisma.certificateTemplate.deleteMany({ where: { slug: SCRATCH_SLUG } });
+  await prisma.contentRevision.deleteMany({ where: { document: { key: SCRATCH_KEY } } });
+  await prisma.contentDocument.deleteMany({ where: { key: SCRATCH_KEY } });
+  console.log(
+    `cleared residue from an interrupted run: ${templates.length} template(s), ${documents.length} document(s)`,
+  );
+}
+
+await clearResidue();
+
 const before = await api('/api/v1/content/templates', { token });
 console.log('\n1. list templates');
 check('returns 200 for an admin', before.status === 200, JSON.stringify(before.json).slice(0, 200));
