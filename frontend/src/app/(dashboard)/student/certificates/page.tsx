@@ -66,7 +66,7 @@ function CertificateCard({ certificate }: { certificate: Certificate }) {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Score</span>
                 <span>
-                  {certificate.result.score} ({certificate.result.percentage.toFixed(1)}%)
+                  {certificate.result.score} ({Number(certificate.result.percentage).toFixed(1)}%)
                 </span>
               </div>
               <div className="flex justify-between">

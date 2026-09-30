@@ -38,7 +38,7 @@ function HistoryCard({ result }: { result: Result }) {
             <span>Grade: {result.grade ?? 'N/A'}</span>
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
-            <span>Percentage: {result.percentage.toFixed(1)}%</span>
+            <span>Percentage: {Number(result.percentage).toFixed(1)}%</span>
           </div>
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <Clock className="h-4 w-4" />
