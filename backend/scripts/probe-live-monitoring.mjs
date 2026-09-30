@@ -151,6 +151,12 @@ const result = await new Promise((resolve) => {
   socket.on('exception', (err) => {
     console.log(`  exception      : ${err?.message ?? JSON.stringify(err)}`);
   });
+
+  // Emitted on every successful join since e5625a5 — its presence proves the
+  // deployed backend is running the latest monitoring fixes.
+  socket.on('monitor:config-updated', (cfg) => {
+    console.log(`  config-updated : ${typeof cfg === 'object' ? JSON.stringify(cfg)?.slice(0, 120) : cfg}`);
+  });
 });
 
 if (!result.ok) {
