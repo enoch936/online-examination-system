@@ -392,8 +392,8 @@ const MONITORING_TOGGLES: Array<{ key: MonitorToggleKey; label: string; icon: Re
 ];
 
 const MODE_OPTIONS: Record<MonitorModeKey, string[]> = {
-  webcamMode: ['DISABLED', 'PROMPT', 'REQUIRED'],
-  micMode: ['DISABLED', 'PROMPT', 'REQUIRED'],
+  webcamMode: ['DISABLED', 'OPTIONAL', 'REQUIRED'],
+  micMode: ['DISABLED', 'OPTIONAL', 'REQUIRED'],
 };
 
 const POLICY_OPTIONS: Record<MonitorPolicyKey, string[]> = {

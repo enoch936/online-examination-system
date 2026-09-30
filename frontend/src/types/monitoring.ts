@@ -1,7 +1,7 @@
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type ConnectionState = 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING';
-export type WebcamMode = 'DISABLED' | 'PROMPT' | 'REQUIRED';
-export type MicMode = 'DISABLED' | 'PROMPT' | 'REQUIRED';
+export type WebcamMode = 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
+export type MicMode = 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
 export type FullscreenPolicy = 'DISABLED' | 'OPTIONAL' | 'REQUIRED';
 export type MonitoringStrictness = 'RELAXED' | 'STANDARD' | 'STRICT';
 

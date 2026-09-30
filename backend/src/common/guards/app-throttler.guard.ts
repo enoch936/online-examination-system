@@ -35,17 +35,24 @@ export class AppThrottlerGuard extends ThrottlerGuard {
     const suffix = throttlerName === 'default' ? '' : `-${throttlerName}`;
     const setHeaders = throttler.setHeaders ?? this.commonOptions.setHeaders ?? true;
 
+    // This guard is registered globally, so it also runs for WebSocket and RPC
+    // message handlers. There `res` is the client (a Socket), which has no
+    // .header(), so writing quota headers threw "res.header is not a function"
+    // and every realtime handler died with a 500 before it could run. Rate
+    // limiting still applies; only the HTTP-only header bookkeeping is skipped.
+    const canSetHeaders = setHeaders && context.getType<string>() === 'http';
+
     // Always set the standard headers — including before a 429 throw — so
     // clients always see their quota status (the stock guard only sets them
     // when the request is *not* blocked).
-    if (setHeaders) {
+    if (canSetHeaders) {
       res.header(`${this.headerPrefix}-Limit${suffix}`, limit);
       res.header(`${this.headerPrefix}-Remaining${suffix}`, Math.max(0, limit - totalHits));
       res.header(`${this.headerPrefix}-Reset${suffix}`, timeToExpire);
     }
 
     if (isBlocked) {
-      if (setHeaders) {
+      if (canSetHeaders) {
         res.header(`Retry-After${suffix}`, timeToBlockExpire);
       }
       await this.throwThrottlingException(context, {

@@ -7,6 +7,14 @@ export class AuditInterceptor implements NestInterceptor {
   constructor(private readonly auditLogs: AuditLogsService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    // Each WebSocket message also passes through this globally-registered
+    // interceptor, but there is no HTTP request to audit there and
+    // switchToHttp().getRequest() is undefined — reading .method crashed
+    // every realtime handler. Socket messages are audited by the gateway's
+    // own monitoring/audit logic instead.
+    if (context.getType<string>() !== 'http') {
+      return next.handle();
+    }
     const request = context.switchToHttp().getRequest<{
       method: string;
       originalUrl: string;
