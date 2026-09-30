@@ -129,7 +129,11 @@ const result = await new Promise((resolve) => {
     // a fully successful join.
     socket.emit('monitor:join', { examId: exam.id }, (ack) => {
       clearTimeout(timer);
-      if (ack?.joined) {
+      // The ack is the handler's return value but flows through the global
+      // ResponseTransformInterceptor, so it arrives wrapped as
+      // { success: true, data: { joined } } — accept both shapes.
+      const joined = ack?.joined ?? ack?.data?.joined;
+      if (joined) {
         done({ ok: true, config: ack });
       } else {
         done({ ok: false, why: `monitor:join refused: ${JSON.stringify(ack)}` });

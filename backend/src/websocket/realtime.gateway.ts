@@ -346,6 +346,11 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     });
     if (!canMonitor) return { denied: true };
     client.join(`monitor:${body.examId}`);
+    // Push the current config on join so the monitor page's
+    // monitor:config-updated listener refreshes immediately. (Normally only
+    // emitted when config changes, e.g. monitoring.service.ts saveConfig.)
+    const config = await this.monitoring.getConfig(body.examId);
+    client.emit('monitor:config-updated', { examId: body.examId, config });
     return { joined: body.examId };
   }
 
