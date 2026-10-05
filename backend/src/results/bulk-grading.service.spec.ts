@@ -203,7 +203,7 @@ describe('BulkGradingService', () => {
         {
           id: 'ans-mcq',
           questionId: 'q-mcq',
-          selectedOptionIds: JSON.stringify(['opt-b']), // the wrong option
+          selectedOptionIds: JSON.stringify(['opt-a']), // the correct option
           answerText: null,
           score: 4, // but a grader ruled it worth 4
           graderId: 'grader-1',
@@ -215,7 +215,9 @@ describe('BulkGradingService', () => {
 
     const data = h.resultUpdates[0]!.data;
     expect(data.score).toBe(4);
-    expect(data.autoScore).toBe(0);
+    // The baseline stays what the machine produced, which is the only way the
+    // override is explainable afterwards.
+    expect(data.autoScore).toBe(6);
     expect(data.manualAdjusted).toBe(true);
     // Nothing automatic was left to recompute, so no answer row may be rewritten.
     expect(h.answerUpdates).toHaveLength(0);

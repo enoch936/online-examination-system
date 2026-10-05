@@ -294,12 +294,13 @@ export class BulkGradingService {
       const finalTotal = autoOnly + manualTotal;
       const metrics = computeResultMetrics(finalTotal, scoringConfig);
       // The automatic baseline stays what the objective pass produced on its own,
-      // so the manual contribution remains visible as a difference rather than
-      // being absorbed into `autoScore`.
+      // regardless of what a human later did to it. Keying it off preservation
+      // instead would report 0 exactly when a grader has overridden everything —
+      // erasing the number that makes the override explainable.
       const autoMetrics = computeResultMetrics(
         breakdown.answerScores.reduce((sum, a) => {
-          const answer = answerById.get(a.answerId);
-          if (answer && isPreserved(answer)) return sum;
+          const questionId = answerById.get(a.answerId)?.questionId;
+          if (questionId && manualQuestionIds.has(questionId)) return sum;
           return sum + a.score;
         }, 0),
         scoringConfig,

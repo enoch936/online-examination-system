@@ -286,7 +286,13 @@ async function main() {
   check('onlyUngraded skips an already-graded attempt', ungraded.body?.matched === 0 && ungraded.body?.graded === 0, `${short(JSON.stringify(ungraded.body))}`);
 
   const regrade = await call(instructorToken, 'POST', '/api/v1/results/bulk/grade', { examId: exam.id, regrade: true });
-  check('explicit regrade processes it', regrade.body?.matched === 1 && regrade.body?.graded === 1, `${short(JSON.stringify(regrade.body))}`);
+  // The attempt was already graded correctly, so a run has nothing to rewrite:
+  // it is reported as unchanged rather than as a write.
+  check(
+    'explicit regrade finds nothing to change',
+    regrade.body?.matched === 1 && regrade.body?.graded === 0 && regrade.body?.skipped === 1,
+    `${short(JSON.stringify(regrade.body))}`,
+  );
 
   const afterRegrade = await prisma.result.findUnique({ where: { id: result.id } });
   check('regrade counted and score preserved', afterRegrade.regradeCount === 1 && Number(afterRegrade.autoScore) === 10 && Number(afterRegrade.score) === 10, `regradeCount=${afterRegrade.regradeCount} score=${afterRegrade.score} autoScore=${afterRegrade.autoScore}`);
@@ -320,7 +326,7 @@ async function main() {
   const regradeAfterManual = await call(instructorToken, 'POST', '/api/v1/results/bulk/grade', { examId: exam.id, regrade: true });
   const afterSecondRegrade = await prisma.result.findUnique({ where: { id: result.id } });
   check(
-    'regrade keeps manual marks',
+    'regrade keeps manual marks and the automatic baseline',
     Number(afterSecondRegrade.score) === 8 && Number(afterSecondRegrade.autoScore) === 10,
     `score=${afterSecondRegrade.score} autoScore=${afterSecondRegrade.autoScore} graded=${regradeAfterManual.body?.graded}`,
   );
