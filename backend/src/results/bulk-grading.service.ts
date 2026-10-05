@@ -76,9 +76,12 @@ export class BulkGradingService {
       for (const row of batch) {
         try {
           const outcome = await this.gradeOne(row);
-          result.graded++;
+          // Mutually exclusive, so the counters add up to `matched`. Counting an
+          // unchanged result as both graded and skipped made a run report "1
+          // graded, 1 unchanged" of 1 match.
+          if (outcome.unchanged) result.skipped++;
+          else result.graded++;
           if (outcome.needsManualGrading) result.needsManualGrading++;
-          else if (outcome.unchanged) result.skipped++;
         } catch (err) {
           // One malformed attempt must not abandon the rest of the selection.
           result.failed.push({
@@ -252,29 +255,37 @@ export class BulkGradingService {
         scoringConfig,
       );
 
-      // Manual marks are the grader's decision and survive the re-grade; only
-      // the objective questions are re-derived here.
+      // A mark a human has set is the grader's decision and must survive a
+      // re-grade — including on an objective question. Keying preservation off
+      // the question type alone let a re-grade silently restore the automatic
+      // score over a disputed multiple-choice mark: the manual grade was accepted,
+      // flagged with `manualAdjusted`, and then thrown away by the next bulk run.
       const pointsByQuestion = new Map(detail.exam.questions.map((q) => [q.questionId, Number(q.points)]));
       const manualQuestionIds = new Set(
         detail.exam.questions
           .filter((q) => requiresManualGrading(String(q.question.type)))
           .map((q) => q.questionId),
       );
+      const answerById = new Map(detail.submission.session.answers.map((a) => [a.id, a]));
+      const isPreserved = (a: { id: string; graderId: string | null }) =>
+        a.graderId !== null || manualQuestionIds.has(answerById.get(a.id)?.questionId ?? '');
 
       const autoOnly = breakdown.answerScores.reduce((sum, a) => {
-        const questionId = detail.submission!.session.answers.find((x) => x.id === a.answerId)?.questionId;
-        if (questionId && manualQuestionIds.has(questionId)) return sum;
+        const answer = answerById.get(a.answerId);
+        // Nothing a human has touched contributes to the automatic total.
+        if (answer && isPreserved(answer)) return sum;
         return sum + a.score;
       }, 0);
 
       const manualTotal = detail.submission.session.answers.reduce((sum, a) => {
-        const questionId = a.questionId;
-        if (!manualQuestionIds.has(questionId)) return sum;
+        // Every graded answer counts, not just the essay-shaped ones.
         if (a.graderId === null) return sum;
-        const ceiling = pointsByQuestion.get(questionId) ?? 0;
+        const ceiling = pointsByQuestion.get(a.questionId) ?? 0;
         return sum + Math.max(0, Math.min(Number(a.score ?? 0), ceiling));
       }, 0);
 
+      // Outstanding work is still defined by question type: an objective answer
+      // that a grader has already ruled on is settled either way.
       const outstandingManual = await tx.studentAnswer.count({
         where: { sessionId: detail.submission.sessionId, questionId: { in: [...manualQuestionIds] }, graderId: null },
       });
@@ -282,7 +293,17 @@ export class BulkGradingService {
 
       const finalTotal = autoOnly + manualTotal;
       const metrics = computeResultMetrics(finalTotal, scoringConfig);
-      const autoMetrics = computeResultMetrics(autoOnly, scoringConfig);
+      // The automatic baseline stays what the objective pass produced on its own,
+      // so the manual contribution remains visible as a difference rather than
+      // being absorbed into `autoScore`.
+      const autoMetrics = computeResultMetrics(
+        breakdown.answerScores.reduce((sum, a) => {
+          const answer = answerById.get(a.answerId);
+          if (answer && isPreserved(answer)) return sum;
+          return sum + a.score;
+        }, 0),
+        scoringConfig,
+      );
       const grade = detail.grade ?? computeLetterGrade(metrics.percentage);
       const manualAdjusted = manualTotal > 0 || detail.manualAdjusted;
       const now = new Date();
@@ -332,10 +353,12 @@ export class BulkGradingService {
         },
       });
 
-      // Keep the per-answer automatic scores in step for objective questions.
+      // Keep the per-answer automatic scores in step, but never overwrite a score a
+      // grader set: doing so is what silently discarded manual marks on
+      // objective questions.
       for (const scored of breakdown.answerScores) {
-        const answer = detail.submission!.session.answers.find((a) => a.id === scored.answerId);
-        if (answer && manualQuestionIds.has(answer.questionId)) continue;
+        const answer = answerById.get(scored.answerId);
+        if (answer && isPreserved(answer)) continue;
         await tx.studentAnswer.update({ where: { id: scored.answerId }, data: { score: scored.score } });
       }
 

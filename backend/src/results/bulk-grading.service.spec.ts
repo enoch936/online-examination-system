@@ -194,6 +194,33 @@ describe('BulkGradingService', () => {
     expect(h.answerUpdates[0]).toEqual({ where: { id: 'ans-mcq' }, data: { score: 6 } });
   });
 
+  it('preserves a manual override on an objective answer', async () => {
+    // Regression: preservation used to be keyed on question type, so a re-grade
+    // restored the automatic mark over a disputed multiple-choice answer — a
+    // grade the API had accepted, flagged with manualAdjusted, and then lost.
+    const h = makeHarness({
+      answers: [
+        {
+          id: 'ans-mcq',
+          questionId: 'q-mcq',
+          selectedOptionIds: JSON.stringify(['opt-b']), // the wrong option
+          answerText: null,
+          score: 4, // but a grader ruled it worth 4
+          graderId: 'grader-1',
+        },
+      ],
+    });
+
+    await h.service.run(scope, h.instructor);
+
+    const data = h.resultUpdates[0]!.data;
+    expect(data.score).toBe(4);
+    expect(data.autoScore).toBe(0);
+    expect(data.manualAdjusted).toBe(true);
+    // Nothing automatic was left to recompute, so no answer row may be rewritten.
+    expect(h.answerUpdates).toHaveLength(0);
+  });
+
   it('marks a fully automatic result as unadjusted', async () => {
     const h = makeHarness({
       answers: [
