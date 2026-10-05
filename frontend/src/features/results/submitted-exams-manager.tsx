@@ -11,19 +11,6 @@ import { examsService } from '@/services/exams.service';
 import { resultsService, type BulkGradeSummary, type ResultFilters } from '@/services/results.service';
 import { apiErrorMessage } from '@/lib/api-error';
 import { toast } from 'sonner';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Eye,
-  FileQuestion,
-  Layers,
-  Loader2,
-  RefreshCw,
-  Send,
-  Sparkles,
-  Trophy,
-  UserCheck,
-} from 'lucide-react';
 import { SubmissionDetailSheet } from '@/features/results/submission-detail-sheet';
 import type { GradingStatus, Result } from '@/types/api';
 
@@ -299,13 +286,12 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
 
             <Button
               variant="ghost"
-              size="icon"
-              className="h-10 w-10"
-              title="Refresh"
+              className="h-10"
+              title="Reload results from the server"
               onClick={() => void refetch()}
               disabled={isFetching}
             >
-              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
+              {isFetching ? 'Refreshing' : 'Refresh'}
             </Button>
           </div>
 
@@ -473,12 +459,9 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
               disabled={!filters.examId || bulkMutation.isPending}
               onClick={() => runBulk('ungraded')}
             >
-              {bulkMutation.isPending && pendingTarget?.kind === 'ungraded' ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="mr-1 h-3.5 w-3.5" />
-              )}
-              Grade all ungraded{filters.classId ? ' in class' : ''}
+              {bulkMutation.isPending && pendingTarget?.kind === 'ungraded'
+                ? 'Grading'
+                : `Grade all ungraded${filters.classId ? ' in class' : ''}`}
             </Button>
             <Button
               size="sm"
@@ -486,12 +469,9 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
               disabled={selectedOnPage.length === 0 || bulkMutation.isPending}
               onClick={() => runBulk('selected')}
             >
-              {bulkMutation.isPending && pendingTarget?.kind === 'selected' ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <UserCheck className="mr-1 h-3.5 w-3.5" />
-              )}
-              Grade {selectedOnPage.length > 0 ? `${selectedOnPage.length} selected` : 'selected'}
+              {bulkMutation.isPending && pendingTarget?.kind === 'selected'
+                ? 'Grading'
+                : `Grade ${selectedOnPage.length} selected`}
             </Button>
             {!filters.examId && (
               <p className="text-xs text-muted-foreground">
@@ -518,7 +498,6 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
       ) : error ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-            <FileQuestion className="h-10 w-10 text-destructive" />
             <p className="text-sm font-medium text-destructive">Failed to load submitted exams</p>
             <p className="text-sm text-muted-foreground">{apiErrorMessage(error, 'Please try again later.')}</p>
             <Button variant="outline" size="sm" onClick={() => void refetch()}>
@@ -529,7 +508,6 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
       ) : results.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-            <Trophy className="h-10 w-10 text-muted-foreground" />
             <p className="text-sm font-medium">No results match these filters</p>
             <p className="text-sm text-muted-foreground">
               {activeFilterCount > 0 || search ? 'Try widening or clearing the filters.' : 'Submitted attempts will appear here.'}
@@ -605,8 +583,8 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
                           <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                             {result.passed ? <Badge variant="success">Pass</Badge> : <Badge variant="warning">Fail</Badge>}
                             {result.manualAdjusted && (
-                              <span title="A grader changed at least one mark">
-                                <Layers className="h-3 w-3 text-amber-600" />
+                              <span className="text-amber-600" title="A grader changed at least one mark">
+                                Manual
                               </span>
                             )}
                             {(result.regradeCount ?? 0) > 0 && (
@@ -630,27 +608,21 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="Open grading and certificate controls"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
                             onClick={() => setDetailId(result.id)}
                           >
-                            <Eye className="h-3.5 w-3.5" />
+                            Grade
                           </Button>
                           {!result.publishedAt && (
                             <Button
                               variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              title="Publish"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
                               onClick={() => publishMutation.mutate(result.id)}
                               disabled={publishMutation.isPending}
                             >
-                              {publishMutation.isPending ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Send className="h-3.5 w-3.5" />
-                              )}
+                              Publish
                             </Button>
                           )}
                         </div>
@@ -676,7 +648,7 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
               disabled={page <= 1 || isFetching}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
-              <ChevronLeft className="h-3.5 w-3.5" /> Previous
+              Previous
             </Button>
             <Button
               variant="outline"
@@ -684,7 +656,7 @@ export function SubmittedExamsManager({ role }: { role: 'Instructor' | 'Admin' }
               disabled={page >= totalPages || isFetching}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next <ChevronRight className="h-3.5 w-3.5" />
+              Next
             </Button>
           </div>
         </div>
