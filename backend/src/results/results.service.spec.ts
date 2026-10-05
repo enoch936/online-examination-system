@@ -452,3 +452,115 @@ describe('ResultsService result visibility', () => {
     expect(serialised).toContain('createdById');
   });
 });
+
+/**
+ * Searching is a database operation, not a browser one: every criterion below is
+ * asserted to reach Prisma as part of the `where` clause. If a filter were ever
+ * dropped from this translation, the UI would silently show the wrong rows.
+ */
+describe('ResultsService.findMany filters', () => {
+  function listing(enrolled: Array<{ studentId: string }> = [{ studentId: 'student-1' }]) {
+    const prisma = {
+      result: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      classEnrollment: { findMany: jest.fn().mockResolvedValue(enrolled) },
+    };
+    const examAccess = { assertCanManage: jest.fn() } as unknown as ExamAccessService;
+    const certificates = {} as unknown as CertificatesService;
+    const service = new ResultsService(prisma as unknown as PrismaService, examAccess, certificates);
+    return { service, prisma };
+  }
+
+  const whereOf = (prisma: ReturnType<typeof listing>['prisma']) =>
+    (prisma.result.findMany.mock.calls[0] as unknown as Array<{ where: Record<string, unknown> }>)[0]!.where;
+
+  it('searches student name and exam title through the real relations', async () => {
+    const { service, prisma } = listing();
+    await service.findMany(instructor, { q: 'ada' });
+
+    const serialised = JSON.stringify(whereOf(prisma));
+    expect(serialised).toContain('session');
+    expect(serialised).toContain('firstName');
+    expect(serialised).toContain('title');
+    expect(serialised).toContain('ada');
+  });
+
+  it('resolves a class filter to the enrolled roster', async () => {
+    const { service, prisma } = listing([{ studentId: 's-1' }, { studentId: 's-2' }]);
+    await service.findMany(instructor, { classId: 'class-1' });
+
+    expect(prisma.classEnrollment.findMany).toHaveBeenCalledWith({
+      where: { classId: 'class-1' },
+      select: { studentId: true },
+    });
+    expect(JSON.stringify(whereOf(prisma))).toContain('"studentId":{"in":["s-1","s-2"]}');
+  });
+
+  it('carries grading status, submission status and score bounds into the query', async () => {
+    const { service, prisma } = listing();
+    await service.findMany(instructor, {
+      gradingStatus: 'PENDING',
+      submissionStatus: 'NEEDS_MANUAL_GRADING',
+      minPercentage: 40,
+      maxPercentage: 90,
+    });
+
+    const where = whereOf(prisma);
+    expect(where.gradingStatus).toBe('PENDING');
+    expect(where.submission).toMatchObject({ status: 'NEEDS_MANUAL_GRADING' });
+    expect(where.percentage).toMatchObject({ gte: expect.anything(), lte: expect.anything() });
+  });
+
+  it('bounds a date range on the submission timestamp', async () => {
+    const { service, prisma } = listing();
+    const from = new Date('2026-01-01T00:00:00.000Z');
+    const to = new Date('2026-02-01T00:00:00.000Z');
+
+    await service.findMany(instructor, { submittedFrom: from, submittedTo: to, submissionStatus: 'GRADED' });
+
+    expect(whereOf(prisma).submission).toMatchObject({
+      status: 'GRADED',
+      submittedAt: { gte: from, lte: to },
+    });
+  });
+
+  it('always keeps the caller\'s scope clause, whatever else is filtered', async () => {
+    const { service, prisma } = listing();
+    await service.findMany(instructor, { q: 'ada', gradingStatus: 'GRADED' });
+
+    const serialised = JSON.stringify(whereOf(prisma));
+    expect(serialised).toContain('createdById');
+    expect(serialised).toContain('instructor-1');
+  });
+
+  it('restricts a student to their own rows even while filtering', async () => {
+    const student = { sub: 'student-1', roles: ['STUDENT'] } as unknown as AuthenticatedUser;
+    const { service, prisma } = listing();
+
+    await service.findMany(student, { gradingStatus: 'PUBLISHED' });
+
+    const serialised = JSON.stringify(whereOf(prisma));
+    expect(serialised).toContain('student-1');
+    expect(serialised).not.toContain('createdById');
+  });
+
+  it('sorts on a real column with a whitelisted direction', async () => {
+    const { service, prisma } = listing();
+    await service.findMany(instructor, { sortBy: 'percentage', sortDir: 'asc' });
+
+    expect((prisma.result.findMany.mock.calls[0] as unknown as Array<{ orderBy: unknown }>)[0]!.orderBy).toEqual({
+      percentage: 'asc',
+    });
+  });
+
+  it('ignores a bogus sort direction instead of passing it to SQL', async () => {
+    const { service, prisma } = listing();
+    await service.findMany(instructor, { sortBy: 'submittedAt' });
+
+    expect((prisma.result.findMany.mock.calls[0] as unknown as Array<{ orderBy: unknown }>)[0]!.orderBy).toEqual({
+      submission: { submittedAt: 'desc' },
+    });
+  });
+});

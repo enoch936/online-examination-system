@@ -102,6 +102,7 @@ enum NotificationType {
   RESUME_APPROVED
   RESUME_REJECTED
   SESSION_MESSAGE
+  EXAM_TIME_EXTENDED
 }
 
 enum ViolationType {
@@ -272,6 +273,10 @@ pushSubscriptions      PushSubscription[]
   reviewedRetakeRequests RetakeRequest[]  @relation("RetakeReviewer")
   resumeRequests         ResumeRequest[]  @relation("StudentResumeRequests")
   reviewedResumeRequests ResumeRequest[]  @relation("ResumeReviewer")
+  gradedResults          Result[]        @relation("ResultGrader")
+  timeExtensionsGranted  TimeExtension[] @relation("TimeExtensionGrantor")
+  timeExtensionsReceived TimeExtension[] @relation("StudentTimeExtensions")
+  extendedSessions       ExamSession[]   @relation("SessionExtender")
   classesTaught          Class[]          @relation("ClassInstructor")
   classEnrollments       ClassEnrollment[] @relation("ClassStudents")
 
@@ -420,6 +425,7 @@ model Exam {
   shares           ExamShare[]
   retakeRequests   RetakeRequest[]
   resumeRequests   ResumeRequest[]
+  timeExtensions   TimeExtension[]
   certificateTemplate CertificateTemplate? @relation("ExamCertificateTemplate", fields: [certificateTemplateId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
@@ -657,6 +663,15 @@ model ExamSession {
   retakePermitted      Boolean         @default(false)
   resumeApprovedAt     DateTime?
   resumeDeniedAt       DateTime?
+  /// The deadline this attempt started with. `expiresAt` moves forward when
+  /// time is granted, so the original expiry has to be recorded separately for
+  /// the effective deadline to be explainable.
+  originalExpiresAt DateTime?
+  /// Running total of granted minutes. Persisted so the effective deadline can
+  /// be recomputed without replaying the audit trail.
+  totalExtensionMinutes Int        @default(0)
+  lastExtendedAt        DateTime?
+  lastExtendedById      String?
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -669,6 +684,9 @@ model ExamSession {
   events         ExamEvent[]
   retakeRequests RetakeRequest[]
   resumeRequests ResumeRequest[]
+  timeExtensions TimeExtension[]
+
+  lastExtendedBy User? @relation("SessionExtender", fields: [lastExtendedById], references: [id], onDelete: SetNull)
 
   @@unique([examId, studentId, attemptNumber])
   @@index([studentId, status])
@@ -676,7 +694,45 @@ model ExamSession {
   @@index([status, expiresAt])
   @@index([connectionState])
   @@index([examId, createdAt])
+  @@index([examId, status, expiresAt])
   @@map("exam_sessions")
+}
+
+/// Append-only record of every manual time grant.
+///
+/// A row is written per extension, per session, so "who gave this student an
+/// extra 15 minutes, when, and why" is answerable without inferring anything
+/// from `expiresAt`. Both deadlines are captured because `expiresAt` on the
+/// session is overwritten by the next grant.
+model TimeExtension {
+  id        String @id @default(uuid())
+  sessionId String
+  examId    String
+  studentId String
+
+  minutes        Int
+  previousExpiresAt DateTime?
+  newExpiresAt      DateTime
+  /// Minutes granted to this student in total before and including this row.
+  totalExtensionMinutes Int
+
+  /// The staff member who authorised the grant. Null only if the authorising
+  /// account was later deleted (the audit trail outlives the actor).
+  grantedById String?
+  grantedBy   User?   @relation("TimeExtensionGrantor", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  reason    String?
+  createdAt DateTime @default(now())
+
+  session ExamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exam    Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student User       @relation("StudentTimeExtensions", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([examId, createdAt])
+  @@index([studentId, createdAt])
+  @@index([grantedById])
+  @@map("time_extensions")
 }
 
 model StudentAnswer {
@@ -738,15 +794,45 @@ model Result {
   publishedAt  DateTime?
   createdAt    DateTime  @default(now())
 
+  /// Lifecycle of the grading pass. PENDING while an attempt still owes manual
+  /// work, GRADED once every answer is settled, PUBLISHED once released.
+  gradingStatus GradingStatus @default(GRADED)
+
+  /// The machine-calculated score, preserved so a later manual adjustment is
+  /// always distinguishable from what the automatic pass produced. `score` is
+  /// the final figure shown to students; this is the baseline it departed from.
+  autoScore Decimal?
+
+  /// True once a human has changed any mark, so the UI can label the result as
+  /// adjusted rather than fully automatic.
+  manualAdjusted Boolean @default(false)
+
+  /// Last grader to change marks. Null means the result is untouched automatic
+  /// output.
+  gradedById String?
+
+  /// How many times this attempt has been re-graded by a bulk run. Lets staff
+  /// see repeated regrades without relying on the audit log.
+  regradeCount Int @default(0)
+
   submission  Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   exam        Exam         @relation(fields: [examId], references: [id])
   certificate Certificate?
+  gradedBy    User?        @relation("ResultGrader", fields: [gradedById], references: [id], onDelete: SetNull)
 
   @@index([examId])
   @@index([studentId])
   @@index([percentage])
   @@index([createdAt])
+  @@index([gradingStatus, createdAt])
+  @@index([examId, gradingStatus])
   @@map("results")
+}
+
+enum GradingStatus {
+  PENDING
+  GRADED
+  PUBLISHED
 }
 
 /// How a certificate came to exist. `MANUAL` means staff overrode the normal

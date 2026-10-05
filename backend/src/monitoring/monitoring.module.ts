@@ -5,6 +5,7 @@ import { SubmissionsModule } from '../submissions/submissions.module';
 import { MonitoringController } from './monitoring.controller';
 import { MonitoringService } from './monitoring.service';
 import { RiskEngine } from './risk.engine';
+import { TimeExtensionService } from './time-extension.service';
 
 @Module({
   // SubmissionsModule is forwardRef'd because MonitoringService depends on
@@ -12,7 +13,7 @@ import { RiskEngine } from './risk.engine';
   // SubmissionsService already depends on MonitoringService.
   imports: [forwardRef(() => RealtimeModule), ExamAccessModule, forwardRef(() => SubmissionsModule)],
   controllers: [MonitoringController],
-  providers: [MonitoringService, RiskEngine],
-  exports: [MonitoringService, RiskEngine],
+  providers: [MonitoringService, RiskEngine, TimeExtensionService],
+  exports: [MonitoringService, RiskEngine, TimeExtensionService],
 })
 export class MonitoringModule {}

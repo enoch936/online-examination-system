@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, RoleName, SubmissionStatus } from '@prisma/client';
+import { GradingStatus, Prisma, RoleName, SubmissionStatus } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { ExamAccessService } from '../common/exam-access.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -16,9 +16,40 @@ type FindManyOptions = {
   limit?: number;
   passed?: boolean;
   certificateStatus?: 'issued' | 'none';
+  /** Free-text over student name/email and exam title. */
+  q?: string;
+  /** Narrow to one class, resolved through Class -> ExamAssignment + Enrollment. */
+  classId?: string;
+  /** Narrow to specific students. */
+  studentId?: string;
+  /** Grading lifecycle filter. */
+  gradingStatus?: GradingStatus;
+  /** Submission lifecycle filter. */
+  submissionStatus?: SubmissionStatus;
+  /** Percentage bounds, inclusive, for "below a particular score" views. */
+  minPercentage?: number;
+  maxPercentage?: number;
+  /** Submission window. */
+  submittedFrom?: Date;
+  submittedTo?: Date;
+  sortBy?: 'submittedAt' | 'percentage' | 'student';
+  sortDir?: 'asc' | 'desc';
 };
 
+/** Search terms are matched against columns, never interpolated into SQL. */
+const SEARCH_TERM_LIMIT = 100;
 const MAX_GRADE_ITEMS = 1000;
+
+/**
+ * Lifecycle state of a result, derived rather than duplicated.
+ *
+ * PENDING while manual marks are still outstanding, PUBLISHED once released to
+ * the student, GRADED otherwise.
+ */
+export function gradingStatusFor(publishedAt: Date | null, fullyGraded: boolean): GradingStatus {
+  if (!fullyGraded) return GradingStatus.PENDING;
+  return publishedAt ? GradingStatus.PUBLISHED : GradingStatus.GRADED;
+}
 
 @Injectable()
 export class ResultsService {
@@ -47,18 +78,96 @@ export class ResultsService {
     return orClauses.length ? { OR: orClauses } : {};
   }
 
+  /**
+   * Translate the query options into a Prisma `where`.
+   *
+   * Every filter is evaluated by Postgres against the real tables. Nothing is
+   * filtered in the browser: the frontend only supplies criteria.
+   */
+  private async buildWhere(user: AuthenticatedUser, options: FindManyOptions): Promise<Prisma.ResultWhereInput> {
+    const scope = this.resultScope(user);
+
+    // Result links to the student only by id, so name/email search has to walk
+    // submission -> session -> student.
+    const q = options.q?.trim().slice(0, SEARCH_TERM_LIMIT);
+    const studentNameFilter = (term: string): Prisma.ResultWhereInput[] => [
+      { submission: { session: { student: { firstName: { contains: term, mode: 'insensitive' } } } } },
+      { submission: { session: { student: { lastName: { contains: term, mode: 'insensitive' } } } } },
+      { submission: { session: { student: { email: { contains: term, mode: 'insensitive' } } } } },
+    ];
+
+    const and: Prisma.ResultWhereInput[] = [];
+    if (scope.OR) and.push({ OR: scope.OR });
+    if (q) {
+      and.push({
+        OR: [...studentNameFilter(q), { exam: { title: { contains: q, mode: 'insensitive' } } }],
+      });
+    }
+
+    // A class filter resolves through ClassEnrollment so the student set is the
+    // real roster, not whatever the client claimed.
+    const classStudentIds = options.classId
+      ? (
+          await this.prisma.classEnrollment.findMany({
+            where: { classId: options.classId },
+            select: { studentId: true },
+          })
+        ).map((e) => e.studentId)
+      : undefined;
+
+    const submissionFilter: Prisma.SubmissionWhereInput = {
+      ...(options.submissionStatus ? { status: options.submissionStatus } : {}),
+      ...(options.submittedFrom || options.submittedTo
+        ? {
+            submittedAt: {
+              ...(options.submittedFrom ? { gte: options.submittedFrom } : {}),
+              ...(options.submittedTo ? { lte: options.submittedTo } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const where: Prisma.ResultWhereInput = {
+      ...(options.examId ? { examId: options.examId } : {}),
+      ...(options.passed !== undefined ? { passed: options.passed } : {}),
+      ...(options.gradingStatus ? { gradingStatus: options.gradingStatus } : {}),
+      ...(options.certificateStatus === 'issued' ? { certificate: { isNot: null } } : {}),
+      ...(options.certificateStatus === 'none' ? { certificate: { is: null } } : {}),
+      ...(options.studentId ? { studentId: options.studentId } : {}),
+      ...(classStudentIds ? { studentId: { in: classStudentIds } } : {}),
+      ...(Object.keys(submissionFilter).length ? { submission: submissionFilter } : {}),
+      // Both bounds live in one clause: two separate `percentage` spreads would
+      // have the second silently discard the first.
+      ...(options.minPercentage !== undefined || options.maxPercentage !== undefined
+        ? {
+            percentage: {
+              ...(options.minPercentage !== undefined ? { gte: new Prisma.Decimal(options.minPercentage) } : {}),
+              ...(options.maxPercentage !== undefined ? { lte: new Prisma.Decimal(options.maxPercentage) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    if (and.length) {
+      where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), ...and];
+    }
+    return where;
+  }
+
   async findMany(user: AuthenticatedUser, options: FindManyOptions = {}) {
     const page = options.page ?? 1;
     const limit = Math.min(options.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
-    const where = {
-      ...this.resultScope(user),
-      ...(options.examId ? { examId: options.examId } : {}),
-      ...(options.passed !== undefined ? { passed: options.passed } : {}),
-      ...(options.certificateStatus === 'issued' ? { certificate: { isNot: null } } : {}),
-      ...(options.certificateStatus === 'none' ? { certificate: { is: null } } : {}),
-    };
+    const where = await this.buildWhere(user, options);
+
+    const dir = options.sortDir === 'asc' ? 'asc' : 'desc';
+    const orderBy: Prisma.ResultOrderByWithRelationInput =
+      options.sortBy === 'percentage'
+        ? { percentage: dir }
+        : options.sortBy === 'student'
+          ? { submission: { session: { student: { lastName: dir } } } }
+          : { submission: { submittedAt: dir } };
 
     const [data, total] = await Promise.all([
       this.prisma.result.findMany({
@@ -81,7 +190,7 @@ export class ResultsService {
             },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),
@@ -222,6 +331,10 @@ export class ResultsService {
 
       const metrics = computeResultMetrics(rawTotal, { totalMarks, passingMarks });
       const grade = result.grade ?? computeLetterGrade(metrics.percentage);
+      // Anything written by a human means the result no longer equals what the
+      // automatic pass produced, which is what `manualAdjusted` records.
+      const manualAdjusted =
+        result.manualAdjusted || pendingUpdates.some((u) => u.data.graderId !== null);
 
       const stillPending =
         manualQuestionIds.length === 0
@@ -251,6 +364,12 @@ export class ResultsService {
           passed: metrics.passed,
           grade,
           publishedAt,
+          // The automatic baseline is frozen the first time a human edits marks,
+          // so the original machine figure survives every later override.
+          ...(result.autoScore === null ? { autoScore: result.score } : {}),
+          manualAdjusted,
+          gradingStatus: gradingStatusFor(publishedAt, fullyGraded),
+          gradedById: manualAdjusted ? graderId : result.gradedById,
         },
       });
       return { updatedResult, totalScore: metrics.score, percentage: metrics.percentage, passed: metrics.passed, grade };

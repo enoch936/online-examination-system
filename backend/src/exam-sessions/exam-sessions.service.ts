@@ -536,12 +536,42 @@ export class ExamSessionsService {
     } as const;
   }
 
+  /**
+   * Time fields shown to the student.
+   *
+   * `expiresAt` is the authority for the countdown; `remainingSeconds` is a
+   * client-written snapshot and must never be trusted for timing. The original
+   * deadline and the running total of granted minutes travel with the session so
+   * the UI can state plainly that time was added rather than silently changing.
+   */
+  private timingFields(session: { expiresAt: Date | null; originalExpiresAt: Date | null; totalExtensionMinutes: number }) {
+    return {
+      expiresAt: session.expiresAt,
+      originalExpiresAt: session.originalExpiresAt,
+      totalExtensionMinutes: session.totalExtensionMinutes,
+      // Server-derived, so a stale client snapshot cannot make the timer disagree.
+      serverRemainingSeconds: session.expiresAt
+        ? Math.max(0, Math.round((session.expiresAt.getTime() - Date.now()) / 1000))
+        : null,
+    };
+  }
+
   private sanitizeSession(session: {
+    expiresAt?: Date | null;
+    originalExpiresAt?: Date | null;
+    totalExtensionMinutes?: number;
     exam: { questions: Array<{ question: { options: Array<{ isCorrect: boolean }> } }> };
     [key: string]: unknown;
   }): Record<string, unknown> {
     return {
       ...session,
+      ...(session.expiresAt !== undefined
+        ? this.timingFields({
+            expiresAt: session.expiresAt ?? null,
+            originalExpiresAt: session.originalExpiresAt ?? null,
+            totalExtensionMinutes: session.totalExtensionMinutes ?? 0,
+          })
+        : {}),
       exam: {
         ...session.exam,
         questions: session.exam.questions.map((examQuestion) => ({

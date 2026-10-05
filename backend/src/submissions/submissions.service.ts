@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { ExamEventType, ExamStatus, Prisma, SessionStatus, Submission, SubmissionReason, SubmissionStatus } from '@prisma/client';
+import { ExamEventType, ExamStatus, GradingStatus, Prisma, SessionStatus, Submission, SubmissionReason, SubmissionStatus } from '@prisma/client';
 import { MonitoringService } from '../monitoring/monitoring.service';
 import { EventQueueService, GradingJob } from '../queue/event-queue.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -269,6 +269,17 @@ export class SubmissionsService implements OnModuleInit {
                 percentage: metrics.percentage,
                 passed: metrics.passed,
                 publishedAt: showResultImmediately ? now : null,
+                // Everything written here came from the automatic pass, so the
+                // machine score is also the baseline a later manual edit departs
+                // from. Freezing it now means an override can never erase what
+                // the automatic grading actually produced.
+                autoScore: metrics.score,
+                manualAdjusted: false,
+                gradingStatus: breakdown.needsManualGrading
+                  ? GradingStatus.PENDING
+                  : showResultImmediately
+                    ? GradingStatus.PUBLISHED
+                    : GradingStatus.GRADED,
               },
             },
           },

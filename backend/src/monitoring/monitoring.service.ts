@@ -28,9 +28,9 @@ import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RiskEngine } from './risk.engine';
 import {
   EXTEND_REQUIRES_ACTIVE_SESSION,
-  computeTimeExtension,
   isExtendableSession,
 } from './time-extension.util';
+import { TimeExtensionService } from './time-extension.service';
 
 const VIOLATION_TO_EVENT: Record<ViolationType, ExamEventType> = {
   TAB_SWITCH: ExamEventType.TAB_SWITCHED,
@@ -103,17 +103,18 @@ const BATCH_SNAPSHOT_SIZE = 50;
 export class MonitoringService {
   private static readonly MONITOR_ROLES: RoleName[] = [RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR];
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly risk: RiskEngine,
-    private readonly audit: AuditService,
-    private readonly cache: CacheService,
-    private readonly eventQueue: EventQueueService,
-    private readonly access: ExamAccessService,
-    @Inject(forwardRef(() => RealtimeGateway)) private readonly gateway: RealtimeGateway,
-    @Inject(forwardRef(() => SubmissionsService))
-    private readonly submissions: SubmissionsService,
-  ) {}
+constructor(
+      private readonly prisma: PrismaService,
+      private readonly risk: RiskEngine,
+      private readonly audit: AuditService,
+      private readonly cache: CacheService,
+      private readonly eventQueue: EventQueueService,
+      private readonly access: ExamAccessService,
+      @Inject(forwardRef(() => RealtimeGateway)) private readonly gateway: RealtimeGateway,
+      @Inject(forwardRef(() => SubmissionsService))
+      private readonly submissions: SubmissionsService,
+      private readonly timeExtensions: TimeExtensionService,
+    ) {}
 
   private lastStatsAt = new Map<string, number>();
   /** sessionId -> timestamp of the last monitor:candidate-update broadcast. */
@@ -878,7 +879,17 @@ export class MonitoringService {
       startedAt: s.startedAt,
       submittedAt: s.submittedAt ?? s.submission?.submittedAt ?? null,
       expiresAt: s.expiresAt,
-      remainingSeconds: s.remainingSeconds,
+      // `remainingSeconds` on the row is a client-written snapshot (it arrives
+      // with every autosave). Staff must see time derived from the deadline, or
+      // a candidate could appear to have hours left by replaying a stale value.
+      serverRemainingSeconds: s.expiresAt
+        ? Math.max(0, Math.round((s.expiresAt.getTime() - Date.now()) / 1000))
+        : null,
+      originalExpiresAt: s.originalExpiresAt,
+      totalExtensionMinutes: s.totalExtensionMinutes,
+      remainingSeconds: s.expiresAt
+        ? Math.max(0, Math.round((s.expiresAt.getTime() - Date.now()) / 1000))
+        : s.remainingSeconds,
       lastHeartbeatAt: s.lastHeartbeatAt,
       lastActivityAt: s.lastActivityAt,
       currentQuestionId: s.currentQuestionId,
@@ -1177,26 +1188,15 @@ export class MonitoringService {
       case 'extend': {
         if (!minutes) throw new BadRequestException('minutes is required for extend');
         if (!isExtendableSession(session)) throw new BadRequestException(EXTEND_REQUIRES_ACTIVE_SESSION);
-        // Re-read inside the transaction: two proctors extending at the same time
-        // must both be counted, and the fresh row carries the authoritative
-        // expiry rather than the client-writable remainingSeconds snapshot the
-        // session was loaded with above.
-        const { remainingSeconds } = await this.prisma.$transaction(async (tx) => {
-          const fresh = await tx.examSession.findUnique({
-            where: { id: sessionId },
-            select: { expiresAt: true, status: true, submittedAt: true },
-          });
-          if (!fresh) throw new NotFoundException('Exam session not found');
-          if (!isExtendableSession(fresh)) throw new BadRequestException(EXTEND_REQUIRES_ACTIVE_SESSION);
-          const next = computeTimeExtension({ expiresAt: fresh.expiresAt, minutes });
-          await tx.examSession.update({
-            where: { id: sessionId },
-            data: { expiresAt: next.expiresAt, remainingSeconds: next.remainingSeconds },
-          });
-          return next;
-        });
-        await this.recordInstructorEvent(session, 'TIME_EXTENDED', { minutes });
-        this.gateway.emitToSession(session.id, 'exam:control', { type: 'extend', minutes, remainingSeconds });
+        // Delegated rather than reimplemented: this is the same path the
+        // one/many/all endpoint uses, so a single-student grant cannot skip the
+        // time_extensions audit row, the notification, or the deadline recompute.
+        // The service re-reads the session inside its transaction, which is what
+        // stops two proctors extending at once from clobbering each other.
+        await this.timeExtensions.extend(
+          { examId: session.examId, minutes, sessionId },
+          { sub: instructorId, roles: actorRoles } as AuthenticatedUser,
+        );
         break;
       }
       case 'force_submit': {

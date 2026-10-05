@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ExamAccessModule } from '../common/exam-access.module';
 import { CertificatesModule } from '../certificates/certificates.module';
+import { BulkGradingService } from './bulk-grading.service';
 import { ResultsController } from './results.controller';
 import { ResultsService } from './results.service';
 
@@ -9,7 +10,7 @@ import { ResultsService } from './results.service';
   // would be a cycle. Results depend on certificates for auto-issue on publish.
   imports: [ExamAccessModule, CertificatesModule],
   controllers: [ResultsController],
-  providers: [ResultsService],
-  exports: [ResultsService],
+  providers: [ResultsService, BulkGradingService],
+  exports: [ResultsService, BulkGradingService],
 })
 export class ResultsModule {}

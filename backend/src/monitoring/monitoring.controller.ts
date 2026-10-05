@@ -16,7 +16,9 @@ import { ProctoringAudioDto } from './dto/proctoring-audio.dto';
 import { InstructorActionDto } from './dto/instructor-action.dto';
 import { RecordEventDto } from './dto/record-event.dto';
 import { UpdateMonitoringConfigDto } from './dto/update-monitoring-config.dto';
+import { BulkExtendTimeDto } from './dto/bulk-extend-time.dto';
 import { MonitoringService } from './monitoring.service';
+import { TimeExtensionService } from './time-extension.service';
 
 @ApiBearerAuth()
 @ApiTags('Monitoring')
@@ -28,6 +30,7 @@ export class MonitoringController {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly timeExtensions: TimeExtensionService,
   ) {}
 
   @Public()
@@ -241,5 +244,64 @@ export class MonitoringController {
     const session = await this.monitoring.getSessionExamId(sessionId);
     await this.access.assertCanPerformAction(session, user, dto.action);
     return this.monitoring.instructorAction(user.sub, sessionId, dto, user.roles);
+  }
+
+  /**
+   * Grant extra time to one student, a chosen set, or every active session on an
+   * exam. Omitting `studentIds` (and `classId`) is the "everyone" case.
+   *
+   * Kept separate from `sessions/:sessionId/actions` because the deadline lives
+   * on the session row and this operates across many of them.
+   */
+  @Post('exams/:examId/extend-time')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('sessions.monitor')
+  async extendTime(
+    @Param('examId') examId: string,
+    @Body() dto: BulkExtendTimeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.timeExtensions.extend(
+      {
+        examId,
+        minutes: dto.minutes,
+        studentIds: dto.studentIds,
+        classId: dto.classId,
+        reason: dto.reason,
+      },
+      user,
+    );
+  }
+
+  /** Full audit trail of time granted on an exam, newest first. */
+  @Get('exams/:examId/extend-time')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('sessions.monitor')
+  async extensionHistory(@Param('examId') examId: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.timeExtensions.historyForExam(examId, user);
+  }
+
+  /** Audit trail for a single session. */
+  @Get('sessions/:sessionId/extend-time')
+  @Roles(RoleName.SUPER_ADMIN, RoleName.ADMIN, RoleName.INSTRUCTOR)
+  @Permissions('sessions.monitor')
+  async sessionExtensionHistory(
+    @Param('sessionId') sessionId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.timeExtensions.historyForSession(sessionId, user);
+  }
+
+  /**
+   * The student's authoritative deadline.
+   *
+   * The countdown is derived from the persisted `expiresAt` on every fetch, so a
+   * manipulated client clock or stale localStorage cannot extend an exam. Staff
+   * may read any session on an exam they can act on.
+   */
+  @Get('sessions/:sessionId/deadline')
+  async deadline(@Param('sessionId') sessionId: string, @CurrentUser() user: AuthenticatedUser) {
+    const isStaff = TimeExtensionService.canExtend(user.roles);
+    return this.timeExtensions.effectiveDeadline(sessionId, user.sub, isStaff);
   }
 }
