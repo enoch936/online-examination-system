@@ -8,7 +8,27 @@ import type { ApiEnvelope } from '@/types/api';
 
 type ProctoringStatus = 'idle' | 'starting' | 'active' | 'denied' | 'error';
 
+/**
+ * Why capture is not currently producing frames.
+ *
+ * `active` alone was never enough to tell a proctor the truth: a camera that was
+ * unplugged, revoked in browser settings, muted by the OS or taken over by
+ * another application still leaves a live MediaStreamTrack object, so the UI
+ * went on reporting a healthy green camera while nothing was being recorded.
+ */
+export type ProctoringFault =
+  | { kind: 'permission'; message: string }
+  | { kind: 'device-lost'; message: string }
+  | { kind: 'no-frames'; message: string }
+  | { kind: 'unsupported'; message: string }
+  | { kind: 'unknown'; message: string };
+
 export type { ProctoringStatus };
+
+/** How long a live track may produce no frames before it is treated as dead. */
+const NO_FRAME_GRACE_MS = 15000;
+/** Backoff steps for re-acquiring a device that went away mid-exam. */
+const RECOVERY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 
 function waitForSocketConnect(timeoutMs = 5000): Promise<void> {
   const socket = getSocket();
@@ -47,6 +67,9 @@ export function useProctoring(input: {
 
   const [status, setStatus] = useState<ProctoringStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [fault, setFault] = useState<ProctoringFault | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [retryNonce, setRetryNonce] = useState(0);
   const streamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -61,11 +84,18 @@ export function useProctoring(input: {
   const cleanupRef = useRef<(() => void) | null>(null);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  /** Last time a frame was actually produced, used to catch a silent dead track. */
+  const lastFrameAtRef = useRef(0);
+  const recoveryRef = useRef<(() => void) | null>(null);
 
   const report = useCallback(
     (type: string, metadata?: Record<string, unknown>) => {
-      if (!sessionId) return;
-      getSocket().emit('exam:event', { sessionId, type, metadata });
+      const socket = getSocket();
+      // Guarded like emitSignal: FOCUS_RESTORED used to be emitted
+      // unconditionally, so it was the one signal that silently disappeared
+      // whenever the gateway was down.
+      if (!socket.connected || !sessionId) return;
+      socket.emit('exam:event', { sessionId, type, metadata });
     },
     [sessionId],
   );
@@ -196,9 +226,71 @@ export function useProctoring(input: {
 
   const retry = useCallback(() => {
     setError(null);
+    setFault(null);
+    setRecovering(false);
     setStatus('idle');
+    setRecoveryAttempt(0);
     setRetryNonce((n) => n + 1);
   }, []);
+
+  /**
+   * A track stopped delivering frames or ended outright.
+   *
+   * The student is told, the proctor is told through the monitoring timeline,
+   * and re-acquisition is attempted on a backoff. The exam is not blocked by
+   * the failure — it is reported honestly, which is what the integrity trail is
+   * for.
+   */
+  const handleTrackLoss = useCallback(
+    (reason: ProctoringFault) => {
+      setFault(reason);
+      setStatus('error');
+      setError(reason.message);
+      setRecovering(true);
+      emitSignal(reason.kind === 'permission' ? 'CAMERA_PERMISSION_DENIED' : 'CAMERA_DISCONNECTED', {
+        reason: reason.kind,
+        message: reason.message,
+      });
+      // `retry` restarts the effect, which re-runs getUserMedia; the counter
+      // picks the delay from the backoff table and eventually stops trying.
+      setRecoveryAttempt((attempt) => {
+        const delay = RECOVERY_DELAYS_MS[Math.min(attempt, RECOVERY_DELAYS_MS.length - 1)];
+        const next = attempt + 1;
+        window.setTimeout(() => {
+          if (enabledRef.current) setRetryNonce((n) => n + 1);
+        }, delay);
+        return next;
+      });
+    },
+    [emitSignal],
+  );
+
+  // A webcam/mic that is plugged in, unplugged or revoked mid-exam must be
+  // noticed. Without this the session keeps reporting an active camera that is
+  // no longer sending anything.
+  useEffect(() => {
+    if (!enabled || typeof navigator === 'undefined') return;
+    const devices = navigator.mediaDevices;
+    if (!devices) {
+      // No mediaDevices at all means an insecure origin: getUserMedia is
+      // unavailable and the platform must say so rather than look healthy.
+      setFault({ kind: 'unsupported', message: 'Camera capture requires a secure (HTTPS) connection' });
+      setStatus('error');
+      return;
+    }
+
+    const onDeviceChange = () => {
+      const track = streamRef.current?.getVideoTracks()[0];
+      if (!track) return;
+      if (track.readyState === 'live') {
+        // Something was plugged back in. Re-acquire so the new device is used.
+        recoveryRef.current?.();
+      }
+    };
+
+    devices.addEventListener?.('devicechange', onDeviceChange);
+    return () => devices.removeEventListener?.('devicechange', onDeviceChange);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled || !sessionId) {
@@ -221,6 +313,9 @@ export function useProctoring(input: {
         }
         streamRef.current = stream;
         setStatus('active');
+        setFault(null);
+        setRecovering(false);
+        lastFrameAtRef.current = Date.now();
 
         const video = document.createElement('video');
         video.muted = true;
@@ -228,6 +323,42 @@ export function useProctoring(input: {
         video.srcObject = stream;
         await video.play().catch(() => undefined);
         videoRef.current = video;
+
+        // Real failure detection. `ended` fires when the device is removed or the
+        // track is stopped by the OS; `mute` fires when the source stalls (a
+        // camera in use elsewhere, a revoked permission). Both used to be
+        // invisible: the stream object stays live and the UI kept saying "active".
+        const onTrackEnded = () => {
+          handleTrackLoss({ kind: 'device-lost', message: 'Camera or microphone stopped unexpectedly' });
+        };
+        const onTrackMute = () => {
+          // A track can unmute again; only report a fault if it stays dead.
+          window.setTimeout(() => {
+            if (streamRef.current !== stream) return;
+            const muted = stream.getTracks().some((t) => t.readyState === 'live' && t.muted);
+            if (muted) {
+              handleTrackLoss({ kind: 'device-lost', message: 'Camera feed stalled' });
+            }
+          }, 3000);
+        };
+        stream.getTracks().forEach((track) => {
+          track.addEventListener('ended', onTrackEnded);
+          track.addEventListener('mute', onTrackMute);
+        });
+
+        // Watchdog for the case where the track reports itself live but produces
+        // no frames at all — a browser quirk the `ended` event does not cover.
+        const frameWatchdog = window.setInterval(() => {
+          const v = videoRef.current;
+          if (!v || streamRef.current !== stream) return;
+          if (v.videoWidth > 0) {
+            lastFrameAtRef.current = Date.now();
+            return;
+          }
+          if (Date.now() - lastFrameAtRef.current > NO_FRAME_GRACE_MS) {
+            handleTrackLoss({ kind: 'no-frames', message: 'Camera is not delivering video' });
+          }
+        }, 5000);
 
         if (webcam || ai) {
           const canvas = document.createElement('canvas');
@@ -258,6 +389,7 @@ export function useProctoring(input: {
           const v = videoRef.current;
           const c = canvasRef.current;
           if (v.videoWidth === 0 || v.videoHeight === 0) return;
+          lastFrameAtRef.current = Date.now();
           const ctx = c.getContext('2d');
           if (!ctx) return;
           ctx.drawImage(v, 0, 0, 320, 240);
@@ -335,19 +467,38 @@ export function useProctoring(input: {
           cancelled = true;
           window.clearInterval(frameTimer);
           window.clearInterval(audioTimer);
+          window.clearInterval(frameWatchdog);
+          stream.getTracks().forEach((track) => {
+            track.removeEventListener('ended', onTrackEnded);
+            track.removeEventListener('mute', onTrackMute);
+          });
           document.removeEventListener('visibilitychange', onFocus);
           wrtcCleanup?.();
           stopAll();
         };
       } catch (e: unknown) {
         if (cancelled) return;
-        setStatus('denied');
-        setError(e instanceof Error ? e.message : 'Proctoring capture unavailable');
         const notAllowed = e instanceof DOMException && e.name === 'NotAllowedError';
-        emitSignal(notAllowed ? 'CAMERA_PERMISSION_DENIED' : 'CAMERA_UNAVAILABLE', {});
-        if (videoOk || mic) {
-          streamRef.current = null;
-          setStatus('error');
+        const missing = e instanceof DOMException && e.name === 'NotFoundError';
+        const next: ProctoringFault = notAllowed
+          ? { kind: 'permission', message: 'Camera or microphone permission was denied' }
+          : missing
+            ? { kind: 'device-lost', message: 'No camera or microphone was found' }
+            : { kind: 'unknown', message: e instanceof Error ? e.message : 'Proctoring capture unavailable' };
+        setFault(next);
+        setStatus(videoOk || mic ? 'error' : 'denied');
+        setError(next.message);
+        emitSignal(notAllowed ? 'CAMERA_PERMISSION_DENIED' : 'CAMERA_UNAVAILABLE', {
+          reason: next.kind,
+          message: next.message,
+        });
+        streamRef.current = null;
+        // Permission denial needs the student, not a timer, so it waits for an
+        // explicit retry. Anything else keeps trying on a backoff.
+        if (next.kind === 'permission') {
+          setRecovering(false);
+        } else {
+          setRecovering(true);
         }
       }
     };
@@ -360,7 +511,13 @@ export function useProctoring(input: {
       cleanupRef.current?.();
       cleanupRef.current = null;
     };
-  }, [enabled, mic, webcam, ai, sessionId, emitSignal, report, setupWebRTC, stopAll, retryNonce]);
+  }, [enabled, mic, webcam, ai, sessionId, emitSignal, report, setupWebRTC, stopAll, retryNonce, handleTrackLoss]);
 
-  return { status, error, retry };
+  recoveryRef.current = retry;
+
+  useEffect(() => () => {
+    recoveryRef.current = null;
+  }, []);
+
+  return { status, error, fault, recovering, recoveryAttempt, retry };
 }

@@ -8,7 +8,12 @@ import { examsService } from '@/services/exams.service';
 export type ProctorControl =
   | { type: 'pause'; approval?: boolean; reason?: string; message?: string }
   | { type: 'resume' }
-  | { type: 'extend'; minutes: number; remainingSeconds: number }
+  /**
+   * A time grant. `expiresAt` is the server's recomputed deadline; it is present
+   * on grants applied through the time-extension service and the UI applies it
+   * directly instead of refetching and hoping.
+   */
+  | { type: 'extend'; minutes: number; remainingSeconds: number; expiresAt?: string | null }
   | { type: 'force-submit' }
   | { type: 'disconnect' }
   | { type: 'warning'; title?: string; message: string }

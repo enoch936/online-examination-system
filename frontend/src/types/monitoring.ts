@@ -15,6 +15,18 @@ export interface SessionSnapshot {
   startedAt: string | null;
   submittedAt: string | null;
   expiresAt: string | null;
+  /**
+   * Deadline the session started with, captured the first time time was granted.
+   * Present so staff can see what a candidate's allowance was before extensions.
+   */
+  originalExpiresAt?: string | null;
+  /** Running total of minutes granted so far. */
+  totalExtensionMinutes?: number;
+  /**
+   * Authoritative remaining time, derived server-side from `expiresAt`. Preferred
+   * over `remainingSeconds`, which is a client-written snapshot.
+   */
+  serverRemainingSeconds?: number | null;
   remainingSeconds: number | null;
   lastHeartbeatAt: string | null;
   lastActivityAt: string | null;
@@ -33,6 +45,38 @@ export interface SessionSnapshot {
   resumeApprovedAt: string | null;
   resumeDeniedAt: string | null;
   resumePending: boolean;
+}
+
+/**
+ * One row of the time-extension audit trail, written by the backend for every
+ * grant it applies. Append-only: an extension never edits an earlier record.
+ */
+export interface TimeExtensionRecord {
+  id: string;
+  sessionId: string;
+  examId: string;
+  studentId: string;
+  minutes: number;
+  previousExpiresAt: string | null;
+  newExpiresAt: string;
+  totalExtensionMinutes: number;
+  reason: string | null;
+  createdAt: string;
+  grantedBy?: { id: string; firstName: string; lastName: string; email: string } | null;
+  student?: { id: string; firstName: string; lastName: string; email: string } | null;
+}
+
+/** Server's authoritative deadline for a session. */
+export interface SessionDeadline {
+  sessionId: string;
+  examId: string;
+  status: string;
+  startedAt: string | null;
+  originalExpiresAt: string | null;
+  expiresAt: string | null;
+  totalExtensionMinutes: number;
+  submittedAt: string | null;
+  remainingSeconds: number | null;
 }
 
 export interface LiveStats {

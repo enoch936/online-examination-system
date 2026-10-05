@@ -254,7 +254,19 @@ export type ExamSession = {
   id: string;
   examId: string;
   studentId: string;
+  /**
+   * Client-written snapshot from the last autosave. Never used for timing —
+   * `expiresAt` is the authority.
+   */
   remainingSeconds?: number;
+  /** Authoritative deadline, returned by the server. */
+  expiresAt?: string | null;
+  /** Deadline the session began with, captured on the first time grant. */
+  originalExpiresAt?: string | null;
+  /** Running total of minutes granted by a proctor. */
+  totalExtensionMinutes?: number;
+  /** Server-computed time left, derived from `expiresAt`. */
+  serverRemainingSeconds?: number | null;
   status: string;
   exam: ExamDetail;
   answers: Array<{
@@ -365,6 +377,8 @@ export type CertificateVerification =
       percentage: number | null;
     };
 
+export type GradingStatus = 'PENDING' | 'GRADED' | 'PUBLISHED';
+
 export type Result = {
   id: string;
   score: number;
@@ -378,10 +392,26 @@ export type Result = {
   exam: { title: string; course: { name: string; subject: { name: string } } };
   certificate?: Certificate | null;
   submission?: {
+    status?: string;
+    submittedAt?: string | null;
     session?: {
       student?: { id: string; firstName: string; lastName: string; email: string };
     };
   };
+  /**
+   * Lifecycle of the grading pass.
+   * PENDING  — a human still owes marks on one or more questions.
+   * GRADED   — every answer settled, not yet released to the student.
+   * PUBLISHED — released to the student.
+   */
+  gradingStatus?: GradingStatus;
+  /** What the automatic pass produced. Null on results created before this existed. */
+  autoScore?: number | null;
+  /** True once a human changed a mark, so `score` no longer equals `autoScore`. */
+  manualAdjusted?: boolean;
+  gradedBy?: { id: string; firstName: string; lastName: string } | null;
+  /** How many bulk re-grades have run against this attempt. */
+  regradeCount?: number;
 };
 
 export type ResultDetail = Result & {

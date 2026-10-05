@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { classesService } from '@/services/classes.service';
 import { examsService } from '@/services/exams.service';
 import { messagesService } from '@/services/messages.service';
 import { monitoringService } from '@/services/monitoring.service';
@@ -16,10 +17,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { formatDuration } from '@/lib/utils';
+import { apiErrorMessage } from '@/lib/api-error';
 import type { ExamSummary, StudentMessage } from '@/types/api';
 import type { InstructorAction, LiveStats, MonitorConfig, MonitoringEvent, SessionSnapshot } from '@/types/monitoring';
 import {
-  Activity, AlertTriangle, ArrowLeft, CheckCircle, Clock, Eye, Flag, Gauge, ListVideo,
+  Activity, AlertTriangle, ArrowLeft, CheckCircle, Clock, Eye, Flag, Gauge, History, ListVideo,
   Loader2, MessageSquare, Mic, Monitor, Pause, Play, RefreshCw, Send, ShieldAlert, Timer, Users, Video, Wifi, WifiOff, XCircle,
 } from 'lucide-react';
 
@@ -129,10 +131,12 @@ function SessionActions({
   session,
   access,
   onOpenEvents,
+  onOpenHistory,
 }: {
   session: SessionSnapshot;
   access: ExamAccess;
   onOpenEvents: () => void;
+  onOpenHistory: () => void;
 }) {
   const queryClient = useQueryClient();
   const actionMutation = useMutation({
@@ -143,6 +147,29 @@ function SessionActions({
       void queryClient.invalidateQueries({ queryKey: ['monitor-sessions', session.examId] });
     },
     onError: () => toast.error('Failed to send action'),
+  });
+
+  // Extensions go through the dedicated time-extension endpoint rather than the
+  // generic `extend` action so the grant is validated, persisted as an audit row
+  // and notified. The generic action silently did none of that.
+  const extendMutation = useMutation({
+    mutationFn: (minutes: number) =>
+      monitoringService.extendTime(session.examId, {
+        minutes,
+        studentIds: [session.studentId],
+      }),
+    onSuccess: (outcome) => {
+      const extended = outcome.extended;
+      if (extended === 0) {
+        const why = outcome.skipped[0]?.reason ?? 'No eligible session';
+        toast.error(`Not extended — ${why}`);
+      } else {
+        toast.success(`Added time to ${extended} session${extended === 1 ? '' : 's'}`);
+      }
+      void queryClient.invalidateQueries({ queryKey: ['monitor-sessions', session.examId] });
+      void queryClient.invalidateQueries({ queryKey: ['time-extensions', session.examId] });
+    },
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to extend time')),
   });
 
   const active = session.status === 'IN_PROGRESS' || session.status === 'PAUSED';
@@ -196,6 +223,12 @@ function SessionActions({
         <Button
           size="sm"
           variant="outline"
+          disabled={extendMutation.isPending}
+          title={
+            session.totalExtensionMinutes
+              ? `${session.totalExtensionMinutes} minutes already granted`
+              : 'Grant additional time to this candidate'
+          }
           onClick={() => {
             const input = window.prompt('Minutes to extend (1-120)', '10');
             if (input === null) return;
@@ -206,10 +239,20 @@ function SessionActions({
               toast.error('Enter a whole number of minutes between 1 and 120');
               return;
             }
-            run({ action: 'extend', minutes });
+            extendMutation.mutate(minutes);
           }}
         >
-          <Clock className="mr-1 h-3.5 w-3.5" /> Extend
+          {extendMutation.isPending ? (
+            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Clock className="mr-1 h-3.5 w-3.5" />
+          )}
+          Extend
+        </Button>
+      )}
+      {canProctor && (
+        <Button size="sm" variant="ghost" onClick={onOpenHistory} title="Extension history">
+          <History className="mr-1 h-3.5 w-3.5" /> History
         </Button>
       )}
       {canCoOwner && (
@@ -242,10 +285,12 @@ function SessionTable({
   sessions,
   access,
   onOpenEvents,
+  onOpenHistory,
 }: {
   sessions: SessionSnapshot[];
   access: ExamAccess;
   onOpenEvents: (s: SessionSnapshot) => void;
+  onOpenHistory: (s: SessionSnapshot) => void;
 }) {
   if (sessions.length === 0) {
     return (
@@ -300,6 +345,11 @@ function SessionTable({
                     <Gauge className="mr-1 inline h-3 w-3" />
                     {Math.round(s.progress)}%
                   </span>
+                  {(s.totalExtensionMinutes ?? 0) > 0 && (
+                    <span className="text-amber-600" title="Extra time granted by a proctor">
+                      <Clock className="mr-1 inline h-3 w-3" />+{s.totalExtensionMinutes} min granted
+                    </span>
+                  )}
                 </div>
                 <div className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-muted">
                   <div
@@ -308,7 +358,12 @@ function SessionTable({
                   />
                 </div>
               </div>
-              <SessionActions session={s} access={access} onOpenEvents={() => onOpenEvents(s)} />
+              <SessionActions
+                session={s}
+                access={access}
+                onOpenEvents={() => onOpenEvents(s)}
+                onOpenHistory={() => onOpenHistory(s)}
+              />
             </div>
           </CardContent>
         </Card>
@@ -723,6 +778,238 @@ function PendingRequestsPanel({ examId }: { examId: string }) {
   );
 }
 
+/**
+ * Append-only grant history. Deliberately read-only: extensions are a
+ * compliance record, so the UI offers no way to edit or delete one.
+ */
+function ExtensionHistoryPanel({
+  examId,
+  sessionId,
+}: {
+  examId: string;
+  sessionId?: string;
+}) {
+  const [scope, setScope] = useState<'exam' | 'session'>(sessionId ? 'session' : 'exam');
+  const activeSessionId = sessionId ?? '';
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['time-extensions', examId, scope, activeSessionId],
+    queryFn: () =>
+      scope === 'session' && activeSessionId
+        ? monitoringService.sessionExtensions(activeSessionId)
+        : monitoringService.extensionHistory(examId),
+    enabled: scope === 'exam' || Boolean(activeSessionId),
+  });
+
+  const records = data ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="h-4 w-4" /> Time extensions
+          </CardTitle>
+          {sessionId && (
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant={scope === 'session' ? 'secondary' : 'ghost'} onClick={() => setScope('session')}>
+                This session
+              </Button>
+              <Button size="sm" variant={scope === 'exam' ? 'secondary' : 'ghost'} onClick={() => setScope('exam')}>
+                Whole exam
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : records.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No time has been granted for this exam.</p>
+        ) : (
+          <div className="space-y-2">
+            {records.map((record) => (
+              <div key={record.id} className="rounded-md border p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {record.student
+                      ? `${record.student.firstName} ${record.student.lastName}`
+                      : record.studentId}
+                  </span>
+                  <Badge variant="success">+{record.minutes} min</Badge>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Deadline {record.previousExpiresAt ? new Date(record.previousExpiresAt).toLocaleTimeString() : '—'} →{' '}
+                  {new Date(record.newExpiresAt).toLocaleTimeString()} · total granted {record.totalExtensionMinutes} min
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {new Date(record.createdAt).toLocaleString()}
+                  {record.grantedBy ? ` · by ${record.grantedBy.firstName} ${record.grantedBy.lastName}` : ''}
+                  {record.reason ? ` · ${record.reason}` : ''}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * One/many/all grants in a single panel. Targeting is expressed as a mode
+ * rather than as an optional student list, so "everyone" is impossible to
+ * confuse with "the students I happened to have ticked".
+ */
+function BulkExtendPanel({ examId, access }: { examId: string; access: ExamAccess }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [minutes, setMinutes] = useState(10);
+  const [mode, setMode] = useState<'all' | 'class'>('all');
+  const [classId, setClassId] = useState('');
+  const [reason, setReason] = useState('');
+  const [result, setResult] = useState<string | null>(null);
+
+  const allowed = canPerform(access, RANK_PROCTOR);
+  const { data: classes } = useQuery({
+    queryKey: ['classes'],
+    queryFn: () => classesService.list(),
+    enabled: open && mode === 'class',
+  });
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      monitoringService.extendTime(examId, {
+        minutes,
+        reason: reason.trim() || undefined,
+        ...(mode === 'class' ? { classId } : {}),
+      }),
+    onSuccess: (outcome) => {
+      const skipped = outcome.skipped.length;
+      setResult(
+        `Granted ${outcome.extended} session${outcome.extended === 1 ? '' : 's'} · ` +
+          `${outcome.notifications} notification${outcome.notifications === 1 ? '' : 's'} sent` +
+          (skipped > 0 ? ` · ${skipped} skipped` : ''),
+      );
+      if (outcome.extended === 0) toast.error(`No session extended${skipped ? ` — ${outcome.skipped[0]?.reason}` : ''}`);
+      else toast.success(`Added ${minutes} minutes to ${outcome.extended} session${outcome.extended === 1 ? '' : 's'}`);
+      void queryClient.invalidateQueries({ queryKey: ['monitor-sessions', examId] });
+      void queryClient.invalidateQueries({ queryKey: ['time-extensions', examId] });
+    },
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to extend time')),
+  });
+
+  if (!allowed) return null;
+
+  const submit = () => {
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 120) {
+      toast.error('Enter a whole number of minutes between 1 and 120');
+      return;
+    }
+    if (mode === 'class' && !classId) {
+      toast.error('Choose a class');
+      return;
+    }
+    setResult(null);
+    mutation.mutate();
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Clock className="h-4 w-4" /> Grant extra time
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!open ? (
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            Extend time for many candidates
+          </Button>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="text-xs text-muted-foreground">
+                Minutes per candidate
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  className="mt-1 h-9 w-full rounded-lg border bg-background px-3 text-sm"
+                  value={minutes}
+                  onChange={(e) => setMinutes(Number(e.target.value))}
+                />
+              </label>
+              <label className="text-xs text-muted-foreground">
+                Who
+                <select
+                  className="mt-1 h-9 w-full rounded-lg border bg-background px-3 text-sm"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as 'all' | 'class')}
+                >
+                  <option value="all">Everyone currently in progress</option>
+                  <option value="class">One class</option>
+                </select>
+              </label>
+              {mode === 'class' && (
+                <label className="text-xs text-muted-foreground">
+                  Class
+                  <select
+                    className="mt-1 h-9 w-full rounded-lg border bg-background px-3 text-sm"
+                    value={classId}
+                    onChange={(e) => setClassId(e.target.value)}
+                  >
+                    <option value="">Choose a class</option>
+                    {classes?.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        {cls.name} ({cls.code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="text-xs text-muted-foreground">
+                Reason (stored in the audit trail)
+                <input
+                  className="mt-1 h-9 w-full rounded-lg border bg-background px-3 text-sm"
+                  value={reason}
+                  placeholder="e.g. power outage"
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </label>
+            </div>
+
+            {result && <p className="text-sm text-emerald-600">{result}</p>}
+            {mutation.data && mutation.data.skipped.length > 0 && (
+              <div className="max-h-32 space-y-1 overflow-y-auto rounded-md border p-2 text-xs text-muted-foreground">
+                {mutation.data.skipped.map((s) => (
+                  <p key={s.sessionId}>
+                    {s.sessionId}: {s.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button size="sm" onClick={submit} disabled={mutation.isPending}>
+                {mutation.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Grant time
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={mutation.isPending}>
+                Close
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MonitorDetail({ examId, examTitle, access, onBack }: { examId: string; examTitle: string; access: ExamAccess; onBack: () => void }) {
   const queryClient = useQueryClient();
   const viewerRoleLabel = useViewerRoleLabel();
@@ -986,13 +1273,22 @@ function MonitorDetail({ examId, examTitle, access, onBack }: { examId: string; 
 
       <AuditLogPanel examId={examId} />
 
+      <BulkExtendPanel examId={examId} access={access} />
+
+      <ExtensionHistoryPanel examId={examId} sessionId={selectedSession?.sessionId} />
+
       {sessionsLoading ? (
         <div className="space-y-2">
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />
         </div>
       ) : (
-        <SessionTable sessions={sorted} access={access} onOpenEvents={setSelectedSession} />
+        <SessionTable
+          sessions={sorted}
+          access={access}
+          onOpenEvents={setSelectedSession}
+          onOpenHistory={setSelectedSession}
+        />
       )}
 
       {selectedSession && (
@@ -1003,7 +1299,12 @@ function MonitorDetail({ examId, examTitle, access, onBack }: { examId: string; 
                 Session detail — {selectedSession.student ? `${selectedSession.student.firstName} ${selectedSession.student.lastName}` : selectedSession.studentId}
               </CardTitle>
               <div className="flex items-center gap-2">
-                <SessionActions session={selectedSession} access={access} onOpenEvents={() => undefined} />
+                <SessionActions
+                  session={selectedSession}
+                  access={access}
+                  onOpenEvents={() => undefined}
+                  onOpenHistory={() => undefined}
+                />
                 <Button size="sm" variant="ghost" onClick={() => setSelectedSession(null)}>
                   Close
                 </Button>

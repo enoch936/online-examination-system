@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useAutosave } from '@/hooks/use-autosave';
-import { useCountdown } from '@/hooks/use-countdown';
+import { useServerDeadline } from '@/hooks/use-server-deadline';
 import { useExamMonitoring, type ProctorControl } from '@/hooks/use-exam-monitoring';
 import { useProctoring } from '@/hooks/use-proctoring';
 import { useNotifications } from '@/hooks/use-notifications';
@@ -294,15 +294,29 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     if (submittedRef.current || disconnectMsg) exitFullscreen();
   }, [disconnectMsg, exitFullscreen, submitMutation.isSuccess]);
 
-  const remainingSeconds = useCountdown(
-    query.data?.remainingSeconds ?? (query.data?.exam.durationMinutes ?? 0) * 60,
-    useCallback(() => {
-      if (query.data?.id && !submittedRef.current) {
-        toast.info('Time is up! Auto-submitting...');
-        submitMutation.mutate(true);
-      }
-    }, [query.data?.id, submitMutation]),
-  );
+  /**
+ * The countdown is driven by the server's `expiresAt`, never by a number this
+ * tab computed. A proctor's extension arrives over the socket and is applied
+ * without a refetch; a sleeping laptop resyncs on its next tick.
+ */
+const {
+  seconds: remainingSeconds,
+  expiresAt: serverExpiresAt,
+  clockSkewMs,
+  applyRemoteDeadline,
+} = useServerDeadline({
+  sessionId: query.data?.id ?? null,
+  expiresAt: query.data?.expiresAt ?? null,
+  fallbackSeconds: query.data ? (query.data.exam.durationMinutes ?? 0) * 60 : null,
+  onExpire: useCallback(() => {
+    if (query.data?.id && !submittedRef.current) {
+      toast.info('Time is up! Auto-submitting...');
+      submitMutation.mutate(true);
+    }
+  }, [query.data?.id, submitMutation]),
+});
+
+const extensionMinutes = query.data?.totalExtensionMinutes ?? 0;
 
   const remainingRef = useRef(remainingSeconds);
   remainingRef.current = remainingSeconds;
@@ -346,8 +360,9 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
         setPauseApprovalRequired(false);
         void query.refetch();
       } else if (control.type === 'extend') {
-        toast.success(`Time extended by ${control.minutes} minute(s)`);
-        void query.refetch();
+        // Apply the server's own deadline instead of refetching and hoping.
+        applyRemoteDeadline(control.expiresAt, control.remainingSeconds);
+        toast.success(`Time extended by ${control.minutes} minute${control.minutes === 1 ? '' : 's'}`);
       } else if (control.type === 'force-submit') {
         submitMutation.mutate(true);
       } else if (control.type === 'disconnect') {
@@ -358,7 +373,7 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
         toast.info(control.message);
       }
     },
-    [query, submitMutation],
+    [applyRemoteDeadline, query, submitMutation],
   );
 
   const submitReport = useCallback(async () => {
@@ -403,7 +418,13 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
     });
   }, [currentIndex, currentQuestion, query.data?.id, reportEvent]);
 
-  const { status: proctorStatus, error: proctorError, retry: retryProctoring } = useProctoring({
+  const {
+    status: proctorStatus,
+    error: proctorError,
+    fault: proctorFault,
+    recovering: proctorRecovering,
+    retry: retryProctoring,
+  } = useProctoring({
     sessionId: query.data?.id ?? '',
     examId: query.data?.examId ?? examId ?? '',
     enabled: Boolean(
@@ -431,18 +452,23 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
       return { tone: 'muted' as const, title: 'Starting proctoring…', detail: 'Waiting for camera access.', action: null };
     }
     if (proctorStatus === 'denied' || proctorStatus === 'error') {
-      const denied = proctorStatus === 'denied';
+      // The banner has to name the actual failure. A camera that was unplugged,
+      // stalled or revoked mid-exam is a different problem from a permission
+      // that was never granted, and the student is told which one it is.
+      const denied = proctorStatus === 'denied' || proctorFault?.kind === 'permission';
       return {
         tone: (denied ? 'danger' : 'warning') as 'danger' | 'warning',
         title: denied ? 'Camera access denied' : 'Camera unavailable',
         detail: denied
           ? 'Allow camera access in your browser to continue with proctoring. Your proctor has been notified.'
-          : `${proctorError ?? 'We could not connect to your camera'}. Your proctor has been notified.`,
-        action: { label: 'Retry', onClick: retryProctoring },
+          : proctorRecovering
+            ? `${proctorError ?? 'We lost contact with your camera'}. Reconnecting automatically — your proctor has been notified.`
+            : `${proctorError ?? 'We could not connect to your camera'}. Your proctor has been notified.`,
+        action: { label: 'Retry now', onClick: retryProctoring },
       };
     }
     return null;
-  }, [requirements, proctorStatus, proctorError, retryProctoring]);
+  }, [requirements, proctorStatus, proctorError, proctorFault, proctorRecovering, retryProctoring]);
 
   const handleUpdateAnswer = useCallback(
     (question: ExamQuestion, update: { selectedOptionIds?: string[]; answerText?: string }) => {
@@ -935,40 +961,60 @@ export function ExamTakingClient({ examId, sessionId }: { examId?: string; sessi
             Answered {answeredCount} of {questions.length}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={remainingSeconds < 60 ? 'warning' : remainingSeconds < 300 ? 'warning' : 'secondary'} className="text-sm tabular-nums">
-            {formatDuration(remainingSeconds)}
-          </Badge>
-          <Button type="button" variant="outline" size="icon" title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={toggleFullscreen}>
-            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-          </Button>
-          <Button
-            type="button"
-            variant={showAll ? 'secondary' : 'outline'}
-            size="icon"
-            title={showAll ? 'Show one at a time' : 'Show all questions'}
-            onClick={() => setShowAll((v) => !v)}
-          >
-            <LayoutList className="h-4 w-4" />
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            title="Report a problem to your proctor"
-            onClick={() => setReportOpen((v) => !v)}
-          >
-            <Flag className="mr-1 h-4 w-4" />
-            Report
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={openReview}
-            disabled={submitMutation.isPending}
-          >
-            <Send className="h-4 w-4" />
-            Submit
-          </Button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={remainingSeconds <= 60 ? 'warning' : remainingSeconds < 300 ? 'warning' : 'secondary'}
+              className="text-sm tabular-nums"
+              title={
+                serverExpiresAt
+                  ? `Time is measured against the server deadline (${new Date(serverExpiresAt).toLocaleTimeString()}).`
+                  : undefined
+              }
+            >
+              {formatDuration(remainingSeconds)}
+            </Badge>
+            {extensionMinutes > 0 && (
+              <Badge variant="success" title="Time granted by your proctor during this exam">
+                +{extensionMinutes} min granted
+              </Badge>
+            )}
+            <Button type="button" variant="outline" size="icon" title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} onClick={toggleFullscreen}>
+              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            </Button>
+            <Button
+              type="button"
+              variant={showAll ? 'secondary' : 'outline'}
+              size="icon"
+              title={showAll ? 'Show one at a time' : 'Show all questions'}
+              onClick={() => setShowAll((v) => !v)}
+            >
+              <LayoutList className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              title="Report a problem to your proctor"
+              onClick={() => setReportOpen((v) => !v)}
+            >
+              <Flag className="mr-1 h-4 w-4" />
+              Report
+            </Button>
+            <Button variant="destructive" onClick={openReview} disabled={submitMutation.isPending}>
+              <Send className="h-4 w-4" />
+              Submit
+            </Button>
+          </div>
+          {/* Surfaced rather than silently absorbed: if this device's clock is
+              wrong, the countdown still comes from the server, and the student is
+              told why it may look off. */}
+          {Math.abs(clockSkewMs) > 60_000 && (
+            <p className="text-[11px] text-muted-foreground">
+              Your device clock is {formatDuration(Math.abs(Math.round(clockSkewMs / 1000)))}{' '}
+              {clockSkewMs > 0 ? 'behind' : 'ahead of'} the exam server. The timer above uses the server deadline.
+            </p>
+          )}
         </div>
       </div>
 
