@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X, KeyRound } from 'lucide-react';
+import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X, KeyRound, Pencil, Trash2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { usersService } from '@/services/users.service';
 import { api } from '@/services/api';
@@ -20,7 +20,17 @@ const statusVariant: Record<string, 'success' | 'warning' | 'default' | 'outline
   ACTIVE: 'success',
   SUSPENDED: 'warning',
   INACTIVE: 'default',
+  DEACTIVATED: 'default',
   PENDING_VERIFICATION: 'outline',
+};
+
+const ALL_STATUSES = ['ACTIVE', 'PENDING_VERIFICATION', 'SUSPENDED', 'DEACTIVATED'] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active',
+  PENDING_VERIFICATION: 'Pending verification',
+  SUSPENDED: 'Suspended',
+  DEACTIVATED: 'Deactivated',
 };
 
 const ALL_ROLES = ['SUPER_ADMIN', 'ADMIN', 'INSTRUCTOR', 'STUDENT'] as const;
@@ -32,13 +42,23 @@ const ROLE_LABELS: Record<string, string> = {
   STUDENT: 'Student',
 };
 
-function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void; onResetPassword: (userId: string, newPassword: string) => void }) {
+type Panel = 'edit' | 'reset' | 'delete' | null;
+
+function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword, onUpdate, onDelete }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void; onResetPassword: (userId: string, newPassword: string) => void; onUpdate: (userId: string, data: { firstName: string; lastName: string; phone: string; status: string }) => void; onDelete: (userId: string) => void }) {
   const [assigning, setAssigning] = useState(false);
   const canWrite = useHasPermission()('users.write');
   const assignedRoles = user.roles.map((r) => r.role.name);
-  const [showReset, setShowReset] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [edit, setEdit] = useState({
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: user.phone ?? '',
+    status: user.status,
+  });
+
+  const openPanel = (next: Exclude<Panel, null>) => setPanel((cur) => (cur === next ? null : next));
 
   const handleReset = async () => {
     if (newPassword.length < 8) {
@@ -50,7 +70,7 @@ function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword }: { user: 
       return;
     }
     await onResetPassword(user.id, newPassword);
-    setShowReset(false);
+    setPanel(null);
     setNewPassword('');
     setConfirmPassword('');
   };
@@ -124,19 +144,82 @@ function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword }: { user: 
       <td className="p-3 text-sm text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</td>
         {canWrite && (
           <td className="p-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowReset((v) => !v)}
-              title={`Reset password for ${user.email}`}
-            >
-              <KeyRound className="h-4 w-4" />
-              <span className="sr-only">Reset password</span>
-            </Button>
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openPanel('edit')}
+                title={`Edit ${user.email}`}
+              >
+                <Pencil className="h-4 w-4" />
+                <span className="sr-only">Edit user</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openPanel('reset')}
+                title={`Reset password for ${user.email}`}
+              >
+                <KeyRound className="h-4 w-4" />
+                <span className="sr-only">Reset password</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => openPanel('delete')}
+                title={`Delete ${user.email}`}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="sr-only">Delete user</span>
+              </Button>
+            </div>
           </td>
         )}
       </tr>
-      {showReset && canWrite && (
+      {panel === 'edit' && canWrite && (
+        <tr className="border-b bg-muted/30">
+          <td colSpan={7} className="p-4">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                Edit <span className="font-medium text-foreground">{user.email}</span>. Email is the login identity and cannot be changed here.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`fn-${user.id}`}>First name</Label>
+                  <Input id={`fn-${user.id}`} value={edit.firstName} onChange={(e) => setEdit({ ...edit, firstName: e.target.value })} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`ln-${user.id}`}>Last name</Label>
+                  <Input id={`ln-${user.id}`} value={edit.lastName} onChange={(e) => setEdit({ ...edit, lastName: e.target.value })} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`ph-${user.id}`}>Phone</Label>
+                  <Input id={`ph-${user.id}`} value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`st-${user.id}`}>Status</Label>
+                  <select
+                    id={`st-${user.id}`}
+                    className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    value={edit.status}
+                    onChange={(e) => setEdit({ ...edit, status: e.target.value })}
+                  >
+                    {ALL_STATUSES.map((s) => (
+                      <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => { onUpdate(user.id, edit); setPanel(null); }}>Save changes</Button>
+                <Button size="sm" variant="outline" onClick={() => setPanel(null)}>Cancel</Button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+      {panel === 'reset' && canWrite && (
         <tr className="border-b bg-muted/30">
           <td colSpan={7} className="p-4">
             <div className="flex flex-col gap-3">
@@ -168,7 +251,25 @@ function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword }: { user: 
               </div>
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleReset}>Reset password</Button>
-                <Button size="sm" variant="outline" onClick={() => setShowReset(false)}>Cancel</Button>
+                <Button size="sm" variant="outline" onClick={() => setPanel(null)}>Cancel</Button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+      {panel === 'delete' && canWrite && (
+        <tr className="border-b bg-destructive/10">
+          <td colSpan={7} className="p-4">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm">
+                Permanently delete <span className="font-medium">{user.email}</span>? This cannot be undone.
+                Accounts with exam, class or audit records cannot be deleted — set the status to Deactivated instead.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="destructive" onClick={() => { onDelete(user.id); setPanel(null); }}>
+                  Delete user
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPanel(null)}>Cancel</Button>
               </div>
             </div>
           </td>
@@ -182,11 +283,13 @@ export default function AdminUsersPage() {
   const queryClient = useQueryClient();
   const canWrite = useHasPermission()('users.write');
   const [showAdd, setShowAdd] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [form, setForm] = useState({ email: '', firstName: '', lastName: '', password: '' });
 
   const { data: users, isLoading, error } = useQuery({
-    queryKey: ['admin', 'users'],
-    queryFn: () => usersService.list(),
+    queryKey: ['admin', 'users', search, statusFilter],
+    queryFn: () => usersService.list({ q: search || undefined, status: statusFilter || undefined }),
   });
 
   const assignRoleMutation = useMutation({
@@ -228,6 +331,26 @@ export default function AdminUsersPage() {
     onError: (err: Error) => toast.error(err.message || 'Failed to reset password'),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ userId, data }: { userId: string; data: { firstName: string; lastName: string; phone: string; status: string } }) =>
+      usersService.update(userId, data),
+    onSuccess: () => {
+      toast.success('User updated');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to update user'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (userId: string) => usersService.remove(userId),
+    onSuccess: (_data, userId) => {
+      const target = users?.find((u) => u.id === userId);
+      toast.success(`${target?.email ?? 'User'} deleted`);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to delete user'),
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -248,6 +371,28 @@ export default function AdminUsersPage() {
             <Plus className="mr-1 h-4 w-4" /> Add user
           </Button>
         )}
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-8"
+            placeholder="Search by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          {ALL_STATUSES.map((s) => (
+            <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
+          ))}
+        </select>
       </div>
 
       {showAdd && (
@@ -335,6 +480,8 @@ export default function AdminUsersPage() {
                     onRoleChange={(userId, role) => assignRoleMutation.mutate({ userId, role })}
                     onRoleRemove={(userId, roleName) => removeRoleMutation.mutate({ userId, roleName })}
                     onResetPassword={(userId, newPassword) => resetPasswordMutation.mutate({ userId, newPassword })}
+                    onUpdate={(userId, data) => updateMutation.mutate({ userId, data })}
+                    onDelete={(userId) => deleteMutation.mutate(userId)}
                   />
                 ))}
               </tbody>

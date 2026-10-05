@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { RoleName } from '@prisma/client';
+import { RoleName, UserStatus } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -20,8 +20,8 @@ export class UsersController {
 
   @Get()
   @Permissions('users.read')
-  findMany(@Query('role') role?: RoleName) {
-    return this.users.findMany(role);
+  findMany(@Query('role') role?: RoleName, @Query('q') q?: string, @Query('status') status?: UserStatus) {
+    return this.users.findMany(role, { q, status });
   }
 
   @Post()
@@ -40,6 +40,12 @@ export class UsersController {
   @Permissions('users.write')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() user: AuthenticatedUser) {
     return this.users.update(id, dto, user);
+  }
+
+  @Delete(':id')
+  @Permissions('users.write')
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.users.remove(id, user);
   }
 
   @Patch(':id/password')

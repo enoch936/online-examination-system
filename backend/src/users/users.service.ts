@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { ConfigService } from '@nestjs/config';
 import { RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import type { Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
@@ -78,10 +79,23 @@ export class UsersService {
     return this.sanitize(user);
   }
 
-  async findMany(role?: RoleName) {
-    const where = role
-      ? { roles: { some: { role: { name: role } } } }
-      : {};
+  async findMany(role?: RoleName, filters: { q?: string; status?: UserStatus } = {}) {
+    const where: Prisma.UserWhereInput = {};
+    if (role) {
+      where.roles = { some: { role: { name: role } } };
+    }
+    if (filters.status) {
+      where.status = filters.status;
+    }
+    if (filters.q) {
+      // Prisma's `mode: 'insensitive'` keeps search case-insensitive on
+      // Postgres without needing a raw query.
+      where.OR = [
+        { email: { contains: filters.q, mode: 'insensitive' } },
+        { firstName: { contains: filters.q, mode: 'insensitive' } },
+        { lastName: { contains: filters.q, mode: 'insensitive' } },
+      ];
+    }
     const users = await this.prisma.user.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -137,6 +151,63 @@ export class UsersService {
     });
 
     return this.findOne(id);
+  }
+
+  /**
+   * Hard-deletes an account, but only when it holds no academic or audit
+   * records. Deleting a user who has sat exams, authored questions, or appears
+   * in the audit log would either fail on a foreign key or destroy records we
+   * must keep — those accounts are deactivated instead (status DEACTIVATED),
+   * which blocks login but keeps the history intact.
+   */
+  async remove(id: string, actor: AuthenticatedUser) {
+    if (id === actor.sub) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+    await this.assertTargetBelowActor(actor, id);
+
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        _count: {
+          select: {
+            sessions: true,
+            createdExams: true,
+            createdQuestions: true,
+            examAssignments: true,
+            classEnrollments: true,
+            answers: true,
+            examEvents: true,
+            retakeRequests: true,
+            resumeRequests: true,
+            auditLogs: true,
+          },
+        },
+      },
+    });
+    if (!target) throw new NotFoundException('User not found');
+
+    const records = Object.values(target._count).reduce((sum, count) => sum + count, 0);
+    if (records > 0) {
+      throw new BadRequestException(
+        'This account has exam, class or audit records and cannot be deleted. Set the status to Deactivated instead.',
+      );
+    }
+
+    try {
+      // Roles/tokens/notifications cascade in the schema.
+      await this.prisma.user.delete({ where: { id } });
+    } catch (error) {
+      // Prisma P2003 = foreign key constraint: something still references it.
+      if ((error as { code?: string }).code === 'P2003') {
+        throw new BadRequestException(
+          'This account is still referenced by other records and cannot be deleted. Set the status to Deactivated instead.',
+        );
+      }
+      throw error;
+    }
+
+    return { id, deleted: true };
   }
 
   async assignRole(id: string, roleName: RoleName, actor: AuthenticatedUser) {
