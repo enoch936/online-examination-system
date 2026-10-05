@@ -6,6 +6,7 @@ import { Permissions } from '../common/decorators/permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { AssignRoleDto } from './dto/assign-role.dto';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UsersService } from './users.service';
@@ -39,6 +40,16 @@ export class UsersController {
   @Permissions('users.write')
   update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() user: AuthenticatedUser) {
     return this.users.update(id, dto, user);
+  }
+
+  @Patch(':id/password')
+  @Permissions('users.write')
+  resetPassword(
+    @Param('id') id: string,
+    @Body() dto: AdminResetPasswordDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.users.resetPassword(id, dto, user);
   }
 
   @Patch(':id/roles')

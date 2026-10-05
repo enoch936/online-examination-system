@@ -18,4 +18,7 @@ export const usersService = {
   async removeRole(userId: string, roleName: string) {
     return unwrap<User>(await api.delete(`/users/${userId}/roles/${roleName}`));
   },
+  async resetPassword(userId: string, newPassword: string) {
+    return unwrap<User>(await api.patch(`/users/${userId}/password`, { newPassword }));
+  },
 };

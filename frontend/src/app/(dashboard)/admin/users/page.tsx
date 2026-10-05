@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X } from 'lucide-react';
+import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { usersService } from '@/services/users.service';
 import { api } from '@/services/api';
@@ -32,10 +32,28 @@ const ROLE_LABELS: Record<string, string> = {
   STUDENT: 'Student',
 };
 
-function UserRow({ user, onRoleChange, onRoleRemove }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void }) {
+function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void; onResetPassword: (userId: string, newPassword: string) => void }) {
   const [assigning, setAssigning] = useState(false);
   const canWrite = useHasPermission()('users.write');
   const assignedRoles = user.roles.map((r) => r.role.name);
+  const [showReset, setShowReset] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const handleReset = async () => {
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    await onResetPassword(user.id, newPassword);
+    setShowReset(false);
+    setNewPassword('');
+    setConfirmPassword('');
+  };
 
   const handleAssign = async (role: string) => {
     setAssigning(true);
@@ -61,8 +79,9 @@ function UserRow({ user, onRoleChange, onRoleRemove }: { user: User; onRoleChang
   const availableRoles = ALL_ROLES.filter((r) => !assignedRoles.includes(r));
 
   return (
-    <tr className="border-b transition-colors hover:bg-muted/50">
-      <td className="p-3 font-medium">{user.firstName} {user.lastName}</td>
+    <>
+      <tr className="border-b transition-colors hover:bg-muted/50">
+        <td className="p-3 font-medium">{user.firstName} {user.lastName}</td>
       <td className="p-3 text-muted-foreground">{user.email}</td>
       <td className="p-3">
         <Badge variant={statusVariant[user.status] ?? 'default'}>{user.status}</Badge>
@@ -103,7 +122,59 @@ function UserRow({ user, onRoleChange, onRoleRemove }: { user: User; onRoleChang
         {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString() : '—'}
       </td>
       <td className="p-3 text-sm text-muted-foreground">{new Date(user.createdAt).toLocaleDateString()}</td>
-    </tr>
+        {canWrite && (
+          <td className="p-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowReset((v) => !v)}
+              title={`Reset password for ${user.email}`}
+            >
+              <KeyRound className="h-4 w-4" />
+              <span className="sr-only">Reset password</span>
+            </Button>
+          </td>
+        )}
+      </tr>
+      {showReset && canWrite && (
+        <tr className="border-b bg-muted/30">
+          <td colSpan={7} className="p-4">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground">
+                Set a new password for <span className="font-medium text-foreground">{user.email}</span>.
+                Share it with them securely — the user is signed out of all sessions.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`np-${user.id}`}>New password</Label>
+                  <Input
+                    id={`np-${user.id}`}
+                    type="password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor={`cp-${user.id}`}>Confirm password</Label>
+                  <Input
+                    id={`cp-${user.id}`}
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleReset}>Reset password</Button>
+                <Button size="sm" variant="outline" onClick={() => setShowReset(false)}>Cancel</Button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -144,6 +215,17 @@ export default function AdminUsersPage() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
     onError: () => toast.error('Failed to create user'),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: string; newPassword: string }) =>
+      usersService.resetPassword(userId, newPassword),
+    onSuccess: (_data, { userId }) => {
+      const target = users?.find((u) => u.id === userId);
+      toast.success(`Password reset for ${target?.email ?? 'user'}`);
+      queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to reset password'),
   });
 
   return (
@@ -242,6 +324,7 @@ export default function AdminUsersPage() {
                   <th className="p-3 text-left font-medium">Roles</th>
                   <th className="p-3 text-left font-medium">Last login</th>
                   <th className="p-3 text-left font-medium">Created</th>
+                  {canWrite && <th className="p-3 text-left font-medium">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -251,6 +334,7 @@ export default function AdminUsersPage() {
                     user={user}
                     onRoleChange={(userId, role) => assignRoleMutation.mutate({ userId, role })}
                     onRoleRemove={(userId, roleName) => removeRoleMutation.mutate({ userId, roleName })}
+                    onResetPassword={(userId, newPassword) => resetPasswordMutation.mutate({ userId, newPassword })}
                   />
                 ))}
               </tbody>

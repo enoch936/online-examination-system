@@ -4,6 +4,7 @@ import { RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -108,6 +109,34 @@ export class UsersService {
       include: this.userInclude(),
     });
     return this.sanitize(user);
+  }
+
+  /**
+   * Administrative password reset: lets an ADMIN/SUPER_ADMIN recover access for
+   * a user who forgot their password (the self-service /forgot-password flow
+   * needs working email delivery, which is unavailable on this deployment).
+   *
+   * Mirrors the existing privilege rules — an admin cannot touch an account
+   * with equal or higher rank — and revokes every refresh token so the reset
+   * actually locks out whoever held the old credentials.
+   */
+  async resetPassword(id: string, dto: AdminResetPasswordDto, actor: AuthenticatedUser) {
+    await this.ensureExists(id);
+    if (id !== actor.sub) {
+      await this.assertTargetBelowActor(actor, id);
+    }
+
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash: await bcrypt.hash(dto.newPassword, this.config.get<number>('BCRYPT_ROUNDS', 12)) },
+    });
+
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return this.findOne(id);
   }
 
   async assignRole(id: string, roleName: RoleName, actor: AuthenticatedUser) {
