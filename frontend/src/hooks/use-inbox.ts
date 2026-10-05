@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { getSocket } from '@/services/socket.service';
 
 export const MESSAGES_QUERY_KEY = ['messages'];
+export const CONTACT_MESSAGES_QUERY_KEY = ['admin', 'contact-messages'];
 
 export function useInboxLive() {
   const queryClient = useQueryClient();
@@ -14,6 +15,9 @@ export function useInboxLive() {
     const socket = getSocket();
     const onMessage = () => {
       queryClient.invalidateQueries({ queryKey: MESSAGES_QUERY_KEY });
+      // Prefix match, so every filter/page combination of the admin inbox
+      // refreshes too — the count badges and the open row stay consistent.
+      queryClient.invalidateQueries({ queryKey: CONTACT_MESSAGES_QUERY_KEY });
       toast.info('New message received');
     };
     socket.on('message:new', onMessage);

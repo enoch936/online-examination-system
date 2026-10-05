@@ -12,7 +12,19 @@ function randomNonce(): string {
     .join('');
 }
 
-const publicPaths = ['/', '/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
+const publicPaths = [
+  '/',
+  '/login',
+  '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
+  // Marketing pages: reachable without a session, otherwise the edge cookie
+  // gate would bounce every signed-out visitor to /login.
+  '/about',
+  '/contact',
+  '/faq',
+];
 
 function toOrigin(value: string | undefined): string {
   if (!value) return '';

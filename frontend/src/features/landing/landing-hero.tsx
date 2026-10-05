@@ -23,6 +23,7 @@ import {
   Lock,
   Activity,
   Wifi,
+  Info,
 } from 'lucide-react';
 import { TypingText, TypeLoop, ScrambleText, MaskedReveal, WrapUpText, MOTION } from './landing-primitives';
 import { TypeCycler } from './landing-typewriter';
@@ -442,6 +443,15 @@ export function LandingHero() {
               >
                 <Play className="h-3.5 w-3.5 fill-current" />
                 See how it works
+              </Link>
+            </Magnetic>
+            <Magnetic strength={4}>
+              <Link
+                href="/about"
+                className="group inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Info className="h-4 w-4 transition-colors group-hover:text-gold-strong" />
+                About OES
               </Link>
             </Magnetic>
           </motion.div>

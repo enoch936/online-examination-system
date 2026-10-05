@@ -29,12 +29,14 @@ const permissions = [
   ['sessions.monitor', 'Monitor exam sessions', 'exam-sessions'],
   ['reports.read', 'Read reports', 'reports'],
   ['audit.read', 'Read audit logs', 'audit-logs'],
+  ['contact.read', 'Read contact messages', 'contact'],
+  ['contact.manage', 'Manage contact messages', 'contact'],
 ] as const;
 
 const rolePermissionsMap: Record<RoleName, string[]> = {
-  SUPER_ADMIN: ['users.read', 'users.write', 'roles.manage', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
-  ADMIN: ['users.read', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read'],
-  INSTRUCTOR: ['exams.manage', 'questions.manage', 'classes.manage', 'sessions.monitor', 'reports.read'],
+  SUPER_ADMIN: ['users.read', 'users.write', 'roles.manage', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read', 'contact.read', 'contact.manage'],
+  ADMIN: ['users.read', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read', 'contact.read', 'contact.manage'],
+  INSTRUCTOR: ['exams.manage', 'questions.manage', 'classes.manage', 'sessions.monitor', 'reports.read', 'contact.read'],
   STUDENT: ['users.read'],
 };
 

@@ -52,7 +52,6 @@ describe('UsersService.remove', () => {
           examEvents: 0,
           retakeRequests: 0,
           resumeRequests: 0,
-          auditLogs: 0,
           ...counts,
         },
       });
@@ -78,7 +77,6 @@ describe('UsersService.remove', () => {
   it.each([
     ['sessions', { sessions: 3 }],
     ['createdExams', { createdExams: 1 }],
-    ['auditLogs', { auditLogs: 7 }],
     ['examAssignments', { examAssignments: 2 }],
     ['classEnrollments', { classEnrollments: 4 }],
     ['answers', { answers: 5 }],
@@ -95,6 +93,16 @@ describe('UsersService.remove', () => {
 
     await expect(service.remove('target-1', superAdmin)).resolves.toEqual({ id: 'target-1', deleted: true });
     expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'target-1' } });
+  });
+
+  // Regression: signing in writes an audit row, so every real user has one.
+  // audit_logs.actorId is ON DELETE SET NULL (the trail is meant to outlive the
+  // account), so audit rows must not block deletion.
+  it('still deletes an account whose only link is an audit log', async () => {
+    const { service, prisma } = deletable();
+
+    await expect(service.remove('target-1', superAdmin)).resolves.toEqual({ id: 'target-1', deleted: true });
+    expect(prisma.user.delete).toHaveBeenCalled();
   });
 
   it('turns a leftover foreign key into a helpful message', async () => {

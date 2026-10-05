@@ -107,6 +107,7 @@ const nav: NavGroup[] = [
       { href: '/admin/analytics', label: 'Analytics', icon: Activity, permission: 'reports.read' },
       { href: '/admin/audit-logs', label: 'Audit Logs', icon: Shield, permission: 'audit.read' },
       { href: '/admin/instructors', label: 'Instructors', icon: UserRoundCog, permission: 'users.read' },
+      { href: '/admin/contact-messages', label: 'Contact Message', icon: Mail, permission: 'contact.read' },
       { href: '/notifications', label: 'Notifications', icon: Bell },
     ],
   },

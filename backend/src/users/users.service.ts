@@ -166,33 +166,36 @@ export class UsersService {
     }
     await this.assertTargetBelowActor(actor, id);
 
-    const target = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        _count: {
-          select: {
-            sessions: true,
-            createdExams: true,
-            createdQuestions: true,
-            examAssignments: true,
-            classEnrollments: true,
-            answers: true,
-            examEvents: true,
-            retakeRequests: true,
-            resumeRequests: true,
-            auditLogs: true,
+      const target = await this.prisma.user.findUnique({
+        where: { id },
+        select: {
+          _count: {
+            select: {
+              sessions: true,
+              createdExams: true,
+              createdQuestions: true,
+              examAssignments: true,
+              classEnrollments: true,
+              answers: true,
+              examEvents: true,
+              retakeRequests: true,
+              resumeRequests: true,
+            },
           },
         },
-      },
-    });
-    if (!target) throw new NotFoundException('User not found');
+      });
+      if (!target) throw new NotFoundException('User not found');
 
-    const records = Object.values(target._count).reduce((sum, count) => sum + count, 0);
-    if (records > 0) {
-      throw new BadRequestException(
-        'This account has exam, class or audit records and cannot be deleted. Set the status to Deactivated instead.',
-      );
-    }
+      // Audit rows are deliberately NOT counted: audit_logs.actorId is
+      // ON DELETE SET NULL, so the trail outlives the account (anonymised).
+      // Counting them would make every user who has ever signed in — which is
+      // every real user, since login writes an audit entry — undeletable.
+      const records = Object.values(target._count).reduce((sum, count) => sum + count, 0);
+      if (records > 0) {
+        throw new BadRequestException(
+          'This account has exam, class or result records and cannot be deleted. Set the status to Deactivated instead.',
+        );
+      }
 
     try {
       // Roles/tokens/notifications cascade in the schema.

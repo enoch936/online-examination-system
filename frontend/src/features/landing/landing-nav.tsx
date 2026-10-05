@@ -91,6 +91,12 @@ export function LandingNav() {
               </a>
             ))}
             <Link
+              href="/about"
+              className="rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+            >
+              About
+            </Link>
+            <Link
               href="/contact"
               className="rounded-lg px-3 py-2 text-[0.85rem] font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
             >
@@ -173,6 +179,13 @@ export function LandingNav() {
                     {l.label}
                   </a>
                 ))}
+                <Link
+                  href="/about"
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg px-3 py-3 text-base font-medium text-muted-foreground transition-colors hover:bg-white/5"
+                >
+                  About
+                </Link>
                 <Link
                   href="/contact"
                   onClick={() => setOpen(false)}
