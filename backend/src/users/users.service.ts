@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
@@ -27,15 +33,24 @@ export class UsersService {
     return roles.reduce((max, role) => Math.max(max, ROLE_RANK[role] ?? 1), 1);
   }
 
-  private assertCanGrantRole(actor: AuthenticatedUser, roleName: RoleName) {
-    const actorRank = this.maxRank(actor.roles);
-    const targetRank = ROLE_RANK[roleName] ?? 1;
-    if (targetRank >= actorRank) {
-      throw new BadRequestException(
-        `You cannot grant a role with equal or higher privileges (${roleName}) than your own`,
-      );
+/**
+     * Authority check for granting a role.
+     *
+     * Throws 403, not 400: the request is well-formed, the caller simply is not
+     * allowed to make it. Clients rely on the distinction to tell "correct your
+     * payload" apart from "your role cannot do this", and a 403 must never be
+     * mistaken for a transient failure worth retrying.
+     */
+    private assertCanGrantRole(actor: AuthenticatedUser, roleName: RoleName) {
+      const actorRank = this.maxRank(actor.roles);
+      const targetRank = ROLE_RANK[roleName] ?? 1;
+      if (targetRank >= actorRank) {
+        throw new ForbiddenException(
+          `Your role (${actor.roles.join(', ') || 'none'}) cannot grant ${roleName}: ` +
+            'it requires equal or higher privileges than your own. Only a SUPER_ADMIN can grant this role.',
+        );
+      }
     }
-  }
 
   private async assertTargetBelowActor(actor: AuthenticatedUser, targetId: string) {
     const target = await this.prisma.user.findUnique({
@@ -43,10 +58,13 @@ export class UsersService {
       select: { roles: { select: { role: { select: { name: true } } } } },
     });
     if (!target) throw new NotFoundException('User not found');
-    const targetRank = this.maxRank(target.roles.map((r) => r.role.name));
-    if (targetRank >= this.maxRank(actor.roles)) {
-      throw new BadRequestException('You cannot modify an account with equal or higher privileges than your own');
-    }
+const targetRank = this.maxRank(target.roles.map((r) => r.role.name));
+      if (targetRank >= this.maxRank(actor.roles)) {
+        throw new ForbiddenException(
+          `Your role (${actor.roles.join(', ') || 'none'}) cannot modify this account: ` +
+            'it holds equal or higher privileges than your own.',
+        );
+      }
   }
 
   async create(dto: CreateUserDto, actor: AuthenticatedUser) {
@@ -241,13 +259,17 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const targetRank = this.maxRank(user.roles.map((r) => r.role.name));
-    if (id !== actor.sub && targetRank >= this.maxRank(actor.roles)) {
-      throw new BadRequestException('You cannot modify an account with equal or higher privileges than your own');
-    }
-    if (targetRank >= this.maxRank(actor.roles) && roleName === RoleName.SUPER_ADMIN) {
-      throw new BadRequestException('Super administration privileges cannot be revoked by a peer or lower role');
-    }
+const targetRank = this.maxRank(user.roles.map((r) => r.role.name));
+      if (id !== actor.sub && targetRank >= this.maxRank(actor.roles)) {
+        throw new ForbiddenException(
+          `Your role (${actor.roles.join(', ') || 'none'}) cannot modify an account with equal or higher privileges than your own`,
+        );
+      }
+      if (targetRank >= this.maxRank(actor.roles) && roleName === RoleName.SUPER_ADMIN) {
+        throw new ForbiddenException(
+          'Super administration privileges cannot be revoked by a peer or lower role',
+        );
+      }
 
     if (user.roles.length <= 1) {
       throw new BadRequestException('Cannot remove the last role from a user');

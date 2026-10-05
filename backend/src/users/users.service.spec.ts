@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RoleName, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
@@ -30,6 +30,8 @@ function makeService(target = userWithRoles(RoleName.STUDENT)) {
       delete: jest.fn().mockResolvedValue({ id: target.id }),
     },
     refreshToken: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    userRole: { upsert: jest.fn().mockResolvedValue({ userId: target.id, roleId: 'role-1' }) },
+    role: { upsert: jest.fn().mockResolvedValue({ id: 'role-1', name: RoleName.INSTRUCTOR }) },
   };
   const config = { get: jest.fn().mockReturnValue(12) } as unknown as ConfigService;
   const service = new UsersService(prisma as unknown as PrismaService, config);
@@ -65,10 +67,10 @@ describe('UsersService.remove', () => {
     expect(prisma.user.delete).not.toHaveBeenCalled();
   });
 
-  it('refuses to delete a peer-or-higher account', async () => {
+  it('refuses to delete a peer-or-higher account with 403', async () => {
     const { service, prisma } = makeService(userWithRoles(RoleName.SUPER_ADMIN));
 
-    await expect(service.remove('target-1', admin)).rejects.toThrow(BadRequestException);
+    await expect(service.remove('target-1', admin)).rejects.toThrow(ForbiddenException);
     expect(prisma.user.delete).not.toHaveBeenCalled();
   });
 
@@ -197,9 +199,46 @@ describe('UsersService.resetPassword', () => {
 
     await expect(
       service.resetPassword('target-1', { newPassword: 'Str0ng!Passphrase' }, admin),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toThrow(ForbiddenException);
     expect(prisma.user.update).not.toHaveBeenCalled();
     expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+  });
+
+  // The reported symptom: an ADMIN holds users.write but not roles.manage, and
+  // the API replied "successfully updated" with nothing assigned. Authority
+  // failures must be a hard 403 that names the actor, never a silent success.
+  describe('role authority', () => {
+    it('answers 403 when an ADMIN tries to grant ADMIN', async () => {
+      const { service, prisma } = makeService();
+
+      await expect(
+        service.assignRole('target-1', RoleName.ADMIN, admin),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.userRole.upsert).not.toHaveBeenCalled();
+    });
+
+    it('tells the caller which role is missing and why', async () => {
+      const { service } = makeService();
+
+      await expect(service.assignRole('target-1', RoleName.ADMIN, admin)).rejects.toThrow(
+        /cannot grant ADMIN/i,
+      );
+    });
+
+    it('answers 403 when an ADMIN tries to modify a SUPER_ADMIN', async () => {
+      const { service } = makeService(userWithRoles(RoleName.SUPER_ADMIN));
+
+      await expect(service.update('target-1', { firstName: 'X' }, admin)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('still lets a SUPER_ADMIN grant a lower role', async () => {
+      const { service, prisma } = makeService(userWithRoles(RoleName.INSTRUCTOR));
+
+      await service.assignRole('target-1', RoleName.INSTRUCTOR, superAdmin).catch(() => undefined);
+      expect(prisma.userRole.upsert).toHaveBeenCalled();
+    });
   });
 
   it('allows an admin to reset an instructor password', async () => {

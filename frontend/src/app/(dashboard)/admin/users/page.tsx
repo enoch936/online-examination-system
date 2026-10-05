@@ -6,6 +6,7 @@ import { Users, Plus, Loader2, Mail, Shield, Clock, Calendar, X, KeyRound, Penci
 import { toast } from 'sonner';
 import { usersService } from '@/services/users.service';
 import { api } from '@/services/api';
+import { apiErrorMessage } from '@/lib/api-error';
 import { useHasPermission } from '@/hooks/use-permissions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,8 +46,16 @@ const ROLE_LABELS: Record<string, string> = {
 type Panel = 'edit' | 'reset' | 'delete' | null;
 
 function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword, onUpdate, onDelete }: { user: User; onRoleChange: (userId: string, role: string) => void; onRoleRemove: (userId: string, roleName: string) => void; onResetPassword: (userId: string, newPassword: string) => void; onUpdate: (userId: string, data: { firstName: string; lastName: string; phone: string; status: string }) => void; onDelete: (userId: string) => void }) {
-  const [assigning, setAssigning] = useState(false);
-  const canWrite = useHasPermission()('users.write');
+const [assigning, setAssigning] = useState(false);
+    const canWrite = useHasPermission()('users.write');
+    // Role changes are gated by `roles.manage`, NOT `users.write`. An ADMIN
+    // holds users.write but not roles.manage, so keying this off canWrite made
+    // the UI offer a control that could only ever be refused — the exact
+    // "no authority, yet it acts like it has it" behaviour.
+    const canManageRoles = useHasPermission()('roles.manage');
+    const roleDeniedReason = canManageRoles
+      ? undefined
+      : 'Your role does not have the roles.manage permission, so it cannot assign or remove roles.';
   const assignedRoles = user.roles.map((r) => r.role.name);
   const [panel, setPanel] = useState<Panel>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -116,7 +125,13 @@ function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword, onUpdate, 
                   type="button"
                   className="ml-0.5 rounded-full p-0.5 hover:bg-muted/80"
                   onClick={() => handleRemove(roleName)}
-                  title={`Remove ${ROLE_LABELS[roleName] ?? roleName} role`}
+                  title={
+                    canManageRoles
+                      ? `Remove ${ROLE_LABELS[roleName] ?? roleName} role`
+                      : roleDeniedReason
+                  }
+                  disabled={!canManageRoles}
+                  aria-disabled={!canManageRoles}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -125,9 +140,13 @@ function UserRow({ user, onRoleChange, onRoleRemove, onResetPassword, onUpdate, 
           ))}
           {availableRoles.length > 0 && canWrite && (
             <select
-              className="h-7 rounded-lg border bg-background px-2 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              disabled={assigning}
+              className="h-7 rounded-lg border bg-background px-2 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={assigning || !canManageRoles}
               onChange={(e) => { if (e.target.value) handleAssign(e.target.value); e.target.value = ''; }}
+              // When the actor lacks the permission the control stays visible
+              // but disabled and explains itself, instead of silently doing
+              // nothing when used.
+              title={roleDeniedReason}
               defaultValue=""
             >
               <option value="" disabled>+ Role</option>
@@ -295,6 +314,11 @@ export default function AdminUsersPage() {
   const assignRoleMutation = useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: string }) =>
       api.patch(`/users/${userId}/roles`, { role }),
+    // Without this the guard's 403 was swallowed and the row simply kept its
+    // old role, so an unauthorised attempt looked like it had half-worked.
+    // Surface the server's own wording so the actor learns their role cannot
+    // do this rather than guessing.
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Could not assign that role')),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
@@ -303,7 +327,7 @@ export default function AdminUsersPage() {
   const removeRoleMutation = useMutation({
     mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
       usersService.removeRole(userId, roleName),
-    onError: (err: Error) => toast.error(err.message || 'Failed to remove role'),
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Could not remove role')),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
@@ -317,7 +341,7 @@ export default function AdminUsersPage() {
       setForm({ email: '', firstName: '', lastName: '', password: '' });
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
-    onError: () => toast.error('Failed to create user'),
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to create user')),
   });
 
   const resetPasswordMutation = useMutation({
@@ -328,7 +352,7 @@ export default function AdminUsersPage() {
       toast.success(`Password reset for ${target?.email ?? 'user'}`);
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to reset password'),
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to reset password')),
   });
 
   const updateMutation = useMutation({
@@ -338,7 +362,7 @@ export default function AdminUsersPage() {
       toast.success('User updated');
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to update user'),
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to update user')),
   });
 
   const deleteMutation = useMutation({
@@ -348,7 +372,7 @@ export default function AdminUsersPage() {
       toast.success(`${target?.email ?? 'User'} deleted`);
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
     },
-    onError: (err: Error) => toast.error(err.message || 'Failed to delete user'),
+    onError: (err: unknown) => toast.error(apiErrorMessage(err, 'Failed to delete user')),
   });
 
   return (
