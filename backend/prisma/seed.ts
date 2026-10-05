@@ -3,6 +3,7 @@ import { join } from 'path';
 import { PrismaClient, RoleName, UserStatus, QuestionType, Difficulty, ExamStatus, QuestionBankStatus, SessionStatus, SubmissionStatus, NotificationType, ViolationType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { computeLetterGrade } from '../src/results/grading.util';
+import { DEFAULT_ROLE_GRANTS, PERMISSIONS } from '../src/common/constants/permissions';
 
 // Guard: this seed only creates well-known demo STUDENT/INSTRUCTOR accounts and
 // course/exam content with public passwords. Never allow it to run against a
@@ -16,29 +17,11 @@ if (process.env.NODE_ENV === 'production' && process.env.SEED_ALLOW_PRODUCTION !
 
 const prisma = new PrismaClient();
 
-// this is a permoission seed for the role
-const permissions = [
-  ['users.read', 'Read users', 'users'],
-  ['users.write', 'Write users', 'users'],
-  ['roles.manage', 'Manage roles', 'roles'],
-  ['subjects.manage', 'Manage subjects', 'subjects'],
-  ['courses.manage', 'Manage courses', 'courses'],
-  ['classes.manage', 'Manage classes and enrollments', 'classes'],
-  ['exams.manage', 'Manage exams', 'exams'],
-  ['questions.manage', 'Manage questions', 'questions'],
-  ['sessions.monitor', 'Monitor exam sessions', 'exam-sessions'],
-  ['reports.read', 'Read reports', 'reports'],
-  ['audit.read', 'Read audit logs', 'audit-logs'],
-  ['contact.read', 'Read contact messages', 'contact'],
-  ['contact.manage', 'Manage contact messages', 'contact'],
-] as const;
-
-const rolePermissionsMap: Record<RoleName, string[]> = {
-  SUPER_ADMIN: ['users.read', 'users.write', 'roles.manage', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read', 'contact.read', 'contact.manage'],
-  ADMIN: ['users.read', 'subjects.manage', 'courses.manage', 'classes.manage', 'exams.manage', 'questions.manage', 'sessions.monitor', 'reports.read', 'audit.read', 'contact.read', 'contact.manage'],
-  INSTRUCTOR: ['exams.manage', 'questions.manage', 'classes.manage', 'sessions.monitor', 'reports.read', 'contact.read'],
-  STUDENT: ['users.read'],
-};
+// The permission catalogue and default grants live in src/common/constants so
+// the seed, the boot-time PermissionsBootstrapService and the migrations can
+// never disagree about what a role is allowed to do.
+const permissions = PERMISSIONS;
+const rolePermissionsMap = DEFAULT_ROLE_GRANTS;
 
 const subjects = [
   { code: 'CS', name: 'Computer Science', description: 'Study of computation, algorithms, programming, and computer systems.' },
@@ -299,9 +282,9 @@ async function upsertQuestion(qDef: QuestionDef, subjectId: string, createdById:
 }
 
 async function main() {
-  // Create permissions
-  const permissionRecords: Record<string, string> = {};
-  for (const [key, label, module] of permissions) {
+    // Create permissions
+    const permissionRecords: Record<string, string> = {};
+    for (const { key, label, module } of permissions) {
     const p = await prisma.permission.upsert({
       where: { key },
       update: { label, module },

@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { LoginRateLimitMiddleware } from '../common/middleware/login-rate-limit.middleware';
+import { PermissionsBootstrapService } from './permissions.bootstrap';
 import { SuperAdminBootstrapService } from './superadmin.bootstrap';
 
 @Module({
@@ -23,8 +24,8 @@ import { SuperAdminBootstrapService } from './superadmin.bootstrap';
     AuditLogsModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, SuperAdminBootstrapService],
-  exports: [AuthService, SuperAdminBootstrapService],
+    providers: [AuthService, JwtStrategy, SuperAdminBootstrapService, PermissionsBootstrapService],
+    exports: [AuthService, SuperAdminBootstrapService],
 })
 export class AuthModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

@@ -14,8 +14,21 @@ services:
     region: oregon
     rootDir: backend
     branch: main
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm prisma generate && pnpm build
-    preDeployCommand: pnpm prisma migrate deploy
+    # `prisma migrate deploy` runs HERE, not only in preDeployCommand.
+    #
+    # Incident: the contact-inbox release shipped code guarded by
+    # @Permissions('contact.read'|'contact.manage') while the matching
+    # migration sat unapplied, so every inbox request 403'd. preDeployCommand
+    # is only honoured on plans/features that have it enabled, and a blueprint
+    # edit does not retrofit the field onto an already-created service — so it
+    # silently did nothing. buildCommand demonstrably runs on every deploy,
+    # which makes it the only place this can be relied upon.
+    #
+    # Cost: on a failed deploy the migration has already applied. That is
+    # acceptable for the additive migrations in this repo; keep that in mind
+    # before adding a destructive one.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm prisma generate && pnpm prisma migrate deploy && pnpm build
+    preDeployCommand: pnpm prisma migrate deploy   # no-op when the build already applied it
     startCommand: node dist/src/main.js
     healthCheckPath: /api/v1/monitoring/health
     autoDeploy: true
