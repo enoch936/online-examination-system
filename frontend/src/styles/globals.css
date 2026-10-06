@@ -60,6 +60,15 @@
   --gold: 41 97% 44%;
   --gold-strong: 40 92% 37%;
   --gold-foreground: 222 47% 9%;
+  /* Categorical series palette, shared by every chart so the same meaning keeps
+     the same colour across dashboards. Each series in a chart takes the next
+     slot, so colour alone never carries meaning the label does not repeat. */
+  --chart-1: 221 83% 53%;
+  --chart-2: 262 83% 58%;
+  --chart-3: 152 76% 36%;
+  --chart-4: 32 95% 44%;
+  --chart-5: 340 82% 52%;
+  --chart-6: 190 90% 38%;
 }
 
 .dark {
@@ -83,6 +92,12 @@
   --gold: 44 97% 56%;
   --gold-strong: 42 96% 64%;
   --gold-foreground: 226 46% 6%;
+  --chart-1: 217 91% 62%;
+  --chart-2: 263 85% 66%;
+  --chart-3: 150 70% 50%;
+  --chart-4: 38 96% 56%;
+  --chart-5: 340 82% 64%;
+  --chart-6: 190 92% 52%;
 }
 
 @keyframes fade-in {

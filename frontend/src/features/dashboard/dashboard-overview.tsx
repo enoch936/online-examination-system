@@ -1,122 +1,189 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { Activity, FileCheck, ShieldCheck, Users } from 'lucide-react';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import {
+  CategoryBarChart,
+  ChartFrame,
+  DonutChart,
+  hasData,
+  MetricGrid,
+  MultiLineChart,
+  PassFailBar,
+  RadarPanel,
+  TrendAreaChart,
+} from '@/features/charts/chart-kit';
+import type { MetricTile } from '@/services/analytics.service';
+import { analyticsService } from '@/services/analytics.service';
 import { Skeleton } from '@/components/ui/skeleton';
-import { dashboardService } from '@/services/dashboard.service';
-import { cn } from '@/lib/utils';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { apiErrorMessage } from '@/lib/api-error';
 
-const iconMap: Record<string, { icon: typeof Users; tint: string }> = {
-  activeCandidates: { icon: Users, tint: 'bg-sky-500/10 text-sky-600 dark:text-sky-400' },
-  publishedExams: { icon: FileCheck, tint: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' },
-  liveSessions: { icon: Activity, tint: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
-  pendingGrading: { icon: ShieldCheck, tint: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
-};
-
-const roleTone: Record<string, string> = {
-  Student: 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400',
-  Instructor: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-  Admin: 'border-indigo-500/30 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
-};
-
+/**
+ * Platform view. Kept separate from the role dashboards because an admin's
+ * headline numbers are platform-wide, while every other role's are scoped.
+ */
 export function DashboardOverview({ role }: { role: 'Student' | 'Instructor' | 'Admin' }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['dashboard-stats'],
-    queryFn: dashboardService.getStats,
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['analytics', 'overview'],
+    queryFn: analyticsService.getOverview,
   });
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-3xl font-bold tracking-tight">{role} dashboard</h1>
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-sm font-medium text-destructive">Could not load the dashboard</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {apiErrorMessage(error, 'Please try again later.')}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const m = data?.metrics;
+  const isAdmin = role === 'Admin';
+
+  const metrics: MetricTile[] = m
+    ? isAdmin
+      ? [
+          { label: 'Exams', value: m.totalExams.toLocaleString(), hint: `${m.liveExams} live or published` },
+          { label: 'Live sessions', value: m.liveSessions.toLocaleString(), tone: m.liveSessions > 0 ? 'success' : 'default', hint: `${m.totalSessions} total` },
+          { label: 'Pending grading', value: m.pendingGrading.toLocaleString(), tone: m.pendingGrading > 0 ? 'warning' : 'default' },
+          { label: 'Pass rate', value: `${m.passRate}%`, tone: m.passRate >= 60 ? 'success' : 'warning', hint: `${m.officialResults} official attempts` },
+          { label: 'Submissions (24h)', value: m.submissions24h.toLocaleString() },
+          { label: 'Average score', value: `${m.averagePercentage}%`, tone: m.averagePercentage >= 50 ? 'success' : 'warning' },
+          { label: 'Integrity flags (24h)', value: m.violations24h.toLocaleString(), tone: m.violations24h > 0 ? 'danger' : 'default' },
+          { label: 'Manual adjustments', value: m.manualAdjustments.toLocaleString(), hint: `${m.totalRegrades} regrades` },
+        ]
+      : [
+          { label: 'Attempts', value: m.totalSessions.toLocaleString(), hint: `${m.liveSessions} live now` },
+          { label: 'Results', value: m.officialResults.toLocaleString(), hint: `of ${m.totalResults} attempts` },
+          { label: 'Pending grading', value: m.pendingGrading.toLocaleString(), tone: m.pendingGrading > 0 ? 'warning' : 'default' },
+          { label: 'Average score', value: `${m.averagePercentage}%`, tone: m.averagePercentage >= 50 ? 'success' : 'warning' },
+        ]
+    : [];
+
+  const subjectMix = (data?.charts.questionMix ?? []).map((row) => ({
+    label: row.label,
+    count: row.count,
+  }));
+
+  const riskShape = (data?.charts.riskLevels ?? []).map((row) => ({
+    label: row.label,
+    count: row.count,
+  }));
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
-        <Badge variant="outline" className={cn('w-fit', roleTone[role])}>{role}</Badge>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight">
-          {role} dashboard
-        </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-          Realtime exam operations, candidate progress, autosave health, results, and integrity signals.
+        <h1 className="text-3xl font-bold tracking-tight">{role} dashboard</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+          {isAdmin
+            ? 'Platform-wide exam operations, grading load, and integrity signals.'
+            : role === 'Instructor'
+              ? 'Your exams, cohorts, and outstanding grading work.'
+              : 'Your own results and progress.'}
         </p>
       </div>
 
-      {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="card-hover">
-              <CardContent className="flex items-start justify-between p-5">
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-8 w-16" />
-                </div>
-                <Skeleton className="h-10 w-10 rounded-xl" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : data?.metrics ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {data.metrics.map((metric) => {
-            const meta = iconMap[metric.key] ?? { icon: ShieldCheck, tint: 'bg-primary/10 text-primary' };
-            const Icon = meta.icon;
-            return (
-              <Card key={metric.key} className="card-hover">
-                <CardContent className="flex items-start justify-between p-5">
-                  <div>
-                    <CardDescription>{metric.label}</CardDescription>
-                    <p className="mt-2 text-3xl font-bold tracking-tight">{metric.value}</p>
-                  </div>
-                  <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', meta.tint)}>
-                    <Icon className="h-5 w-5" />
-                  </span>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      ) : null}
+      <MetricGrid metrics={metrics} loading={isLoading} />
 
-      {data?.chartData && data.chartData.length > 0 ? (
+      <div className="grid gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-2">
+          <ChartFrame
+            title="Exam throughput, last 14 days"
+            description="Sessions started, submissions received, results produced."
+            isLoading={isLoading}
+            isEmpty={!hasData(data?.charts.trend?.map((t) => ({ label: t.date, count: t.submissions })))}
+            height={320}
+          >
+            <TrendAreaChart data={data?.charts.trend ?? []} />
+          </ChartFrame>
+        </div>
+        <div className="space-y-4">
+          <ChartFrame
+            title="Pass / fail"
+            description="Official attempts only."
+            isLoading={isLoading}
+            isEmpty={!m || m.officialResults === 0}
+          >
+            <PassFailBar passed={m?.passedCount ?? 0} failed={m?.failedCount ?? 0} />
+          </ChartFrame>
+          {isAdmin ? (
+            <ChartFrame
+              title="Grading pipeline"
+              isLoading={isLoading}
+              isEmpty={!hasData(data?.charts.gradingStatus)}
+            >
+              <DonutChart data={(data?.charts.gradingStatus ?? []) as unknown as Array<Record<string, unknown>>} />
+            </ChartFrame>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <ChartFrame
+          title="Question mix"
+          description="Objective versus hand-graded types."
+          isLoading={isLoading}
+          isEmpty={!hasData(subjectMix)}
+          height={300}
+        >
+          <RadarPanel data={subjectMix} />
+        </ChartFrame>
+        <ChartFrame
+          title="Risk levels"
+          description="Across live and finished sessions."
+          isLoading={isLoading}
+          isEmpty={!hasData(riskShape)}
+          height={300}
+        >
+          <CategoryBarChart data={riskShape as unknown as Array<Record<string, unknown>>} colorBy="index" />
+        </ChartFrame>
+        <ChartFrame
+          title="Violations"
+          description="Integrity events recorded."
+          isLoading={isLoading}
+          isEmpty={!hasData(data?.charts.violationTypes)}
+          height={300}
+        >
+          <CategoryBarChart
+            data={(data?.charts.violationTypes ?? []) as unknown as Array<Record<string, unknown>>}
+            horizontal
+            colorBy="index"
+          />
+        </ChartFrame>
+      </div>
+
+      {isLoading ? (
+        <Skeleton className="h-64 w-full" />
+      ) : (
         <Card className="card-hover">
           <CardHeader>
-            <CardTitle>Exam throughput</CardTitle>
-            <CardDescription>Submissions for the current week.</CardDescription>
+            <CardTitle className="text-base">Pass rate trend</CardTitle>
+            <CardDescription>Daily share of attempts that passed, from the trend window.</CardDescription>
           </CardHeader>
-          <CardContent className="h-80">
-            <ResponsiveContainer width="100%" height={320}>
-              <AreaChart data={data.chartData}>
-                <defs>
-                  <linearGradient id="submissions" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} width={32} />
-                <Tooltip
-                  contentStyle={{
-                    background: 'hsl(var(--card))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '0.75rem',
-                    boxShadow: 'var(--shadow-card-hover)',
-                    fontSize: '12px',
-                  }}
-                  cursor={{ stroke: 'hsl(var(--border))' }}
-                />
-                <Area type="monotone" dataKey="submissions" stroke="hsl(var(--primary))" strokeWidth={2} fill="url(#submissions)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <CardContent>
+            <MultiLineChart
+              data={(data?.charts.trend ?? []).map((point) => ({
+                date: point.date.slice(5),
+                submissions: point.submissions,
+                sessionsStarted: point.sessionsStarted,
+                resultsPublished: point.resultsPublished,
+              }))}
+              series={[
+                { key: 'submissions', label: 'Submissions' },
+                { key: 'sessionsStarted', label: 'Sessions started' },
+                { key: 'resultsPublished', label: 'Results' },
+              ]}
+            />
           </CardContent>
         </Card>
-      ) : !isLoading ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Exam throughput</CardTitle>
-            <CardDescription>No submissions yet this week.</CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
+      )}
     </div>
   );
 }

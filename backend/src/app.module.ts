@@ -17,6 +17,7 @@ import { ClassesModule } from './classes/classes.module';
   import { ContentModule } from './content/content.module';
 import { CoursesModule } from './courses/courses.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { ExamsModule } from './exams/exams.module';
 import { ExamSessionsModule } from './exam-sessions/exam-sessions.module';
 import { InstructorsModule } from './instructors/instructors.module';
@@ -73,6 +74,7 @@ import { QueueModule } from './queue/queue.module';
     CoursesModule,
     ClassesModule,
     DashboardModule,
+    AnalyticsModule,
     ExamsModule,
     QuestionsModule,
     QuestionBanksModule,

@@ -21,6 +21,18 @@ export class DashboardService {
     let myResults = 0;
     let myAvgScore = 0;
 
+    // Declared at function scope so the chart and violation queries below can be
+    // filtered by the same exam visibility rules as the counters.
+    const instructorExamScope =
+      roles.includes(RoleName.SUPER_ADMIN) || roles.includes(RoleName.ADMIN)
+        ? {}
+        : {
+            OR: [
+              { createdById: user.sub },
+              { shares: { some: { instructorId: user.sub } } },
+            ],
+          };
+
     if (isStudent) {
       myExams = await this.prisma.exam.count({
         where: { status: 'PUBLISHED', endsAt: { gte: new Date() } },
@@ -35,17 +47,8 @@ export class DashboardService {
 
     if (isInstructor) {
       const canSeeAll =
-        roles.includes(RoleName.SUPER_ADMIN) ||
-        roles.includes(RoleName.ADMIN) ||
-        roles.includes(RoleName.SUPER_ADMIN);
-      const examScope = canSeeAll
-        ? {}
-        : {
-            OR: [
-              { createdById: user.sub },
-              { shares: { some: { instructorId: user.sub } } },
-            ],
-          };
+        roles.includes(RoleName.SUPER_ADMIN) || roles.includes(RoleName.ADMIN);
+      const examScope = instructorExamScope;
       const sessionScope = canSeeAll ? {} : { exam: examScope };
 
       const [
@@ -84,14 +87,32 @@ export class DashboardService {
       myExams = rs;
     }
 
+    // The weekly chart and the violation counter were previously unscoped, so a
+    // student's dashboard rendered platform-wide submission activity and a
+    // platform-wide integrity count. Both are now filtered to whatever the
+    // viewer is actually entitled to see.
     const recentSubmissions = await this.prisma.submission.findMany({
+      where: {
+        ...(isStudent
+          ? { session: { studentId: user.sub } }
+          : isInstructor
+            ? { session: { exam: instructorExamScope } }
+            : {}),
+      },
       orderBy: { submittedAt: 'desc' },
       take: 7,
       select: { submittedAt: true },
     });
 
     const violations24h = await this.prisma.examViolation.count({
-      where: { occurredAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      where: {
+        occurredAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        ...(isStudent
+          ? { session: { studentId: user.sub } }
+          : isInstructor
+            ? { session: { exam: instructorExamScope } }
+            : {}),
+      },
     });
 
     const chartData = this.buildChartData(recentSubmissions);
@@ -100,8 +121,8 @@ export class DashboardService {
       return {
         metrics: [
           { label: 'Available exams', value: myExams.toLocaleString(), key: 'publishedExams' },
-          { label: 'My results', value: myResults.toLocaleString(), key: 'activeCandidates' },
-          { label: 'Average score', value: `${myAvgScore}%`, key: 'pendingGrading', tone: myAvgScore < 50 ? 'warning' : 'success' },
+          { label: 'My results', value: myResults.toLocaleString(), key: 'myResults' },
+          { label: 'Average score', value: `${myAvgScore}%`, key: 'averageScore', tone: myAvgScore < 50 ? 'warning' : 'success' },
         ],
         chartData,
         violations24h,
